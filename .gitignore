@@ -1,0 +1,9 @@
+# Ignore all hidden files and folders
+.*
+
+# But keep important git/system files
+!.gitignore
+!.github/
+
+# Optional common exceptions
+!.htaccess
