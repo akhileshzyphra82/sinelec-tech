@@ -24,7 +24,7 @@ function getGoogleRedirectUri(): string
     }
 
     if (($_SERVER['HTTP_HOST'] ?? '') === 'localhost') {
-        return "http://localhost/Client/ecommerce/new-website/website/service?action=googleCallback";
+        return "http://localhost/Client/sinelec-tech/website/service?action=googleCallback";
     }
 
     return "https://new.sinelec-tech.com/website/service?action=googleCallback";
