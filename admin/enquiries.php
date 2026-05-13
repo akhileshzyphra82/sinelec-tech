@@ -79,7 +79,7 @@ ob_start();
       <form method="POST" action="service?urlstring=<?= EncryptURL('action=UpdateEnquiryStatus') ?>" class="form-grid">
         <input type="hidden" name="enquiry_quote_id" value="<?= (int)($eq->ENQUIRY_QUOTE_ID ?? 0) ?>">
         <div class="fg">
-          <label class="fc">New Status</label>
+          <label>New Status</label>
           <select name="enquiry_status" class="form-control">
             <?php foreach (['Quotation Pending','Quotation Sent','Order Generated','Order Completed','Cancelled'] as $s): ?>
             <option value="<?= $s ?>" <?= $st === $s ? 'selected' : '' ?>><?= $s ?></option>
@@ -94,7 +94,7 @@ ob_start();
 
 <div class="card">
   <div class="card-header"><span class="card-title">Products Requested</span></div>
-  <div class="card-body" style="padding:0;">
+  <div class="card-body card-body--flush">
     <?php if (empty($detailProducts)): ?>
     <div class="empty-state" style="padding:24px;"><p>No products listed in this enquiry.</p></div>
     <?php else: ?>
@@ -144,7 +144,7 @@ ob_start();
     <span class="card-title">All Enquiries</span>
     <span style="font-size:12px;color:var(--text-muted);"><?= count($enquiries) ?> total</span>
   </div>
-  <div class="card-body" style="padding:0;">
+  <div class="card-body card-body--flush">
     <?php if (empty($enquiries)): ?>
     <div class="empty-state">
       <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
@@ -199,9 +199,6 @@ ob_start();
 </div>
 <?php endif; ?>
 
-<style>
-@media(max-width:640px){.responsive-grid{grid-template-columns:1fr!important;}}
-</style>
 
 <?php
 $pageMainContent = ob_get_clean();

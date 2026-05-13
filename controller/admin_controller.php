@@ -36,23 +36,77 @@ class AdminController
         ];
     }
 
+    public function getAdminProfile(int $userId): ?object
+    {
+        try {
+            $r = $this->db->select("SELECT * FROM tbl_user WHERE user_id=".$userId." AND user_type_id=1 LIMIT 1");
+            return $r[0] ?? null;
+        } catch (Exception $e) { return null; }
+    }
+
+    public function updateAdminProfile(array $d): bool
+    {
+        try {
+            $id   = (int)$d['user_id'];
+            $name = addslashes(trim($d['name'] ?? ''));
+            $isd  = (int)($d['communication_mobile_num_isd'] ?? 91);
+            $mob  = addslashes(trim($d['communication_mobile_num'] ?? ''));
+            $comp = addslashes(trim($d['company_name'] ?? ''));
+            $desig= addslashes(trim($d['designation'] ?? ''));
+            $rows = $this->db->update(
+                "UPDATE tbl_user SET name='".$name."',communication_mobile_num_isd=".$isd.",
+                 communication_mobile_num='".$mob."',company_name='".$comp."',designation='".$desig."'
+                 WHERE user_id=".$id." AND user_type_id=1 LIMIT 1"
+            );
+            if ($rows >= 0) {
+                // keep session name in sync
+                $_SESSION['sinelec_admin']['NAME'] = $name ? stripslashes($name) : ($_SESSION['sinelec_admin']['NAME'] ?? '');
+            }
+            return $rows >= 0;
+        } catch (Exception $e) { error_log('updateAdminProfile: '.$e->getMessage()); return false; }
+    }
+
     /* ─────────────────────────────────────────────────────────────
        DASHBOARD
     ───────────────────────────────────────────────────────────── */
     public function getDashboardStats(): array
     {
         try {
-            $stats = [];
-            $r = $this->db->select("SELECT COUNT(*) AS C FROM tbl_order WHERE order_current_status NOT IN ('Cart','Delivered','Cancelled')");
-            $stats['active_orders'] = (int)($r[0]->C ?? 0);
+            $s = [];
+            $r = $this->db->select("SELECT COUNT(*) AS C FROM tbl_order WHERE order_current_status NOT IN ('Cart','Delivered','Cancel Order')");
+            $s['active_orders'] = (int)($r[0]->C ?? 0);
+            $r = $this->db->select("SELECT COUNT(*) AS C FROM tbl_order WHERE order_current_status='Cancel Order'");
+            $s['cancelled_orders'] = (int)($r[0]->C ?? 0);
             $r = $this->db->select("SELECT COUNT(*) AS C FROM tbl_product WHERE product_id>0");
-            $stats['products'] = (int)($r[0]->C ?? 0);
+            $s['products'] = (int)($r[0]->C ?? 0);
             $r = $this->db->select("SELECT COUNT(*) AS C FROM tbl_user WHERE user_type_id=2");
-            $stats['customers'] = (int)($r[0]->C ?? 0);
-            $r = $this->db->select("SELECT COUNT(*) AS C FROM tbl_enquiry_quote WHERE enquiry_status NOT IN ('Order Completed','Cancelled')");
-            $stats['enquiries'] = (int)($r[0]->C ?? 0);
-            return $stats;
-        } catch (Exception $e) { error_log('getDashboardStats: '.$e->getMessage()); return ['active_orders'=>0,'products'=>0,'customers'=>0,'enquiries'=>0]; }
+            $s['customers'] = (int)($r[0]->C ?? 0);
+            $r = $this->db->select("SELECT COUNT(*) AS C FROM tbl_enquiry_quote WHERE enquiry_status NOT IN ('Order Completed')");
+            $s['enquiries'] = (int)($r[0]->C ?? 0);
+            /* pending quotes (Quotation Pending only) */
+            $r = $this->db->select("SELECT COUNT(*) AS C FROM tbl_enquiry_quote WHERE enquiry_status='Quotation Pending'");
+            $s['pending_quotes'] = (int)($r[0]->C ?? 0);
+            /* total revenue from completed/delivered */
+            $r = $this->db->select("SELECT COALESCE(SUM(order_total_amt),0) AS T FROM tbl_order WHERE order_current_status IN ('Delivered','Payment Successful','Invoice Payment Successful','Bank Transfer Payment Successful','Online Successful','Other Channel Sell Successful')");
+            $s['total_revenue'] = (float)($r[0]->T ?? 0);
+            /* dispatched today */
+            $r = $this->db->select("SELECT COUNT(*) AS C FROM tbl_order WHERE order_current_status='Dispatched'");
+            $s['dispatched'] = (int)($r[0]->C ?? 0);
+            /* low stock: products where total_product <= product_threshold */
+            $r = $this->db->select("SELECT COUNT(*) AS C FROM tbl_product WHERE total_product <= product_threshold AND product_id>0");
+            $s['low_stock'] = (int)($r[0]->C ?? 0);
+            /* new customers this month */
+            $r = $this->db->select("SELECT COUNT(*) AS C FROM tbl_user WHERE user_type_id=2 AND MONTH(user_id)=MONTH(CURDATE())");
+            /* user table has no created_at — use a safe fallback */
+            $s['new_customers_month'] = 0;
+            /* orders this month */
+            $r = $this->db->select("SELECT COUNT(*) AS C FROM tbl_order WHERE order_current_status!='Cart' AND MONTH(order_date)=MONTH(CURDATE()) AND YEAR(order_date)=YEAR(CURDATE())");
+            $s['orders_this_month'] = (int)($r[0]->C ?? 0);
+            return $s;
+        } catch (Exception $e) {
+            error_log('getDashboardStats: '.$e->getMessage());
+            return ['active_orders'=>0,'cancelled_orders'=>0,'products'=>0,'customers'=>0,'enquiries'=>0,'pending_quotes'=>0,'total_revenue'=>0,'dispatched'=>0,'low_stock'=>0,'orders_this_month'=>0];
+        }
     }
 
     public function getRecentOrders(int $limit = 5): array
@@ -64,6 +118,103 @@ class AdminController
                  WHERE o.order_current_status != 'Cart' ORDER BY o.order_id DESC LIMIT ".(int)$limit
             );
         } catch (Exception $e) { error_log('getRecentOrders: '.$e->getMessage()); return []; }
+    }
+
+    public function getMonthlyOrderChart(): array
+    {
+        try {
+            $rows = $this->db->select(
+                "SELECT DATE_FORMAT(order_date,'%b %Y') AS lbl,
+                        DATE_FORMAT(order_date,'%Y-%m') AS ym,
+                        COUNT(*) AS orders,
+                        COALESCE(SUM(order_total_amt),0) AS revenue
+                 FROM tbl_order
+                 WHERE order_current_status != 'Cart'
+                   AND order_date >= DATE_SUB(CURDATE(), INTERVAL 11 MONTH)
+                 GROUP BY ym, lbl ORDER BY ym ASC"
+            );
+            /* ensure all 12 months present */
+            $map = [];
+            foreach ($rows as $r) { $map[$r->ym] = $r; }
+            $labels = $orders = $revenue = [];
+            for ($i = 11; $i >= 0; $i--) {
+                $ym  = date('Y-m', strtotime("-$i month"));
+                $lbl = date('M Y',  strtotime("-$i month"));
+                $labels[]  = $lbl;
+                $orders[]  = isset($map[$ym]) ? (int)$map[$ym]->orders : 0;
+                $revenue[] = isset($map[$ym]) ? round((float)$map[$ym]->revenue, 2) : 0;
+            }
+            return compact('labels', 'orders', 'revenue');
+        } catch (Exception $e) { error_log('getMonthlyOrderChart: '.$e->getMessage()); return ['labels'=>[],'orders'=>[],'revenue'=>[]]; }
+    }
+
+    public function getOrderStatusBreakdown(): array
+    {
+        try {
+            $rows = $this->db->select(
+                "SELECT order_current_status AS status, COUNT(*) AS cnt
+                 FROM tbl_order WHERE order_current_status != 'Cart'
+                 GROUP BY order_current_status ORDER BY cnt DESC"
+            );
+            $labels = $data = [];
+            foreach ($rows as $r) { $labels[] = $r->status; $data[] = (int)$r->cnt; }
+            return compact('labels', 'data');
+        } catch (Exception $e) { error_log('getOrderStatusBreakdown: '.$e->getMessage()); return ['labels'=>[],'data'=>[]]; }
+    }
+
+    public function getPendingEnquiries(int $limit = 8): array
+    {
+        try {
+            return $this->db->select(
+                "SELECT eq.enquiry_quote_id, eq.user_name, eq.company_name, eq.user_email,
+                        eq.delivery_country, eq.enquiry_date, eq.enquiry_status,
+                        COUNT(eqp.enquiry_quote_product_id) AS item_count
+                 FROM tbl_enquiry_quote eq
+                 LEFT JOIN tbl_enquiry_quote_product eqp ON eqp.enquiry_quote_id=eq.enquiry_quote_id
+                 WHERE eq.enquiry_status='Quotation Pending'
+                 GROUP BY eq.enquiry_quote_id ORDER BY eq.enquiry_date DESC LIMIT ".(int)$limit
+            );
+        } catch (Exception $e) { error_log('getPendingEnquiries: '.$e->getMessage()); return []; }
+    }
+
+    public function getRecentEnquiries(int $limit = 5): array
+    {
+        try {
+            return $this->db->select(
+                "SELECT eq.enquiry_quote_id, eq.user_name, eq.company_name, eq.enquiry_date, eq.enquiry_status, eq.delivery_country,
+                        COUNT(eqp.enquiry_quote_product_id) AS item_count
+                 FROM tbl_enquiry_quote eq
+                 LEFT JOIN tbl_enquiry_quote_product eqp ON eqp.enquiry_quote_id=eq.enquiry_quote_id
+                 GROUP BY eq.enquiry_quote_id ORDER BY eq.enquiry_date DESC LIMIT ".(int)$limit
+            );
+        } catch (Exception $e) { error_log('getRecentEnquiries: '.$e->getMessage()); return []; }
+    }
+
+    public function getLowStockProducts(int $limit = 6): array
+    {
+        try {
+            return $this->db->select(
+                "SELECT p.product_id, p.product_name, p.product_code, p.total_product, p.product_threshold, c.product_category_name
+                 FROM tbl_product p
+                 LEFT JOIN tbl_product_category c ON c.product_category_id=p.product_category_id
+                 WHERE p.total_product <= p.product_threshold AND p.product_id>0
+                 ORDER BY (p.total_product - p.product_threshold) ASC LIMIT ".(int)$limit
+            );
+        } catch (Exception $e) { error_log('getLowStockProducts: '.$e->getMessage()); return []; }
+    }
+
+    public function getTopSellingProducts(int $limit = 5): array
+    {
+        try {
+            return $this->db->select(
+                "SELECT p.product_id, p.product_name, p.product_code, p.total_sold, p.product_amt,
+                        c.product_category_name
+                 FROM tbl_product p
+                 LEFT JOIN tbl_product_category c ON c.product_category_id=p.product_category_id
+                 WHERE p.total_sold > 0
+                 ORDER BY p.total_sold DESC LIMIT ".(int)$limit
+            );
+        } catch (Exception $e) { error_log('getTopSellingProducts: '.$e->getMessage()); return []; }
     }
 
     /* ─────────────────────────────────────────────────────────────

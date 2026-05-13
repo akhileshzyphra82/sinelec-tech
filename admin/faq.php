@@ -28,7 +28,7 @@ ob_start();
     <span class="card-title">All FAQs</span>
     <span style="font-size:12px;color:var(--text-muted);"><?= count($faqs) ?> entries</span>
   </div>
-  <div class="card-body" style="padding:0;">
+  <div class="card-body card-body--flush">
     <?php if (empty($faqs)): ?>
     <div class="empty-state">
       <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
@@ -89,15 +89,15 @@ ob_start();
     <div class="modal-body">
       <form method="POST" action="service?urlstring=<?= EncryptURL('action=InsertFAQ') ?>" class="form-grid">
         <div class="fg">
-          <label class="fc">Question <span class="req">*</span></label>
+          <label>Question <span class="req">*</span></label>
           <input type="text" name="faq_question" class="form-control" required>
         </div>
         <div class="fg">
-          <label class="fc">Answer <span class="req">*</span></label>
+          <label>Answer <span class="req">*</span></label>
           <textarea name="faq_answer" class="form-control" rows="4" required></textarea>
         </div>
         <div class="fg">
-          <label class="fc">Display Order</label>
+          <label>Display Order</label>
           <input type="number" name="faq_order" class="form-control" value="0" min="0">
         </div>
         <div style="display:flex;gap:10px;margin-top:4px;">
@@ -122,15 +122,15 @@ ob_start();
       <form method="POST" action="service?urlstring=<?= EncryptURL('action=UpdateFAQ') ?>" class="form-grid">
         <input type="hidden" name="faq_id" id="edit_faq_id">
         <div class="fg">
-          <label class="fc">Question <span class="req">*</span></label>
+          <label>Question <span class="req">*</span></label>
           <input type="text" name="faq_question" id="edit_faq_q" class="form-control" required>
         </div>
         <div class="fg">
-          <label class="fc">Answer <span class="req">*</span></label>
+          <label>Answer <span class="req">*</span></label>
           <textarea name="faq_answer" id="edit_faq_a" class="form-control" rows="4" required></textarea>
         </div>
         <div class="fg">
-          <label class="fc">Display Order</label>
+          <label>Display Order</label>
           <input type="number" name="faq_order" id="edit_faq_ord" class="form-control" min="0">
         </div>
         <div style="display:flex;gap:10px;margin-top:4px;">
@@ -164,19 +164,6 @@ ob_start();
   </div>
 </div>
 
-<script>
-function openEditFAQ(id, q, a, ord) {
-  document.getElementById('edit_faq_id').value  = id;
-  document.getElementById('edit_faq_q').value   = q;
-  document.getElementById('edit_faq_a').value   = a;
-  document.getElementById('edit_faq_ord').value = ord;
-  openModal('editModal');
-}
-function confirmDelFAQ(id) {
-  document.getElementById('del_faq_id').value = id;
-  openModal('deleteModal');
-}
-</script>
 
 <?php
 $pageMainContent = ob_get_clean();

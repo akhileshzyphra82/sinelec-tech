@@ -58,7 +58,7 @@ ob_start();
 
   <div class="card">
     <div class="card-header"><span class="card-title">Saved Addresses</span></div>
-    <div class="card-body" style="padding:0;">
+    <div class="card-body card-body--flush">
       <?php if (empty($detailAddresses)): ?>
       <div class="empty-state" style="padding:20px;"><p style="font-size:13px;">No addresses saved.</p></div>
       <?php else: ?>
@@ -86,7 +86,7 @@ ob_start();
     <span class="card-title">All Customers</span>
     <span style="font-size:12px;color:var(--text-muted);"><?= count($customers) ?> registered</span>
   </div>
-  <div class="card-body" style="padding:0;">
+  <div class="card-body card-body--flush">
     <?php if (empty($customers)): ?>
     <div class="empty-state">
       <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
@@ -129,9 +129,6 @@ ob_start();
 </div>
 <?php endif; ?>
 
-<style>
-@media(max-width:640px){.responsive-grid{grid-template-columns:1fr!important;}}
-</style>
 
 <?php
 $pageMainContent = ob_get_clean();

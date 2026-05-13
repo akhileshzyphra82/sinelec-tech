@@ -106,16 +106,6 @@ ob_start();
   </div>
 </div>
 
-<script>
-function viewOrderDetail(orderId) {
-  document.getElementById('detailBody').innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);">Loading…</div>';
-  openModal('detailModal');
-  fetch('ajax/order_detail.php?order_id=' + orderId)
-    .then(r => r.text())
-    .then(html => { document.getElementById('detailBody').innerHTML = html; })
-    .catch(() => { document.getElementById('detailBody').innerHTML = '<p style="color:#dc2626;padding:16px;">Failed to load order details.</p>'; });
-}
-</script>
 
 <?php
 $pageMainContent = ob_get_clean();

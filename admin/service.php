@@ -113,6 +113,29 @@ switch ($action) {
     break;
 
     /* ─────────────────────────────────────────────────────────────
+       ADMIN PROFILE
+    ───────────────────────────────────────────────────────────── */
+    case 'UpdateAdminProfile':
+        adminRequireAuth();
+        $userId = (int)($_SESSION['sinelec_admin']['USER_ID'] ?? 0);
+        $name   = trim($_POST['name'] ?? '');
+        if ($userId <= 0) adminRedirectWithFlash('profile', 'warn', 'Session error. Please sign in again.');
+        if ($name === '') adminRedirectWithFlash('profile', 'warn', 'Name cannot be empty.');
+        $ok = $controller->updateAdminProfile([
+            'user_id'                    => $userId,
+            'name'                       => $name,
+            'communication_mobile_num_isd'  => (int)($_POST['communication_mobile_num_isd'] ?? 91),
+            'communication_mobile_num'   => trim($_POST['communication_mobile_num'] ?? ''),
+            'company_name'               => trim($_POST['company_name'] ?? ''),
+            'designation'                => trim($_POST['designation'] ?? ''),
+        ]);
+        if ($ok) {
+            adminRedirectWithFlash('profile', 'ok', 'Profile updated successfully.');
+        }
+        adminRedirectWithFlash('profile', 'err', 'Failed to update profile. Please try again.');
+    break;
+
+    /* ─────────────────────────────────────────────────────────────
        CATEGORIES
     ───────────────────────────────────────────────────────────── */
     case 'InsertCategory':

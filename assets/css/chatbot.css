@@ -24,31 +24,86 @@
   position: absolute;
   right: 0;
   bottom: 0;
-  width: 74px;
-  height: 74px;
+  width: auto;
+  height: 52px;
+  padding: 0 20px 0 14px;
+  gap: 10px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border: none;
-  border-radius: 50%;
-  background: linear-gradient(180deg, #f7fbff 0%, #eef5ff 100%);
-  color: #0a1a30;
+  border-radius: 50px;
+  background: linear-gradient(135deg, #0f172a 0%, #1e3a6e 50%, #1e40af 100%);
+  color: #fff;
   box-shadow:
-    0 18px 36px rgba(12, 44, 86, 0.18),
-    inset 0 1px 0 rgba(255,255,255,.72);
+    0 8px 24px rgba(15, 23, 42, 0.35),
+    0 2px 6px rgba(30, 64, 175, 0.3),
+    inset 0 1px 0 rgba(255,255,255,.12);
   cursor: pointer;
   overflow: visible;
-  border: 1px solid #cfe0f3;
-  transition: transform 0.22s ease, box-shadow 0.22s ease, opacity 0.22s ease, filter 0.22s ease, background 0.22s ease, border-color 0.22s ease, color 0.22s ease;
+  transition: transform 0.22s ease, box-shadow 0.22s ease, opacity 0.22s ease, background 0.22s ease;
 }
 
 .sinela-chatbot-fab:hover {
   transform: translateY(-2px);
-  background: #e7f1ff;
-  border-color: #bcd5f4;
-  color: #0a1a30;
-  box-shadow: 0 24px 44px rgba(12, 44, 86, 0.2);
-  filter: none;
+  background: linear-gradient(135deg, #131a2e 0%, #1e4080 50%, #2563eb 100%);
+  box-shadow:
+    0 12px 32px rgba(15, 23, 42, 0.4),
+    0 4px 8px rgba(30, 64, 175, 0.35);
+}
+
+.sinela-fab-badge {
+  position: absolute;
+  top: -6px;
+  left: -6px;
+  width: 19px;
+  height: 19px;
+  background: #ef4444;
+  color: #fff;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #fff;
+  line-height: 1;
+  box-shadow: 0 2px 6px rgba(239, 68, 68, 0.4);
+}
+
+.sinela-fab-badge.hidden {
+  display: none;
+}
+
+.sinela-fab-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  flex: 0 0 auto;
+}
+
+.sinela-fab-icon svg {
+  display: block;
+  width: 22px;
+  height: 22px;
+}
+
+.sinela-fab-label {
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+}
+
+.sinela-fab-pulse {
+  position: absolute;
+  inset: -4px;
+  border-radius: 56px;
+  border: 2px solid rgba(30, 64, 175, 0.5);
+  animation: sinelaPillPulse 2.4s ease-out infinite;
+  pointer-events: none;
 }
 
 .sinela-chatbot-fab:focus-visible,
@@ -61,36 +116,6 @@
   outline-offset: 3px;
 }
 
-.sinela-chatbot-fab-ring {
-  position: absolute;
-  inset: -9px;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle, rgba(42, 130, 255, 0.22) 0, rgba(42, 130, 255, 0.08) 42%, rgba(42, 130, 255, 0) 74%);
-  animation: sinelaFabAura 3.2s ease-in-out infinite;
-  z-index: -1;
-}
-
-.sinela-chatbot-fab-core {
-  width: 62px;
-  height: 62px;
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  box-shadow: none;
-  color: currentColor;
-  transform-origin: 50% 60%;
-  animation: sinelaFabFloat 3s ease-in-out infinite;
-}
-
-.sinela-chatbot-fab-core svg {
-  display: block;
-  width: 40px;
-  height: 40px;
-  filter: none;
-}
 
 .sinela-chatbot-window {
   position: absolute;
@@ -418,23 +443,18 @@
   display: block;
 }
 
-@keyframes sinelaFabFloat {
-  0%, 100% {
-    transform: translateY(0) scale(1);
-  }
-  50% {
-    transform: translateY(-3px) scale(1.015);
-  }
-}
-
-@keyframes sinelaFabAura {
-  0%, 100% {
+@keyframes sinelaPillPulse {
+  0% {
     transform: scale(1);
-    opacity: 0.82;
+    opacity: 0.7;
   }
-  50% {
-    transform: scale(1.12);
-    opacity: 0.38;
+  70% {
+    transform: scale(1.08);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.08);
+    opacity: 0;
   }
 }
 
@@ -474,8 +494,13 @@
   }
 
   .sinela-chatbot-fab {
-    width: 62px;
-    height: 62px;
+    height: 46px;
+    padding: 0 16px 0 12px;
+    gap: 8px;
+  }
+
+  .sinela-fab-label {
+    font-size: 13px;
   }
 
   .sinela-chatbot-bubble {

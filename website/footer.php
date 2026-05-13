@@ -17,10 +17,9 @@
             <img src="../assets/logo.png" alt="Sinelec Tech" class="footer-logo-img">
           </a>
         </div>
-        <p class="footer-brand-desc">India's trusted semiconductor &amp; electronic component store. Genuine parts, fast shipping, and expert chip programming services since 2015.</p>
-        <div class="footer-contact-list">
+<div class="footer-contact-list">
           <div class="footer-ci">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07"/></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.79 19.79 0 013.07 8.81a2 2 0 011.95-2.18h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L9.91 14a16 16 0 006.09 6.09l.72-.72a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 21.5v3z"/></svg>
             <span><strong>Phone:</strong> +49 (0)8165-9906178</span>
           </div>
           <div class="footer-ci">
@@ -63,18 +62,18 @@
       <div>
         <div class="footer-col-title">Customer Support</div>
         <ul class="footer-links">
-          <li><a href="about#contact" class="footer-link">Contact us</a></li>
+          <li><a href="about#contact" class="footer-link">Contact Us</a></li>
           <li><a href="request-a-quote" class="footer-link">Request Quote</a></li>
           <li><a href="shipping-payment-term" class="footer-link">Shipping &amp; Payment</a></li>
           <li><a href="#" class="footer-link">Returns Policy</a></li>
-          <li><a href="resources" class="footer-link">FAQ</a></li>
+          <li><a href="faq" class="footer-link">FAQ</a></li>
         </ul>
       </div>
 
     </div>
 
     <div class="footer-bottom">
-      <span>Copyright &copy; <?= date('Y') ?> Sinelec Technologies. | Disclaimers | Privacy Policy | Terms of Use | All Prices excl. VAT and Shipping</span>
+      <span>Copyright &copy; <?= date('Y') ?> Sinelec Technologies. All rights reserved.</span>
     </div>
   </div>
 </footer>

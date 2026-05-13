@@ -8,22 +8,20 @@ $company = $sinelaKnowledge['company'] ?? [];
     type="button"
     class="sinela-chatbot-fab"
     id="sinelaChatbotFab"
-    aria-label="<?= htmlspecialchars($assistant['open_label'] ?? 'Open chatbot') ?>"
+    aria-label="<?= htmlspecialchars($assistant['open_label'] ?? 'Chat with Sinela AI') ?>"
   >
-    <span class="sinela-chatbot-fab-ring"></span>
-    <span class="sinela-chatbot-fab-core">
-      <svg width="28" height="28" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-        <path d="M16 6.2V4.6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
-        <circle cx="16" cy="3.4" r="1.6" fill="currentColor"/>
-        <rect x="8" y="8" width="16" height="13.5" rx="5.2" stroke="currentColor" stroke-width="2.2"/>
-        <path d="M12.6 23.4h6.8L16 27l-3.4-3.6z" fill="currentColor"/>
-        <circle cx="13" cy="14" r="1.35" fill="currentColor"/>
-        <circle cx="19" cy="14" r="1.35" fill="currentColor"/>
-        <path d="M12.8 18c.9.9 1.9 1.3 3.2 1.3 1.2 0 2.3-.4 3.2-1.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-        <path d="M6.2 11.4c-1.2.8-2 2.2-2 3.9 0 1.7.8 3.1 2 3.9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity=".9"/>
-        <path d="M25.8 11.4c1.2.8 2 2.2 2 3.9 0 1.7-.8 3.1-2 3.9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity=".9"/>
+    <span class="sinela-fab-badge" id="sinelaBadge">1</span>
+    <span class="sinela-fab-icon">
+      <svg width="22" height="22" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+        <rect x="4" y="5" width="24" height="17" rx="5" stroke="currentColor" stroke-width="2.2"/>
+        <path d="M10.5 26l2.5-4h6l2.5 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="12" cy="13.5" r="1.5" fill="currentColor"/>
+        <circle cx="20" cy="13.5" r="1.5" fill="currentColor"/>
+        <path d="M12 17.5c1 1.2 2.2 1.8 4 1.8s3-.6 4-1.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
       </svg>
     </span>
+    <span class="sinela-fab-label">Sinela AI</span>
+    <span class="sinela-fab-pulse"></span>
   </button>
 
   <section class="sinela-chatbot-window" id="sinelaChatbotWindow" aria-label="<?= htmlspecialchars($assistant['name'] ?? 'Sinela AI') ?>" aria-hidden="true">

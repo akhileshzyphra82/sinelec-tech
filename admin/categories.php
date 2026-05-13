@@ -35,7 +35,7 @@ ob_start();
     <span class="card-title">All Categories</span>
     <span style="font-size:12px;color:var(--text-muted);"><?= count($categories) ?> total</span>
   </div>
-  <div class="card-body" style="padding:0;">
+  <div class="card-body card-body--flush">
     <?php if (empty($categories)): ?>
     <div class="empty-state">
       <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
@@ -111,11 +111,11 @@ ob_start();
     <div class="modal-body">
       <form method="POST" action="service?urlstring=<?= EncryptURL('action=InsertCategory') ?>" enctype="multipart/form-data" class="form-grid">
         <div class="fg">
-          <label class="fc">Category Name <span class="req">*</span></label>
+          <label>Category Name <span class="req">*</span></label>
           <input type="text" name="product_category_name" class="form-control" required>
         </div>
         <div class="fg">
-          <label class="fc">Parent Category</label>
+          <label>Parent Category</label>
           <select name="parent_category_id" class="form-control">
             <option value="0">— None (Top-level) —</option>
             <?php foreach ($parents as $p): ?>
@@ -124,15 +124,15 @@ ob_start();
           </select>
         </div>
         <div class="fg">
-          <label class="fc">Priority</label>
+          <label>Priority</label>
           <input type="number" name="priority" class="form-control" value="0" min="0">
         </div>
         <div class="fg">
-          <label class="fc">Description</label>
+          <label>Description</label>
           <textarea name="description" class="form-control" rows="2"></textarea>
         </div>
         <div class="fg">
-          <label class="fc">Category Image</label>
+          <label>Category Image</label>
           <input type="file" name="category_image" class="form-control" accept="image/*">
         </div>
         <div style="display:flex;gap:10px;margin-top:4px;">
@@ -158,11 +158,11 @@ ob_start();
         <input type="hidden" name="product_category_id" id="edit_cat_id">
         <input type="hidden" name="existing_ext" id="edit_existing_ext">
         <div class="fg">
-          <label class="fc">Category Name <span class="req">*</span></label>
+          <label>Category Name <span class="req">*</span></label>
           <input type="text" name="product_category_name" id="edit_cat_name" class="form-control" required>
         </div>
         <div class="fg">
-          <label class="fc">Parent Category</label>
+          <label>Parent Category</label>
           <select name="parent_category_id" id="edit_cat_parent" class="form-control">
             <option value="0">— None (Top-level) —</option>
             <?php foreach ($parents as $p): ?>
@@ -171,15 +171,15 @@ ob_start();
           </select>
         </div>
         <div class="fg">
-          <label class="fc">Priority</label>
+          <label>Priority</label>
           <input type="number" name="priority" id="edit_cat_prio" class="form-control" min="0">
         </div>
         <div class="fg">
-          <label class="fc">Description</label>
+          <label>Description</label>
           <textarea name="description" id="edit_cat_desc" class="form-control" rows="2"></textarea>
         </div>
         <div class="fg">
-          <label class="fc">Replace Image (optional)</label>
+          <label>Replace Image (optional)</label>
           <input type="file" name="category_image" class="form-control" accept="image/*">
           <span id="edit_img_preview" style="display:none;margin-top:6px;"></span>
         </div>
@@ -214,30 +214,6 @@ ob_start();
   </div>
 </div>
 
-<script>
-function openEditModal(id, name, parentId, prio, desc, ext) {
-  document.getElementById('edit_cat_id').value    = id;
-  document.getElementById('edit_cat_name').value  = name;
-  document.getElementById('edit_cat_prio').value  = prio;
-  document.getElementById('edit_cat_desc').value  = desc;
-  document.getElementById('edit_existing_ext').value = ext;
-  var sel = document.getElementById('edit_cat_parent');
-  for (var i=0;i<sel.options.length;i++) {
-    sel.options[i].selected = (parseInt(sel.options[i].value) === parentId);
-  }
-  var prev = document.getElementById('edit_img_preview');
-  if (ext) {
-    prev.style.display = 'block';
-    prev.innerHTML = '<img src="../assets/uploads/categories/'+id+'.'+ext+'" style="height:60px;border-radius:6px;border:1px solid #e2e8f0;" onerror="this.parentNode.style.display=\'none\'">';
-  } else { prev.style.display='none'; }
-  openModal('editModal');
-}
-function confirmDelete(id, name) {
-  document.getElementById('del_cat_id').value   = id;
-  document.getElementById('del_cat_name').textContent = name;
-  openModal('deleteModal');
-}
-</script>
 
 <?php
 $pageMainContent = ob_get_clean();

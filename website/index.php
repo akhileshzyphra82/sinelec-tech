@@ -214,49 +214,135 @@ require_once 'header.php';
     
   </div>
 
-  <!-- Best Seller -->
+  <!-- Featured Manufacturers -->
   <div class="home-section-wrap" id="best-seller-section">
     <div class="sec-head">
       <div>
-        <div class="sec-title">Featured Manufacture</div>
-        <div class="sec-subtitle">Discover high-demand components from trusted global semiconductor manufacturers.</div>
+        <div class="sec-title">Featured Manufacturers</div>
+        <div class="sec-subtitle">Genuine components from the world's leading semiconductor brands.</div>
       </div>
-      <div class="carousel-nav-btns">
-        <button class="car-btn car-btn-inline" onclick="carouselScroll('bestsellerTrack', 1)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-        </button>
-        <button class="car-btn car-btn-inline" onclick="carouselScroll('bestsellerTrack', -1)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-        </button>
-      </div>
+      <a href="manufacturers" class="sec-viewall">View All Manufacturers</a>
     </div>
-    <div class="prod-carousel">
-      <div class="prod-carousel-track-wrap">
-        <div class="prod-carousel-track" id="bestsellerTrack"></div>
-      </div>
+    <div class="mfr-logos-grid">
+
+      <!-- Analog Devices -->
+      <a href="products?mfr=Analog+Devices" class="mfr-logo-card">
+        <svg viewBox="0 0 160 60" xmlns="http://www.w3.org/2000/svg" class="mfr-svg">
+          <polygon points="8,48 28,12 48,48" fill="none" stroke="#003d82" stroke-width="3.5" stroke-linejoin="round"/>
+          <line x1="28" y1="12" x2="28" y2="48" stroke="#003d82" stroke-width="3.5"/>
+          <text x="56" y="28" font-family="Arial,sans-serif" font-size="11" font-weight="700" fill="#003d82" letter-spacing="1">ANALOG</text>
+          <text x="56" y="43" font-family="Arial,sans-serif" font-size="11" font-weight="700" fill="#003d82" letter-spacing="1">DEVICES</text>
+        </svg>
+      </a>
+
+      <!-- Vishay -->
+      <a href="products?mfr=Vishay" class="mfr-logo-card">
+        <svg viewBox="0 0 160 60" xmlns="http://www.w3.org/2000/svg" class="mfr-svg">
+          <text x="80" y="30" font-family="Arial Black,sans-serif" font-size="22" font-weight="900" fill="#1a1a1a" text-anchor="middle" letter-spacing="2">VISHAY</text>
+          <text x="80" y="47" font-family="Arial,sans-serif" font-size="9" fill="#666" text-anchor="middle" letter-spacing="1.5">THE DNA OF TECH</text>
+        </svg>
+      </a>
+
+      <!-- Microchip -->
+      <a href="products?mfr=Microchip+Technology" class="mfr-logo-card">
+        <svg viewBox="0 0 160 60" xmlns="http://www.w3.org/2000/svg" class="mfr-svg">
+          <rect x="8" y="16" width="28" height="28" rx="3" fill="none" stroke="#d4470a" stroke-width="2.5"/>
+          <rect x="14" y="22" width="16" height="16" rx="2" fill="#d4470a"/>
+          <line x1="14" y1="10" x2="14" y2="16" stroke="#d4470a" stroke-width="2"/>
+          <line x1="22" y1="10" x2="22" y2="16" stroke="#d4470a" stroke-width="2"/>
+          <line x1="30" y1="10" x2="30" y2="16" stroke="#d4470a" stroke-width="2"/>
+          <line x1="14" y1="44" x2="14" y2="50" stroke="#d4470a" stroke-width="2"/>
+          <line x1="22" y1="44" x2="22" y2="50" stroke="#d4470a" stroke-width="2"/>
+          <line x1="30" y1="44" x2="30" y2="50" stroke="#d4470a" stroke-width="2"/>
+          <line x1="36" y1="22" x2="42" y2="22" stroke="#d4470a" stroke-width="2"/>
+          <line x1="36" y1="30" x2="42" y2="30" stroke="#d4470a" stroke-width="2"/>
+          <line x1="36" y1="38" x2="42" y2="38" stroke="#d4470a" stroke-width="2"/>
+          <text x="50" y="34" font-family="Arial,sans-serif" font-size="13.5" font-weight="700" fill="#d4470a">microchip</text>
+        </svg>
+      </a>
+
+      <!-- Amphenol -->
+      <a href="products?mfr=Amphenol" class="mfr-logo-card">
+        <svg viewBox="0 0 160 60" xmlns="http://www.w3.org/2000/svg" class="mfr-svg">
+          <circle cx="22" cy="30" r="14" fill="#005baa"/>
+          <text x="22" y="35" font-family="Georgia,serif" font-size="16" font-weight="700" fill="#fff" text-anchor="middle">A</text>
+          <text x="44" y="27" font-family="Arial,sans-serif" font-size="13" font-weight="700" fill="#005baa">Amphenol</text>
+          <text x="44" y="43" font-family="Arial,sans-serif" font-size="8.5" fill="#888" letter-spacing="0.5">CONNECTORS &amp; SENSORS</text>
+        </svg>
+      </a>
+
+      <!-- NXP -->
+      <a href="products?mfr=NXP+Semiconductors" class="mfr-logo-card">
+        <svg viewBox="0 0 160 60" xmlns="http://www.w3.org/2000/svg" class="mfr-svg">
+          <rect x="8" y="12" width="36" height="36" rx="6" fill="#f60"/>
+          <text x="26" y="36" font-family="Arial Black,sans-serif" font-size="18" font-weight="900" fill="#fff" text-anchor="middle">NXP</text>
+          <text x="54" y="27" font-family="Arial,sans-serif" font-size="14" font-weight="700" fill="#1a1a1a">Semiconductors</text>
+          <text x="54" y="43" font-family="Arial,sans-serif" font-size="8.5" fill="#888" letter-spacing="0.5">SECURE CONNECTIONS</text>
+        </svg>
+      </a>
+
+      <!-- Murata -->
+      <a href="products?mfr=Murata" class="mfr-logo-card">
+        <svg viewBox="0 0 160 60" xmlns="http://www.w3.org/2000/svg" class="mfr-svg">
+          <text x="80" y="30" font-family="Arial,sans-serif" font-size="22" font-weight="400" fill="#1a1a1a" text-anchor="middle">mu<tspan font-weight="700" fill="#e00020">R</tspan>ata</text>
+          <text x="80" y="47" font-family="Arial,sans-serif" font-size="8.5" fill="#888" text-anchor="middle" letter-spacing="1">INNOVATOR IN ELECTRONICS</text>
+        </svg>
+      </a>
+
     </div>
   </div>
 
-  <!-- Popular -->
+  <!-- Services & Tools -->
   <div class="home-section-wrap" id="popular-section">
     <div class="sec-head">
       <div>
-        <div class="sec-title">Service &amp; Tools</div>
-        <div class="sec-subtitle">Browse production support components and engineering-led tools used in embedded development workflows.</div>
+        <div class="sec-title">Services &amp; Tools</div>
+        <div class="sec-subtitle">End-to-end engineering support — from component sourcing to production-ready firmware.</div>
       </div>
-      <div class="carousel-nav-btns">
-        <button class="car-btn car-btn-inline" onclick="carouselScroll('featuredTrack', 1)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-        </button>
-        <button class="car-btn car-btn-inline" onclick="carouselScroll('featuredTrack', -1)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-        </button>
-      </div>
+      <a href="chip-programming" class="sec-viewall">View All Services &amp; Tools</a>
     </div>
-    <div class="prod-carousel">
-      <div class="prod-carousel-track-wrap">
-        <div class="prod-carousel-track" id="featuredTrack"></div>
-      </div>
+    <div class="srv-tools-grid">
+
+      <a href="chip-programming" class="srv-tool-card">
+        <div class="srv-tool-img-wrap">
+          <img src="https://images.unsplash.com/photo-1518770660439-4636190af475?w=400&h=400&fit=crop&q=80" alt="Chip Programming" loading="lazy">
+        </div>
+        <h3 class="srv-tool-title">Chip Programming</h3>
+        <p class="srv-tool-desc">Flash your MCU with custom firmware — Arduino, STM32, PIC, AVR, ESP32 and more.</p>
+      </a>
+
+      <a href="request-a-quote" class="srv-tool-card">
+        <div class="srv-tool-img-wrap">
+          <img src="https://images.unsplash.com/photo-1450101499163-c8848c66ca85?w=400&h=400&fit=crop&q=80" alt="Request Quote" loading="lazy">
+        </div>
+        <h3 class="srv-tool-title">Request a Quote</h3>
+        <p class="srv-tool-desc">Need a bulk price or custom order? Tell us what you're after and we'll get back to you fast.</p>
+      </a>
+
+      <a href="products" class="srv-tool-card">
+        <div class="srv-tool-img-wrap">
+          <img src="https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=400&h=400&fit=crop&q=80" alt="Price and Availability" loading="lazy">
+        </div>
+        <h3 class="srv-tool-title">Price &amp; Availability</h3>
+        <p class="srv-tool-desc">Quickly check live stock levels and competitive pricing across 250,000+ components.</p>
+      </a>
+
+      <a href="about" class="srv-tool-card">
+        <div class="srv-tool-img-wrap">
+          <img src="https://images.unsplash.com/photo-1581092918056-0c4c3acd3789?w=400&h=400&fit=crop&q=80" alt="PCB Design" loading="lazy">
+        </div>
+        <h3 class="srv-tool-title">PCB Design &amp; Assembly</h3>
+        <p class="srv-tool-desc">Professional schematic capture, PCB layout and full SMT assembly from prototype to production.</p>
+      </a>
+
+      <a href="about" class="srv-tool-card">
+        <div class="srv-tool-img-wrap">
+          <img src="https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=400&h=400&fit=crop&q=80" alt="Express Delivery" loading="lazy">
+        </div>
+        <h3 class="srv-tool-title">Express Delivery</h3>
+        <p class="srv-tool-desc">Same-day dispatch on orders placed before 2 PM. Nationwide coverage with tracking.</p>
+      </a>
+
     </div>
   </div>
 

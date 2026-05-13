@@ -34,7 +34,7 @@ ob_start();
     <span class="card-title">All News &amp; Events</span>
     <span style="font-size:12px;color:var(--text-muted);"><?= count($newsList) ?> items</span>
   </div>
-  <div class="card-body" style="padding:0;">
+  <div class="card-body card-body--flush">
     <?php if (empty($newsList)): ?>
     <div class="empty-state">
       <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 22h16a2 2 0 002-2V4a2 2 0 00-2-2H8a2 2 0 00-2 2v16a2 2 0 01-2 2z"/></svg>
@@ -118,32 +118,32 @@ ob_start();
       <form method="POST" action="service?urlstring=<?= EncryptURL('action=InsertNews') ?>" enctype="multipart/form-data" class="form-grid">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
           <div class="fg">
-            <label class="fc">Type <span class="req">*</span></label>
+            <label>Type <span class="req">*</span></label>
             <select name="flag" class="form-control" required>
               <option value="News">News</option>
               <option value="Event">Event</option>
             </select>
           </div>
           <div class="fg">
-            <label class="fc">Date <span class="req">*</span></label>
+            <label>Date <span class="req">*</span></label>
             <input type="date" name="created_date" class="form-control" value="<?= date('Y-m-d') ?>" required>
           </div>
         </div>
         <div class="fg">
-          <label class="fc">Title <span class="req">*</span></label>
+          <label>Title <span class="req">*</span></label>
           <input type="text" name="title" class="form-control" required>
         </div>
         <div class="fg">
-          <label class="fc">Description</label>
+          <label>Description</label>
           <textarea name="description" class="form-control" rows="3"></textarea>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
           <div class="fg">
-            <label class="fc">Image</label>
+            <label>Image</label>
             <input type="file" name="news_image" class="form-control" accept="image/*">
           </div>
           <div class="fg">
-            <label class="fc">Document (PDF/DOC)</label>
+            <label>Document (PDF/DOC)</label>
             <input type="file" name="news_doc" class="form-control" accept=".pdf,.doc,.docx">
           </div>
         </div>
@@ -172,32 +172,32 @@ ob_start();
         <input type="hidden" name="existing_doc_ext" id="edit_news_doc_ext">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
           <div class="fg">
-            <label class="fc">Type <span class="req">*</span></label>
+            <label>Type <span class="req">*</span></label>
             <select name="flag" id="edit_news_flag" class="form-control" required>
               <option value="News">News</option>
               <option value="Event">Event</option>
             </select>
           </div>
           <div class="fg">
-            <label class="fc">Date <span class="req">*</span></label>
+            <label>Date <span class="req">*</span></label>
             <input type="date" name="created_date" id="edit_news_date" class="form-control" required>
           </div>
         </div>
         <div class="fg">
-          <label class="fc">Title <span class="req">*</span></label>
+          <label>Title <span class="req">*</span></label>
           <input type="text" name="title" id="edit_news_title" class="form-control" required>
         </div>
         <div class="fg">
-          <label class="fc">Description</label>
+          <label>Description</label>
           <textarea name="description" id="edit_news_desc" class="form-control" rows="3"></textarea>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
           <div class="fg">
-            <label class="fc">Replace Image</label>
+            <label>Replace Image</label>
             <input type="file" name="news_image" class="form-control" accept="image/*">
           </div>
           <div class="fg">
-            <label class="fc">Replace Document</label>
+            <label>Replace Document</label>
             <input type="file" name="news_doc" class="form-control" accept=".pdf,.doc,.docx">
           </div>
         </div>
@@ -232,23 +232,6 @@ ob_start();
   </div>
 </div>
 
-<script>
-function openEditNews(id, title, flag, date, desc, imgExt, docExt) {
-  document.getElementById('edit_news_id').value       = id;
-  document.getElementById('edit_news_title').value    = title;
-  document.getElementById('edit_news_date').value     = date;
-  document.getElementById('edit_news_desc').value     = desc;
-  document.getElementById('edit_news_img_ext').value  = imgExt;
-  document.getElementById('edit_news_doc_ext').value  = docExt;
-  var sel = document.getElementById('edit_news_flag');
-  for (var i=0;i<sel.options.length;i++) sel.options[i].selected = (sel.options[i].value === flag);
-  openModal('editModal');
-}
-function confirmDelNews(id) {
-  document.getElementById('del_news_id').value = id;
-  openModal('deleteModal');
-}
-</script>
 
 <?php
 $pageMainContent = ob_get_clean();

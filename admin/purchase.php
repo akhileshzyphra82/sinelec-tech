@@ -31,7 +31,7 @@ ob_start();
     <span class="card-title">All Purchase Records</span>
     <span style="font-size:12px;color:var(--text-muted);"><?= count($records) ?> records</span>
   </div>
-  <div class="card-body" style="padding:0;">
+  <div class="card-body card-body--flush">
     <?php if (empty($records)): ?>
     <div class="empty-state">
       <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/></svg>
@@ -101,7 +101,7 @@ ob_start();
     <div class="modal-body">
       <form method="POST" action="service?urlstring=<?= EncryptURL('action=InsertPurchase') ?>" class="form-grid">
         <div class="fg">
-          <label class="fc">Product <span class="req">*</span></label>
+          <label>Product <span class="req">*</span></label>
           <select name="product_id" class="form-control" required>
             <option value="">— Select Product —</option>
             <?php foreach ($allProducts as $p): ?>
@@ -113,30 +113,30 @@ ob_start();
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
           <div class="fg">
-            <label class="fc">Quantity <span class="req">*</span></label>
+            <label>Quantity <span class="req">*</span></label>
             <input type="number" name="quantity_purchased" class="form-control" min="1" required>
           </div>
           <div class="fg">
-            <label class="fc">Purchase Amount (₹)</label>
+            <label>Purchase Amount (₹)</label>
             <input type="number" name="purchase_amt" class="form-control" step="0.01" min="0" value="0">
           </div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
           <div class="fg">
-            <label class="fc">Date of Purchase <span class="req">*</span></label>
+            <label>Date of Purchase <span class="req">*</span></label>
             <input type="date" name="date_of_purchase" class="form-control" value="<?= date('Y-m-d') ?>" required>
           </div>
           <div class="fg">
-            <label class="fc">Low-stock Threshold</label>
+            <label>Low-stock Threshold</label>
             <input type="number" name="product_threshold" class="form-control" min="0" value="0">
           </div>
         </div>
         <div class="fg">
-          <label class="fc">Purchased From (Supplier)</label>
+          <label>Purchased From (Supplier)</label>
           <input type="text" name="purchased_from" class="form-control" placeholder="Supplier name">
         </div>
         <div class="fg">
-          <label class="fc">Receipt / Invoice No.</label>
+          <label>Receipt / Invoice No.</label>
           <input type="text" name="receipt_no" class="form-control" placeholder="Receipt number">
         </div>
         <div style="display:flex;gap:10px;margin-top:4px;">
@@ -170,12 +170,6 @@ ob_start();
   </div>
 </div>
 
-<script>
-function confirmDeletePurchase(id) {
-  document.getElementById('del_pp_id').value = id;
-  openModal('deleteModal');
-}
-</script>
 
 <?php
 $pageMainContent = ob_get_clean();

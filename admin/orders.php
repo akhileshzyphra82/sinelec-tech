@@ -42,7 +42,7 @@ ob_start();
     <span class="card-title">Active Orders</span>
     <span style="font-size:12px;color:var(--text-muted);"><?= count($orders) ?> orders</span>
   </div>
-  <div class="card-body" style="padding:0;">
+  <div class="card-body card-body--flush">
     <?php if (empty($orders)): ?>
     <div class="empty-state">
       <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M21 8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16Z"/></svg>
@@ -121,7 +121,7 @@ ob_start();
       <form method="POST" action="service?urlstring=<?= EncryptURL('action=UpdateOrderStatus') ?>" class="form-grid" id="statusForm">
         <input type="hidden" name="order_id" id="modal_order_id">
         <div class="fg">
-          <label class="fc">New Status <span class="req">*</span></label>
+          <label>New Status <span class="req">*</span></label>
           <select name="order_status" id="modal_status" class="form-control" onchange="toggleDispatch(this.value)" required>
             <option value="">— Select Status —</option>
             <option value="Payment Successful">Payment Successful</option>
@@ -133,15 +133,15 @@ ob_start();
         </div>
         <div id="dispatchFields" style="display:none;">
           <div class="fg" style="margin-bottom:10px;">
-            <label class="fc">Courier Company</label>
+            <label>Courier Company</label>
             <input type="text" name="dispatch_courier_company" class="form-control" placeholder="e.g. DTDC, BlueDart">
           </div>
           <div class="fg" style="margin-bottom:10px;">
-            <label class="fc">Tracking ID</label>
+            <label>Tracking ID</label>
             <input type="text" name="dispatch_courier_tracking_id" class="form-control">
           </div>
           <div class="fg">
-            <label class="fc">Tracking URL</label>
+            <label>Tracking URL</label>
             <input type="url" name="dispatch_courier_tracking_url" class="form-control" placeholder="https://...">
           </div>
         </div>
@@ -154,19 +154,6 @@ ob_start();
   </div>
 </div>
 
-<script>
-function openOrderModal(id, num, currentStatus) {
-  document.getElementById('modal_order_id').value = id;
-  document.getElementById('modal_onum').textContent = num;
-  var sel = document.getElementById('modal_status');
-  sel.value = '';
-  toggleDispatch('');
-  openModal('statusModal');
-}
-function toggleDispatch(val) {
-  document.getElementById('dispatchFields').style.display = (val === 'Dispatched') ? 'block' : 'none';
-}
-</script>
 
 <?php
 $pageMainContent = ob_get_clean();

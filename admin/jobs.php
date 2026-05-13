@@ -28,7 +28,7 @@ ob_start();
     <span class="card-title">All Job Posts</span>
     <span style="font-size:12px;color:var(--text-muted);"><?= count($jobs) ?> posts</span>
   </div>
-  <div class="card-body" style="padding:0;">
+  <div class="card-body card-body--flush">
     <?php if (empty($jobs)): ?>
     <div class="empty-state">
       <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg>
@@ -98,25 +98,25 @@ ob_start();
     <div class="modal-body">
       <form method="POST" action="service?urlstring=<?= EncryptURL('action=InsertJob') ?>" class="form-grid">
         <div class="fg">
-          <label class="fc">Position <span class="req">*</span></label>
+          <label>Position <span class="req">*</span></label>
           <input type="text" name="job_position" class="form-control" required>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
           <div class="fg">
-            <label class="fc">Location</label>
+            <label>Location</label>
             <input type="text" name="job_location" class="form-control" placeholder="e.g. Mumbai, Remote">
           </div>
           <div class="fg">
-            <label class="fc">Priority</label>
+            <label>Priority</label>
             <input type="number" name="job_priority" class="form-control" value="0" min="0">
           </div>
         </div>
         <div class="fg">
-          <label class="fc">Description / Requirements</label>
+          <label>Description / Requirements</label>
           <textarea name="job_discription" class="form-control" rows="4"></textarea>
         </div>
         <div class="fg">
-          <label class="fc">Status</label>
+          <label>Status</label>
           <select name="job_status" class="form-control">
             <option value="Active">Active</option>
             <option value="In-Active">In-Active</option>
@@ -144,25 +144,25 @@ ob_start();
       <form method="POST" action="service?urlstring=<?= EncryptURL('action=UpdateJob') ?>" class="form-grid">
         <input type="hidden" name="job_post_id" id="edit_job_id">
         <div class="fg">
-          <label class="fc">Position <span class="req">*</span></label>
+          <label>Position <span class="req">*</span></label>
           <input type="text" name="job_position" id="edit_job_pos" class="form-control" required>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
           <div class="fg">
-            <label class="fc">Location</label>
+            <label>Location</label>
             <input type="text" name="job_location" id="edit_job_loc" class="form-control">
           </div>
           <div class="fg">
-            <label class="fc">Priority</label>
+            <label>Priority</label>
             <input type="number" name="job_priority" id="edit_job_prio" class="form-control" min="0">
           </div>
         </div>
         <div class="fg">
-          <label class="fc">Description / Requirements</label>
+          <label>Description / Requirements</label>
           <textarea name="job_discription" id="edit_job_desc" class="form-control" rows="4"></textarea>
         </div>
         <div class="fg">
-          <label class="fc">Status</label>
+          <label>Status</label>
           <select name="job_status" id="edit_job_status" class="form-control">
             <option value="Active">Active</option>
             <option value="In-Active">In-Active</option>
@@ -199,31 +199,6 @@ ob_start();
   </div>
 </div>
 
-<script>
-function openEditJob(id, pos, prio, loc, desc, status) {
-  document.getElementById('edit_job_id').value    = id;
-  document.getElementById('edit_job_pos').value   = pos;
-  document.getElementById('edit_job_prio').value  = prio;
-  document.getElementById('edit_job_loc').value   = loc;
-  document.getElementById('edit_job_desc').value  = desc;
-  var sel = document.getElementById('edit_job_status');
-  for (var i=0;i<sel.options.length;i++) sel.options[i].selected = (sel.options[i].value === status);
-  openModal('editModal');
-}
-function confirmDelJob(id, appCount) {
-  document.getElementById('del_job_id').value = id;
-  var msg = document.getElementById('del_job_msg');
-  var btn = document.getElementById('del_job_btn');
-  if (appCount > 0) {
-    msg.innerHTML = '<span style="color:#dc2626;">This post has <strong>' + appCount + '</strong> applicant(s). You must delete them first before deleting this post.</span>';
-    btn.disabled = true; btn.style.opacity = '0.5';
-  } else {
-    msg.textContent = 'Are you sure you want to delete this job post?';
-    btn.disabled = false; btn.style.opacity = '1';
-  }
-  openModal('deleteModal');
-}
-</script>
 
 <?php
 $pageMainContent = ob_get_clean();

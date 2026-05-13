@@ -45,7 +45,7 @@ ob_start();
     <span class="card-title">Applications</span>
     <span style="font-size:12px;color:var(--text-muted);"><?= count($applicants) ?> found</span>
   </div>
-  <div class="card-body" style="padding:0;">
+  <div class="card-body card-body--flush">
     <?php if (empty($applicants)): ?>
     <div class="empty-state">
       <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
@@ -127,13 +127,6 @@ ob_start();
   </div>
 </div>
 
-<script>
-function confirmDelApp(id, name) {
-  document.getElementById('del_app_id').value    = id;
-  document.getElementById('del_app_name').textContent = name;
-  openModal('deleteModal');
-}
-</script>
 
 <?php
 $pageMainContent = ob_get_clean();

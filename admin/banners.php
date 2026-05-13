@@ -80,26 +80,26 @@ ob_start();
     <div class="modal-body">
       <form method="POST" action="service?urlstring=<?= EncryptURL('action=InsertBanner') ?>" enctype="multipart/form-data" class="form-grid">
         <div class="fg">
-          <label class="fc">Banner Name <span class="req">*</span></label>
+          <label>Banner Name <span class="req">*</span></label>
           <input type="text" name="banner_name" class="form-control" required>
         </div>
         <div class="fg">
-          <label class="fc">Banner Image <span class="req">*</span></label>
+          <label>Banner Image <span class="req">*</span></label>
           <input type="file" name="banner_image" class="form-control" accept="image/*" required>
           <span style="font-size:11px;color:var(--text-muted);">JPG, PNG, WebP. Recommended: 1920×600 px.</span>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
           <div class="fg">
-            <label class="fc">Priority</label>
+            <label>Priority</label>
             <input type="number" name="priority" class="form-control" value="0" min="0">
           </div>
           <div class="fg">
-            <label class="fc">Hyperlink</label>
+            <label>Hyperlink</label>
             <input type="text" name="hyperlink" class="form-control" placeholder="https://...">
           </div>
         </div>
         <div class="fg">
-          <label class="fc">Description</label>
+          <label>Description</label>
           <textarea name="banner_description" class="form-control" rows="2"></textarea>
         </div>
         <div style="display:flex;gap:10px;margin-top:4px;">

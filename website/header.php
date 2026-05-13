@@ -154,9 +154,15 @@ window.FLASH_TOAST  = {
       <!-- Account -->
       <div class="header-account-wrap">
         <div class="h-act" id="headerAccountBtn" title="Account" role="button" tabindex="0" aria-haspopup="true" aria-expanded="false" <?= $isSignedIn ? 'aria-controls="accountMenu"' : 'aria-controls="authModal"' ?>>
-          <span class="h-label"><?= $isSignedIn ? 'Hello, ' . htmlspecialchars($userFirstName) : 'Hello, Sign in' ?></span>
-          <strong class="h-value">
-            <?= $isSignedIn ? 'Account &amp; Lists' : 'Account &amp; Lists' ?>
+          <?php if ($isSignedIn): ?>
+          <span class="h-avatar h-avatar--initial"><?= htmlspecialchars(strtoupper(substr($userFirstName, 0, 1))) ?></span>
+          <?php else: ?>
+          <span class="h-avatar">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          </span>
+          <?php endif; ?>
+          <strong class="h-value h-value--center">
+            <?= $isSignedIn ? 'Hello, ' . htmlspecialchars($userFirstName) : 'Login or Register' ?>
             <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
           </strong>
         </div>
@@ -207,7 +213,7 @@ window.FLASH_TOAST  = {
 
             <!-- LEFT: Category list -->
             <div class="mega-cats-col">
-              <a href="new-arrivals" class="mega-cat mega-cat-new active" data-cat-id="newest">
+              <a href="products" class="mega-cat mega-cat-new active" data-cat-id="newest">
                 Newest Products
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
               </a>
@@ -319,7 +325,7 @@ window.FLASH_TOAST  = {
         <a href="request-a-quote" class="<?= navClass('request-a-quote', $currentPage) ?>">Request a Quote</a>
 
         <!-- About Sinelec -->
-        <a href="about" class="<?= navClass('about', $currentPage) ?>">E-Shop</a>
+        <a href="products" class="<?= navClass('products', $currentPage) ?>">E-Shop</a>
 
       </div>
     </div>
@@ -387,7 +393,7 @@ window.FLASH_TOAST  = {
 	        </summary>
 	        <div class="mob-accordion-body">
 	          <a href="products" class="mob-sub-link">All Products</a>
-	          <a href="new-arrivals" class="mob-sub-link">Newest Products</a>
+	          <a href="products" class="mob-sub-link">Newest Products</a>
 	          <?php foreach ($productMegaMenu as $menuCategory): ?>
 	          <a href="products?cat=<?= urlencode($menuCategory['id']) ?>" class="mob-sub-link"><?= htmlspecialchars($menuCategory['name']) ?></a>
 	          <?php endforeach; ?>
@@ -432,7 +438,7 @@ window.FLASH_TOAST  = {
 	        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
 	        Request a Quote
 	      </a>
-	      <a href="about" class="mob-link <?= $currentPage === 'about' ? 'on' : '' ?>">
+	      <a href="products" class="mob-link <?= $currentPage === 'products' ? 'on' : '' ?>">
 	        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
 	        E-Shop
 	      </a>

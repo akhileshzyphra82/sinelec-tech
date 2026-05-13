@@ -54,7 +54,7 @@ ob_start();
   $sts = (string)($product->PRODUCT_STATUS ?? 'Active');
 ?>
 
-<div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;" class="responsive-prod-grid">
+<div class="prod-detail-grid">
 
   <!-- Edit Form Card -->
   <div class="card">
@@ -64,16 +64,16 @@ ob_start();
         <input type="hidden" name="product_id" value="<?= $pid ?>">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
           <div class="fg">
-            <label class="fc">Product Name <span class="req">*</span></label>
+            <label>Product Name <span class="req">*</span></label>
             <input type="text" name="product_name" class="form-control" value="<?= htmlspecialchars($product->PRODUCT_NAME ?? '') ?>" required>
           </div>
           <div class="fg">
-            <label class="fc">Product Code / SKU</label>
+            <label>Product Code / SKU</label>
             <input type="text" name="product_code" class="form-control" value="<?= htmlspecialchars($product->PRODUCT_CODE ?? '') ?>">
           </div>
         </div>
         <div class="fg">
-          <label class="fc">Category</label>
+          <label>Category</label>
           <select name="product_category_id" class="form-control">
             <option value="0">— Uncategorised —</option>
             <?php foreach ($allCats as $c): ?>
@@ -85,45 +85,45 @@ ob_start();
           </select>
         </div>
         <div class="fg">
-          <label class="fc">Description</label>
+          <label>Description</label>
           <textarea name="product_description" class="form-control" rows="3"><?= htmlspecialchars($product->PRODUCT_DESCRIPTION ?? '') ?></textarea>
         </div>
         <div class="fg">
-          <label class="fc">Specification</label>
+          <label>Specification</label>
           <textarea name="product_specification" class="form-control" rows="3"><?= htmlspecialchars($product->PRODUCT_SPECIFICATION ?? '') ?></textarea>
         </div>
         <div class="fg">
-          <label class="fc">Additional Details</label>
+          <label>Additional Details</label>
           <textarea name="product_details" class="form-control" rows="2"><?= htmlspecialchars($product->PRODUCT_DETAILS ?? '') ?></textarea>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
           <div class="fg">
-            <label class="fc">Price (₹)</label>
+            <label>Price (₹)</label>
             <input type="number" name="product_amt" class="form-control" step="0.01" min="0" value="<?= (float)($product->PRODUCT_AMT ?? 0) ?>">
           </div>
           <div class="fg">
-            <label class="fc">Tax (%)</label>
+            <label>Tax (%)</label>
             <input type="number" name="product_tax" class="form-control" step="0.01" min="0" value="<?= (float)($product->PRODUCT_TAX ?? 0) ?>">
           </div>
           <div class="fg">
-            <label class="fc">Discount (%)</label>
+            <label>Discount (%)</label>
             <input type="number" name="product_discount" class="form-control" step="0.01" min="0" value="<?= (float)($product->PRODUCT_DISCOUNT ?? 0) ?>">
           </div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
           <div class="fg">
-            <label class="fc">Priority</label>
+            <label>Priority</label>
             <input type="number" name="priority" class="form-control" min="0" value="<?= (int)($product->PRIORTY ?? 0) ?>">
           </div>
           <div class="fg">
-            <label class="fc">Status</label>
+            <label>Status</label>
             <select name="product_status" class="form-control">
               <option value="Active" <?= $sts === 'Active' ? 'selected' : '' ?>>Active</option>
               <option value="In-Active" <?= $sts === 'In-Active' ? 'selected' : '' ?>>In-Active</option>
             </select>
           </div>
           <div class="fg">
-            <label class="fc">Display on Site</label>
+            <label>Display on Site</label>
             <select name="display_flag" class="form-control">
               <option value="Yes" <?= ($product->DISPLAY_FLAG ?? 'Yes') === 'Yes' ? 'selected' : '' ?>>Yes</option>
               <option value="No" <?= ($product->DISPLAY_FLAG ?? 'Yes') === 'No' ? 'selected' : '' ?>>No</option>
@@ -217,22 +217,22 @@ ob_start();
       <form method="POST" action="service?urlstring=<?= EncryptURL('action=AddProductImage') ?>" enctype="multipart/form-data" class="form-grid">
         <input type="hidden" name="product_id" value="<?= $pid ?>">
         <div class="fg">
-          <label class="fc">Image File <span class="req">*</span></label>
+          <label>Image File <span class="req">*</span></label>
           <input type="file" name="product_image" class="form-control" accept="image/*" required>
         </div>
         <div class="fg">
-          <label class="fc">Image For</label>
+          <label>Image For</label>
           <select name="image_for" class="form-control">
             <option value="Product">Product Image</option>
             <option value="Manual">Manual / Document</option>
           </select>
         </div>
         <div class="fg">
-          <label class="fc">Title (for manuals)</label>
+          <label>Title (for manuals)</label>
           <input type="text" name="product_manual_title" class="form-control">
         </div>
         <div class="fg">
-          <label class="fc">Priority</label>
+          <label>Priority</label>
           <input type="number" name="img_priority" class="form-control" value="0" min="0">
         </div>
         <div style="display:flex;gap:10px;margin-top:4px;">
@@ -266,14 +266,6 @@ ob_start();
   </div>
 </div>
 
-<script>
-function confirmDeleteProduct(id, name) {
-  document.getElementById('del_prod_id').value = id;
-  document.getElementById('del_prod_name').textContent = name;
-  openModal('delProdModal');
-}
-</script>
-
 <?php else: ?>
 <!-- ═══════════════════════════════
      PRODUCT LIST VIEW
@@ -305,7 +297,7 @@ function confirmDeleteProduct(id, name) {
     <span class="card-title">Products</span>
     <span style="font-size:12px;color:var(--text-muted);"><?= count($products) ?> found</span>
   </div>
-  <div class="card-body" style="padding:0;">
+  <div class="card-body card-body--flush">
     <?php if (empty($products)): ?>
     <div class="empty-state">
       <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="3" width="18" height="18" rx="3"/><rect x="8" y="8" width="8" height="8" rx="1.5"/></svg>
@@ -387,16 +379,16 @@ function confirmDeleteProduct(id, name) {
       <form method="POST" action="service?urlstring=<?= EncryptURL('action=InsertProduct') ?>" enctype="multipart/form-data" class="form-grid">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
           <div class="fg">
-            <label class="fc">Product Name <span class="req">*</span></label>
+            <label>Product Name <span class="req">*</span></label>
             <input type="text" name="product_name" class="form-control" required>
           </div>
           <div class="fg">
-            <label class="fc">Product Code / SKU</label>
+            <label>Product Code / SKU</label>
             <input type="text" name="product_code" class="form-control">
           </div>
         </div>
         <div class="fg">
-          <label class="fc">Category</label>
+          <label>Category</label>
           <select name="product_category_id" class="form-control">
             <option value="0">— Uncategorised —</option>
             <?php foreach ($allCats as $c): ?>
@@ -407,41 +399,41 @@ function confirmDeleteProduct(id, name) {
           </select>
         </div>
         <div class="fg">
-          <label class="fc">Description</label>
+          <label>Description</label>
           <textarea name="product_description" class="form-control" rows="2"></textarea>
         </div>
         <div class="fg">
-          <label class="fc">Specification</label>
+          <label>Specification</label>
           <textarea name="product_specification" class="form-control" rows="2"></textarea>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
           <div class="fg">
-            <label class="fc">Price (₹)</label>
+            <label>Price (₹)</label>
             <input type="number" name="product_amt" class="form-control" step="0.01" min="0" value="0">
           </div>
           <div class="fg">
-            <label class="fc">Tax (%)</label>
+            <label>Tax (%)</label>
             <input type="number" name="product_tax" class="form-control" step="0.01" min="0" value="0">
           </div>
           <div class="fg">
-            <label class="fc">Discount (%)</label>
+            <label>Discount (%)</label>
             <input type="number" name="product_discount" class="form-control" step="0.01" min="0" value="0">
           </div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
           <div class="fg">
-            <label class="fc">Priority</label>
+            <label>Priority</label>
             <input type="number" name="priority" class="form-control" value="0" min="0">
           </div>
           <div class="fg">
-            <label class="fc">Status</label>
+            <label>Status</label>
             <select name="product_status" class="form-control">
               <option value="Active">Active</option>
               <option value="In-Active">In-Active</option>
             </select>
           </div>
           <div class="fg">
-            <label class="fc">Display on Site</label>
+            <label>Display on Site</label>
             <select name="display_flag" class="form-control">
               <option value="Yes">Yes</option>
               <option value="No">No</option>
@@ -449,7 +441,7 @@ function confirmDeleteProduct(id, name) {
           </div>
         </div>
         <div class="fg">
-          <label class="fc">Main Product Image</label>
+          <label>Main Product Image</label>
           <input type="file" name="product_image" class="form-control" accept="image/*">
         </div>
         <div style="display:flex;gap:10px;margin-top:4px;">
@@ -463,9 +455,6 @@ function confirmDeleteProduct(id, name) {
 
 <?php endif; ?>
 
-<style>
-@media(max-width:768px){.responsive-prod-grid{grid-template-columns:1fr!important;}}
-</style>
 
 <?php
 $pageMainContent = ob_get_clean();

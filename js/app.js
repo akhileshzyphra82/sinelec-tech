@@ -776,18 +776,19 @@ function pCard(p, listView = false, sponsored = false, variant = 'default') {
         </div>
       </div>
       ${listView && p.package ? `<div class="pcard-specs"><span class="spec-tag">${p.package}</span></div>` : ''}
+      ${!isDetailOnly ? `
       <div class="pcard-price-row">
         <span class="price-main">${eurPrice}</span>
         ${p.originalPrice ? `<span class="price-orig">${eurOrig}</span>` : ''}
       </div>
       ${p.priceBreaks?.length > 1 ? `<div class="pcard-price-break">As low as <strong>${eurLowBreak}</strong> for ${p.priceBreaks[p.priceBreaks.length - 1].qty}+ units</div>` : ''}
       <div class="pcard-stock ${si}">${siLbl}</div>
-      <div class="pcard-delivery">${ic('truck', 11, 11)} FREE delivery by <strong>${delivEst()}</strong></div>
+      <div class="pcard-delivery">${ic('truck', 11, 11)} FREE delivery by <strong>${delivEst()}</strong></div>` : ''}
     </div>
     <div class="pcard-footer${isDetailOnly ? ' pcard-footer--single' : ''}">
       ${isDetailOnly ? `
       <button class="btn-view-detail" onclick="event.stopPropagation();openPDP(${p.id})">
-        Click Here
+        View Details
       </button>` : `
       <button class="btn-atc" onclick="atcClick(event,${p.id})">
         ${ic('cart', 14, 14)} Add to Cart
@@ -1298,6 +1299,56 @@ function renderFeaturedCarousel(elId, products, variant = 'default') {
   const el = document.getElementById(elId);
   if (!el) return;
   el.innerHTML = products.map(p => pCard(p, false, false, variant)).join('');
+}
+
+/* ── Featured Manufacturers logos ────────────────────────────── */
+const MFR_LOGO_COLORS = {
+  'STMicroelectronics':  { bg: '#f0f6ff', tc: '#003d82' },
+  'Texas Instruments':   { bg: '#fff4f0', tc: '#c0392b' },
+  'Microchip Technology':{ bg: '#fff8f0', tc: '#d4700a' },
+  'NXP Semiconductors':  { bg: '#f5f0ff', tc: '#6228c8' },
+  'Infineon':            { bg: '#f0faff', tc: '#00629b' },
+  'ON Semiconductor':    { bg: '#f5fff5', tc: '#1a7a1a' },
+  'Analog Devices':      { bg: '#f0f0ff', tc: '#1c2e7e' },
+  'Renesas':             { bg: '#fff0f5', tc: '#b5003c' },
+  'Vishay':              { bg: '#f8f8f0', tc: '#4a4a00' },
+  'ROHM':                { bg: '#fff5f0', tc: '#b84000' },
+  'Murata':              { bg: '#f0f9f0', tc: '#006633' },
+  'Wurth Elektronik':    { bg: '#fff0f0', tc: '#cc0000' },
+};
+function renderMfrLogos() {
+  const el = document.getElementById('mfrLogosGrid');
+  if (!el) return;
+  const mfrs = STORE_DATA.manufacturers.slice(0, 12);
+  el.innerHTML = mfrs.map(name => {
+    const c = MFR_LOGO_COLORS[name] || { bg: '#f4f6f8', tc: '#374151' };
+    const short = name.replace(' Semiconductors','').replace(' Technology','').replace(' Integrated','').replace(' Electronics','');
+    return `<a href="products?mfr=${encodeURIComponent(name)}" class="mfr-logo-card" style="background:${c.bg};">
+      <span class="mfr-logo-text" style="color:${c.tc};">${short}</span>
+    </a>`;
+  }).join('');
+}
+
+/* ── Service & Tools cards ────────────────────────────────────── */
+const SRV_IMAGES = [
+  'https://images.unsplash.com/photo-1518770660439-4636190af475?w=300&h=300&fit=crop',
+  'https://images.unsplash.com/photo-1531746790731-6c087fecd65a?w=300&h=300&fit=crop',
+  'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=300&h=300&fit=crop',
+  'https://images.unsplash.com/photo-1581092918056-0c4c3acd3789?w=300&h=300&fit=crop',
+  'https://images.unsplash.com/photo-1555664424-778a1e5e1b48?w=300&h=300&fit=crop',
+];
+function renderSrvTools() {
+  const el = document.getElementById('srvToolsGrid');
+  if (!el) return;
+  el.innerHTML = STORE_DATA.services.map((s, i) => `
+    <div class="srv-tool-card">
+      <div class="srv-tool-img-wrap">
+        <img src="${SRV_IMAGES[i % SRV_IMAGES.length]}" alt="${s.title}" loading="lazy"
+             onerror="this.style.display='none'">
+      </div>
+      <h3 class="srv-tool-title">${s.title}</h3>
+      <p class="srv-tool-desc">${s.description}</p>
+    </div>`).join('');
 }
 
 function renderFlashDeals() {
@@ -2002,8 +2053,6 @@ document.addEventListener('DOMContentLoaded', () => {
           .slice(0, 20);
 
         renderFeaturedCarousel('flashDealsTrack', flashDealProducts.length ? flashDealProducts : STORE_DATA.products.slice(0, 14));
-        renderFeaturedCarousel('featuredTrack', featuredProducts.length ? featuredProducts : STORE_DATA.products.slice(0, 14));
-        renderFeaturedCarousel('bestsellerTrack', bestSellerProducts.length ? bestSellerProducts : STORE_DATA.products.slice(0, 14));
         renderFeaturedCarousel('newArrivalsTrack', newArrivalProducts.length ? newArrivalProducts : STORE_DATA.products.slice(0, 20), 'detail-link');
       }
 
