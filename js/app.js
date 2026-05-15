@@ -1649,10 +1649,16 @@ function checkMobile() {
 }
 
 /* ── Delivery location modal ─────────────────────────────────── */
-const DELIVERY_KEY = 'sinelec_delivery_location';
-const ADDRESS_KEY = 'sinelec_checkout_addresses';
-const SELECTED_ADDRESS_KEY = 'sinelec_checkout_selected_address';
-const DEFAULT_DELIVERY = 'Delhi 110001';
+const DELIVERY_KEY          = 'sinelec_delivery_location';
+const ADDRESS_KEY           = 'sinelec_checkout_addresses';
+const SELECTED_ADDRESS_KEY  = 'sinelec_checkout_selected_address';
+const DEFAULT_DELIVERY      = 'Delhi 110001';
+const DELIVER_TO_AJAX = (function() {
+  const p = window.location.pathname;
+  if (p.indexOf('/website/') !== -1) return 'ajax/deliver-to';
+  if (p.indexOf('/admin/')   !== -1) return '../website/ajax/deliver-to';
+  return 'website/ajax/deliver-to';
+})();
 
 function escapeHtml(value) {
   return String(value || '')
@@ -1678,10 +1684,10 @@ function formatDeliveryLabel(fullAddress) {
 function setDeliveryLocation(value) {
   const text = (value || '').trim();
   if (!text) return;
-  const locText = document.getElementById('deliveryLocationText');
+  const locText    = document.getElementById('deliveryLocationText');
   const mobLocText = document.getElementById('mobDeliveryLocationText');
-  const display = formatDeliveryLabel(text);
-  if (locText) locText.textContent = display;
+  const display    = formatDeliveryLabel(text);
+  if (locText)    locText.textContent    = display;
   if (mobLocText) mobLocText.textContent = display;
   const btn = document.getElementById('headerDeliveryBtn');
   if (btn) btn.setAttribute('title', text);
@@ -1695,112 +1701,263 @@ function closeDeliveryModal() {
   document.body.style.overflow = '';
 }
 
-function openSignInModalFromDelivery() {
-  const modal = document.getElementById('authModal');
+/* ── helpers ── */
+function dlocFeedback(el, msg, type) {
+  if (!el) return;
+  el.textContent = msg;
+  el.className   = 'dloc-feedback' + (type ? ' is-' + type : '');
+}
+
+function dlocAjax(action, body) {
+  const fd = new FormData();
+  fd.append('action', action);
+  Object.entries(body || {}).forEach(([k, v]) => fd.append(k, v));
+  return fetch(DELIVER_TO_AJAX, { method: 'POST', body: fd })
+    .then(r => r.json());
+}
+
+/* ── Tab switching ── */
+function dlocSwitchTab(tabId) {
+  document.querySelectorAll('.dloc-tab').forEach(btn => {
+    const active = btn.dataset.dlocTab === tabId;
+    btn.classList.toggle('is-active', active);
+    btn.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+  document.querySelectorAll('.dloc-panel').forEach(panel => {
+    const active = panel.id === 'dloc' + tabId.charAt(0).toUpperCase() + tabId.slice(1) + 'Panel';
+    panel.classList.toggle('is-active', active);
+    panel.hidden = !active;
+  });
+  if (tabId === 'saved') dlocLoadSavedAddresses();
+}
+
+/* ── Geolocation tab ── */
+const GEO_BTN_HTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3"/><circle cx="12" cy="12" r="9" stroke-width="1.5"/></svg> Use Current Location';
+
+function dlocReverseGeocode(lat, lng) {
+  const url = 'https://nominatim.openstreetmap.org/reverse?lat=' + lat + '&lon=' + lng + '&format=json&addressdetails=1';
+  return fetch(url, { headers: { 'Accept-Language': 'en' } })
+    .then(r => r.json())
+    .then(data => {
+      const a = data.address || {};
+      const suburb   = a.suburb || a.neighbourhood || a.city_district || '';
+      const city     = a.city || a.town || a.village || a.county || '';
+      const postcode = a.postcode || '';
+      const parts = [suburb, city, postcode].filter(Boolean);
+      return parts.length ? parts.join(', ') : (data.display_name || '').split(',').slice(0, 2).join(',').trim();
+    });
+}
+
+function dlocInitGeoTab() {
+  const btn      = document.getElementById('dlocGeoBtn');
+  const feedback = document.getElementById('dlocGeoFeedback');
+  if (!btn) return;
+
+  btn.addEventListener('click', () => {
+    if (!navigator.geolocation) {
+      dlocFeedback(feedback, 'Geolocation is not supported by your browser.', 'warn');
+      return;
+    }
+    btn.disabled    = true;
+    btn.textContent = 'Detecting location…';
+    dlocFeedback(feedback, '', '');
+
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        const lat = pos.coords.latitude.toFixed(6);
+        const lng = pos.coords.longitude.toFixed(6);
+        dlocFeedback(feedback, 'GPS detected. Fetching location name…', 'info');
+
+        dlocReverseGeocode(lat, lng)
+          .then(locationName => {
+            const display = locationName || 'Current Location';
+            dlocFeedback(feedback, '📍 ' + display, 'ok');
+
+            return dlocAjax('set_location', { lat, lng, display });
+          })
+          .then(res => {
+            if (res && res.ok) {
+              setDeliveryLocation(res.display);
+              setTimeout(closeDeliveryModal, 1400);
+            }
+          })
+          .catch(() => {
+            dlocFeedback(feedback, 'Location detected. Could not resolve name — using coordinates.', 'info');
+            dlocAjax('set_location', { lat, lng, display: 'Current Location' })
+              .then(res => { if (res && res.ok) setDeliveryLocation(res.display); })
+              .catch(() => {});
+            setTimeout(closeDeliveryModal, 1400);
+          })
+          .finally(() => {
+            btn.disabled  = false;
+            btn.innerHTML = GEO_BTN_HTML;
+          });
+      },
+      err => {
+        const msgs = {
+          1: 'Location permission denied. Please allow access in your browser settings.',
+          2: 'Location unavailable. Please try again or use postal code.',
+          3: 'Location request timed out. Please try again.',
+        };
+        dlocFeedback(feedback, msgs[err.code] || 'Could not get location. Please try postal code.', 'warn');
+        btn.disabled  = false;
+        btn.innerHTML = GEO_BTN_HTML;
+      },
+      { timeout: 12000, maximumAge: 60000 }
+    );
+  });
+}
+
+/* ── Postal code tab ── */
+function dlocLookupPostal(postalCode) {
+  const url = 'https://nominatim.openstreetmap.org/search?postalcode='
+    + encodeURIComponent(postalCode)
+    + '&format=json&addressdetails=1&limit=1';
+  return fetch(url, { headers: { 'Accept-Language': 'en' } })
+    .then(r => r.json())
+    .then(data => {
+      if (!data || !data.length) return null;
+      const a        = data[0].address || {};
+      const suburb   = a.suburb || a.neighbourhood || a.city_district || '';
+      const city     = a.city || a.town || a.village || a.county || a.state_district || '';
+      const postcode = a.postcode || postalCode;
+      const parts    = [suburb, city, postcode].filter(Boolean);
+      return parts.length ? parts.join(', ') : postcode;
+    });
+}
+
+function dlocInitPostalTab() {
+  const form      = document.getElementById('dlocPostalForm');
+  const input     = document.getElementById('dlocPostalInput');
+  const feedback  = document.getElementById('dlocPostalFeedback');
+  const submitBtn = form?.querySelector('.dloc-postal-btn');
+  if (!form) return;
+
+  form.addEventListener('submit', e => {
+    e.preventDefault();
+    const postal = (input?.value || '').trim();
+    if (!postal) {
+      dlocFeedback(feedback, 'Please enter a postal code.', 'warn');
+      input?.focus();
+      return;
+    }
+    if (submitBtn) submitBtn.disabled = true;
+    dlocFeedback(feedback, 'Looking up location…', 'info');
+
+    dlocLookupPostal(postal)
+      .then(display => {
+        if (!display) {
+          dlocFeedback(feedback, 'Postal code not found. Please check and try again.', 'warn');
+          return;
+        }
+        dlocFeedback(feedback, '📍 ' + display, 'ok');
+        dlocAjax('set_location', { postal_code: postal, display: display });
+        setDeliveryLocation(display);
+        setTimeout(closeDeliveryModal, 1400);
+      })
+      .catch(() => dlocFeedback(feedback, 'Network error. Please try again.', 'warn'))
+      .finally(() => { if (submitBtn) submitBtn.disabled = false; });
+  });
+}
+
+/* ── Saved addresses tab ── */
+function dlocLoadSavedAddresses() {
+  const loading  = document.getElementById('dlocSavedLoading');
+  const list     = document.getElementById('dlocSavedList');
+  const feedback = document.getElementById('dlocSavedFeedback');
+  if (!list) return;
+
+  if (loading) loading.style.display = 'flex';
+  list.hidden = true;
+
+  dlocAjax('get_addresses', {})
+    .then(res => {
+      if (loading) loading.style.display = 'none';
+      if (!res.ok) {
+        dlocFeedback(feedback, res.message || 'Could not load addresses.', 'warn');
+        return;
+      }
+      const addrs = res.addresses || [];
+      if (!addrs.length) {
+        list.innerHTML = '<p class="dloc-panel-desc">No saved addresses found. Click "Add New Address" below.</p>';
+        list.hidden = false;
+        return;
+      }
+      list.innerHTML = addrs.map((a, i) => `
+        <label class="dloc-addr-item">
+          <input class="dloc-addr-radio" type="radio" name="dlocAddress"
+                 value="${escapeHtml(a.line)}" data-addr-id="${escapeHtml(String(a.id))}" ${i === 0 ? 'checked' : ''}>
+          <span class="dloc-addr-copy">
+            <strong class="dloc-addr-name">${escapeHtml(a.name || 'Address ' + (i + 1))}</strong>
+            <span class="dloc-addr-line">${escapeHtml(a.line)}</span>
+          </span>
+        </label>`).join('');
+      list.hidden = false;
+    })
+    .catch(() => {
+      if (loading) loading.style.display = 'none';
+      dlocFeedback(feedback, 'Network error. Please try again.', 'warn');
+    });
+}
+
+function dlocInitSavedTab() {
+  const list = document.getElementById('dlocSavedList');
+  if (!list) return;
+
+  list.addEventListener('change', e => {
+    const radio = e.target;
+    if (!(radio instanceof HTMLInputElement) || radio.name !== 'dlocAddress') return;
+    const addressId = radio.dataset.addrId || '';
+    const line      = radio.value;
+
+    document.querySelectorAll('.dloc-addr-item').forEach(item => {
+      item.classList.toggle('is-selected', item.querySelector('input') === radio);
+    });
+
+    dlocAjax('set_address', { address_id: addressId })
+      .then(res => {
+        if (res.ok) {
+          setDeliveryLocation(res.display || line);
+        } else {
+          setDeliveryLocation(line);
+        }
+        setTimeout(closeDeliveryModal, 600);
+      })
+      .catch(() => {
+        setDeliveryLocation(line);
+        setTimeout(closeDeliveryModal, 600);
+      });
+  });
+}
+
+/* ── Open / Init ── */
+function openDeliveryModal() {
+  const modal = document.getElementById('deliveryModal');
   if (!modal) return;
-
-  const signInPanel = document.getElementById('authSignInPanel');
-  const signUpPanel = document.getElementById('authSignUpPanel');
-  const title = document.getElementById('authModalTitle');
-  const desc = document.getElementById('authModalDesc');
-  const tabBtns = Array.from(document.querySelectorAll('.auth-switch-tab'));
-
-  signInPanel?.classList.add('is-active');
-  signUpPanel?.classList.remove('is-active');
-  if (title) title.textContent = 'Sign In';
-  if (desc) desc.textContent = 'Sign in to continue.';
-  tabBtns.forEach(btn => btn.classList.toggle('is-active', (btn.dataset.authSwitch || 'signin') === 'signin'));
-
+  dlocSwitchTab('geo');
   modal.hidden = false;
   document.body.style.overflow = 'hidden';
 }
 
-function loadSavedDeliveryAddresses() {
-  try {
-    const stored = JSON.parse(localStorage.getItem(ADDRESS_KEY) || '[]');
-    return Array.isArray(stored) ? stored : [];
-  } catch {
-    return [];
-  }
-}
-
-function getDefaultAddressId(addresses) {
-  if (!Array.isArray(addresses) || !addresses.length) return '';
-  const selectedId = localStorage.getItem(SELECTED_ADDRESS_KEY) || '';
-  if (selectedId && addresses.some(item => item && item.id === selectedId)) {
-    return selectedId;
-  }
-  const explicitDefault = addresses.find(item => item && item.isDefault);
-  return explicitDefault?.id || addresses[0].id || '';
-}
-
-function formatAddressPreview(address = {}) {
-  const label = (address.label || 'HOME').toString().trim().toUpperCase();
-  const name = (address.name || '').toString().trim();
-  const phone = (address.phone || '').toString().trim();
-  const line = (address.line || '').toString().trim();
-  return {
-    id: (address.id || '').toString(),
-    label,
-    name,
-    phone,
-    line
-  };
-}
-
-function renderDeliveryAddressList(addressList) {
-  if (!addressList) return;
-
-  const addresses = loadSavedDeliveryAddresses().map(formatAddressPreview).filter(item => item.id && item.line);
-  if (!addresses.length) {
-    addressList.innerHTML = '<div class="delivery-empty-row">No saved address found. Add a new address below.</div>';
-    return;
-  }
-
-  const defaultId = getDefaultAddressId(addresses);
-  addressList.innerHTML = addresses.map(item => {
-    const isDefault = item.id === defaultId;
-    const safeValue = escapeHtml(item.line);
-    const safeLabel = escapeHtml(item.label);
-    const safeName = escapeHtml(item.name);
-    const safePhone = escapeHtml(item.phone);
-
-    return `
-      <label class="delivery-address-item">
-        <input type="radio" name="deliveryAddress" value="${safeValue}" data-address-id="${escapeHtml(item.id)}" ${isDefault ? 'checked' : ''}>
-        <span class="delivery-address-main">
-          <strong>${safeLabel}${isDefault ? ' · Default' : ''}</strong>
-          <small>${safeName}${safePhone ? ' · ' + safePhone : ''}</small>
-          <small>${safeValue}</small>
-        </span>
-      </label>
-    `;
-  }).join('');
-
-  const checked = addressList.querySelector('input[name="deliveryAddress"]:checked');
-  if (checked instanceof HTMLInputElement) {
-    setDeliveryLocation(checked.value);
-  }
-}
-
-function openDeliveryModal() {
-  if (!AUTH_STATE.isSignedIn) {
-    openSignInModalFromDelivery();
-    return;
-  }
-  const modal = document.getElementById('deliveryModal');
+function openSignInModalFromDelivery() {
+  closeDeliveryModal();
+  const modal       = document.getElementById('authModal');
+  const signInPanel = document.getElementById('authSignInPanel');
+  const signUpPanel = document.getElementById('authSignUpPanel');
+  const title       = document.getElementById('authModalTitle');
+  const desc        = document.getElementById('authModalDesc');
   if (!modal) return;
-  const addressList = document.getElementById('deliveryAddressList');
-  renderDeliveryAddressList(addressList);
+  signInPanel?.classList.add('is-active');
+  signUpPanel?.classList.remove('is-active');
+  if (title) title.textContent = 'Sign In';
+  if (desc)  desc.textContent  = 'Sign in to continue.';
   modal.hidden = false;
   document.body.style.overflow = 'hidden';
 }
 
 function initDeliveryLocationModal() {
   const headerBtn = document.getElementById('headerDeliveryBtn');
-  const modal = document.getElementById('deliveryModal');
-  const closeEls = Array.from(document.querySelectorAll('[data-delivery-close]'));
-  const addressList = document.getElementById('deliveryAddressList');
+  const modal     = document.getElementById('deliveryModal');
   if (!headerBtn || !modal) return;
 
   try {
@@ -1810,24 +1967,22 @@ function initDeliveryLocationModal() {
 
   headerBtn.addEventListener('click', openDeliveryModal);
   headerBtn.addEventListener('keydown', e => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      openDeliveryModal();
-    }
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDeliveryModal(); }
   });
-  closeEls.forEach(el => el.addEventListener('click', closeDeliveryModal));
 
-  addressList?.addEventListener('change', e => {
-    const target = e.target;
-    if (!(target instanceof HTMLInputElement)) return;
-    if (target.name !== 'deliveryAddress') return;
-    const addressId = target.dataset.addressId || '';
-    if (addressId) {
-      try { localStorage.setItem(SELECTED_ADDRESS_KEY, addressId); } catch {}
-    }
-    setDeliveryLocation(target.value);
-    closeDeliveryModal();
+  Array.from(document.querySelectorAll('[data-delivery-close]'))
+    .forEach(el => el.addEventListener('click', closeDeliveryModal));
+
+  document.querySelectorAll('.dloc-tab').forEach(btn => {
+    btn.addEventListener('click', () => dlocSwitchTab(btn.dataset.dlocTab || 'geo'));
   });
+
+  const loginBtn = document.getElementById('dlocLoginBtn');
+  if (loginBtn) loginBtn.addEventListener('click', openSignInModalFromDelivery);
+
+  dlocInitGeoTab();
+  dlocInitPostalTab();
+  dlocInitSavedTab();
 
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape' && modal && !modal.hidden) closeDeliveryModal();

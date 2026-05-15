@@ -138,6 +138,165 @@
   </div>
 </div>
 
+<!-- ══════════ COOKIE CONSENT ══════════════════════════════════ -->
+<div class="ck-bar" id="ckBar" aria-live="polite" role="region" aria-label="Cookie consent" hidden>
+  <div class="ck-inner">
+
+    <p class="ck-text">
+      Sinelec Technologies uses cookies and similar technology to improve site performance, enhance security, personalise content and ads, and understand how you interact with our services. This information is shared with third-party service providers. Click &ldquo;Reject All&rdquo; to disable all non-essential cookies. By continuing on our site, you agree to our website
+      <a href="terms-conditions" class="ck-link">Terms &amp; Conditions</a> and <a href="privacy-policy" class="ck-link">Privacy Notice</a>.
+    </p>
+
+    <div class="ck-actions">
+      <button type="button" class="ck-btn ck-btn--outline" id="ckSettingsBtn">Cookie Settings</button>
+      <button type="button" class="ck-btn ck-btn--reject"  id="ckRejectBtn">Reject All</button>
+      <button type="button" class="ck-btn ck-btn--accept"  id="ckAcceptBtn">Accept All Cookies</button>
+    </div>
+
+    <button type="button" class="ck-close" id="ckCloseBtn" aria-label="Close cookie banner">&times;</button>
+  </div>
+</div>
+
+
+<style>
+/* ── Cookie banner ──────────────────────────────────── */
+.ck-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  background: #ffffff;
+  border-top: 1px solid #c8cfd8;
+  box-shadow: 0 -2px 16px rgba(0,0,0,.08);
+  animation: ckSlideUp .3s ease;
+}
+@keyframes ckSlideUp {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+.ck-inner {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 18px 32px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+.ck-text {
+  flex: 1 1 0;
+  font-size: 13.5px;
+  color: #1a1a1a;
+  line-height: 1.6;
+  margin: 0;
+  min-width: 0;
+}
+.ck-link {
+  color: #1a5dc8;
+  text-decoration: underline;
+  font-weight: 600;
+}
+.ck-link:hover { color: #0f44a3; }
+.ck-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.ck-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  padding: 0 22px;
+  border-radius: 4px;
+  font-size: 13.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+  line-height: 1;
+}
+.ck-btn--outline {
+  background: #ffffff;
+  color: #1a1a1a;
+  border: 2px solid #1a1a1a;
+}
+.ck-btn--outline:hover { background: #f5f5f5; }
+.ck-btn--reject {
+  background: #d0021b;
+  color: #ffffff;
+  border: 2px solid #d0021b;
+}
+.ck-btn--reject:hover { background: #b00218; border-color: #b00218; }
+.ck-btn--accept {
+  background: #d0021b;
+  color: #ffffff;
+  border: 2px solid #d0021b;
+}
+.ck-btn--accept:hover { background: #b00218; border-color: #b00218; }
+.ck-close {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  font-size: 24px;
+  line-height: 1;
+  color: #444;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: color .15s;
+  padding: 0;
+}
+.ck-close:hover { color: #000; }
+
+/* ── Responsive ─────────────────────────────────────── */
+@media (max-width: 960px) {
+  .ck-inner {
+    flex-wrap: wrap;
+    gap: 14px;
+    padding: 16px 20px;
+  }
+  .ck-text    { flex-basis: 100%; font-size: 13px; }
+  .ck-actions { order: 2; flex-wrap: wrap; gap: 8px; }
+  .ck-close   { order: 3; margin-left: auto; }
+}
+@media (max-width: 600px) {
+  .ck-inner   { padding: 14px 16px; }
+  .ck-actions { width: 100%; }
+  .ck-btn     { flex: 1 1 calc(50% - 4px); height: 42px; font-size: 12.5px; padding: 0 10px; }
+  .ck-btn--accept { flex-basis: 100%; flex-grow: 0; width: 100%; }
+  .ck-text    { font-size: 12.5px; }
+}
+@media (max-width: 400px) {
+  .ck-btn  { height: 40px; font-size: 12px; }
+  .ck-text { font-size: 12px; }
+}
+</style>
+
+<script>
+(function () {
+  var STORAGE_KEY = 'sinelec_cookie_consent';
+  var bar = document.getElementById('ckBar');
+
+  if (!bar) return;
+  if (!localStorage.getItem(STORAGE_KEY)) bar.hidden = false;
+
+  function done(val) {
+    localStorage.setItem(STORAGE_KEY, val);
+    bar.hidden = true;
+  }
+
+  document.getElementById('ckAcceptBtn')  && document.getElementById('ckAcceptBtn').addEventListener('click',   function () { done('accepted'); });
+  document.getElementById('ckRejectBtn')  && document.getElementById('ckRejectBtn').addEventListener('click',   function () { done('rejected'); });
+  document.getElementById('ckSettingsBtn')&& document.getElementById('ckSettingsBtn').addEventListener('click', function () { done('dismissed'); });
+  document.getElementById('ckCloseBtn')   && document.getElementById('ckCloseBtn').addEventListener('click',    function () { done('dismissed'); });
+})();
+</script>
+
 <!-- ══════════ SCRIPTS ════════════════════════════════════════ -->
 <script src="../js/cart.js"></script>
 <script src="../js/app.js"></script>

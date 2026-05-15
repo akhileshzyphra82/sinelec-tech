@@ -619,7 +619,6 @@ function sinelec_otp_email_html(string $email, string $otp, string $year, string
       <tr>
         <td style="background:#0a1a30;padding:26px 36px;text-align:center">
           <p style="margin:0;color:#FFFFFF;font-size:20px;font-weight:700;letter-spacing:0.5px">Sinelec Technologies</p>
-          <p style="margin:4px 0 0;color:#7A9BC0;font-size:12px">India's Premier Semiconductor Store</p>
         </td>
       </tr>
       <tr>

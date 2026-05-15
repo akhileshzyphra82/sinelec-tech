@@ -498,6 +498,298 @@ ul, ol { list-style: none; }
   border-color: #ebc7d2;
 }
 
+/* ── Deliver-To modal — tabbed redesign ──────────────────────── */
+.dloc-dialog {
+  padding: 20px 18px 18px;
+  width: min(480px, calc(100% - 20px));
+}
+.dloc-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 2px solid #dce7f4;
+  margin-bottom: 16px;
+}
+.dloc-tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 8px 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #617a98;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  border-radius: 0;
+  background: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color .15s, border-color .15s;
+}
+.dloc-tab:hover { color: #1a3d6b; }
+.dloc-tab.is-active {
+  color: #0f5ebf;
+  border-bottom-color: #0f5ebf;
+}
+.dloc-tab svg { flex-shrink: 0; }
+.dloc-panel { display: none; }
+.dloc-panel.is-active { display: block; }
+.dloc-panel-desc {
+  font-size: 12px;
+  color: #5f7795;
+  line-height: 1.5;
+  margin-bottom: 14px;
+}
+
+/* Geo panel */
+.dloc-geo-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #0f5ebf;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 18px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .15s;
+}
+.dloc-geo-btn:hover { background: #0a4a9a; }
+.dloc-geo-btn:disabled {
+  background: #8aadd8;
+  cursor: not-allowed;
+}
+
+/* Postal code panel */
+.dloc-postal-form { margin-bottom: 0; }
+.dloc-postal-row {
+  display: flex;
+  gap: 8px;
+}
+.dloc-postal-input {
+  flex: 1;
+  height: 40px;
+  border: 1.5px solid #cfdced;
+  border-radius: 9px;
+  padding: 0 12px;
+  font-size: 14px;
+  color: #1f3552;
+  outline: none;
+  background: #fff;
+  min-width: 0;
+}
+.dloc-postal-input:focus {
+  border-color: #0f5ebf;
+  box-shadow: 0 0 0 3px rgb(15 94 191 / .14);
+}
+.dloc-postal-btn {
+  height: 40px;
+  padding: 0 18px;
+  background: #0f5ebf;
+  color: #fff;
+  border: none;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background .15s;
+}
+.dloc-postal-btn:hover { background: #0a4a9a; }
+.dloc-postal-btn:disabled { background: #8aadd8; cursor: not-allowed; }
+
+/* Shared feedback area */
+.dloc-feedback {
+  margin-top: 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  min-height: 20px;
+}
+.dloc-feedback.is-ok   { color: #1a7a3d; }
+.dloc-feedback.is-warn { color: #ba3552; }
+.dloc-feedback.is-info { color: #1e4e8c; }
+
+/* Saved addresses panel */
+.dloc-saved-inner { display: flex; flex-direction: column; gap: 10px; }
+.dloc-saved-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #617a98;
+  padding: 10px 0;
+}
+.dloc-spin {
+  animation: dlocSpin .8s linear infinite;
+}
+@keyframes dlocSpin { to { transform: rotate(360deg); } }
+.dloc-saved-list {
+  display: grid;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.dloc-addr-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1.5px solid #dce7f4;
+  border-radius: 10px;
+  background: #f8fbff;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.dloc-addr-item:hover { border-color: #9ac0e8; background: #f0f7ff; }
+.dloc-addr-item.is-selected {
+  border-color: #0f5ebf;
+  background: #eef5ff;
+}
+.dloc-addr-radio { margin-top: 2px; accent-color: #0f5ebf; flex-shrink: 0; }
+.dloc-addr-copy { flex: 1; min-width: 0; }
+.dloc-addr-name {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #1e3656;
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dloc-addr-line {
+  display: block;
+  font-size: 11.5px;
+  color: #5f7795;
+  line-height: 1.4;
+}
+.dloc-add-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #1d63b3;
+  padding: 7px 0;
+  border-top: 1px dashed #cfdced;
+  margin-top: 2px;
+}
+.dloc-add-link:hover { color: #0a4a9a; }
+
+/* Login prompt (logged-out saved tab) */
+.dloc-login-prompt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 24px 12px;
+  text-align: center;
+}
+.dloc-login-icon {
+  width: 54px;
+  height: 54px;
+  border-radius: 999px;
+  background: #eef5ff;
+  border: 1.5px solid #cfe0f5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #3a72bf;
+}
+.dloc-login-copy {
+  font-size: 13px;
+  color: #2e4c72;
+  font-weight: 600;
+  line-height: 1.4;
+  max-width: 240px;
+}
+.dloc-login-btn {
+  background: #0f5ebf;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 9px 22px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .15s;
+}
+.dloc-login-btn:hover { background: #0a4a9a; }
+
+/* ── Shipping info footer ──────────────────────────── */
+.dloc-info-footer {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid #dce7f4;
+}
+.dloc-info-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 13px 14px;
+  background: linear-gradient(135deg, #eff6ff 0%, #f0f9ff 100%);
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  text-decoration: none;
+  transition: background .18s, border-color .18s, box-shadow .18s;
+}
+.dloc-info-card:hover {
+  background: linear-gradient(135deg, #dbeafe 0%, #e0f2fe 100%);
+  border-color: #93c5fd;
+  box-shadow: 0 3px 12px rgba(37,99,235,.12);
+}
+.dloc-info-icon {
+  flex-shrink: 0;
+  color: #2563eb;
+  margin-top: 1px;
+  display: flex;
+}
+.dloc-info-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.dloc-info-heading {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1e3a8a;
+  line-height: 1.35;
+}
+.dloc-info-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #2563eb;
+}
+.dloc-info-desc {
+  font-size: 11px;
+  color: #4a6179;
+  line-height: 1.5;
+  margin-top: 1px;
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+  .dloc-dialog { padding: 16px 14px 14px; }
+  .dloc-tab {
+    font-size: 10px;
+    padding: 7px 4px;
+    gap: 3px;
+  }
+  .dloc-tab svg { display: none; }
+  .dloc-info-card { gap: 9px; padding: 11px 12px; }
+  .dloc-info-icon svg { width: 17px; height: 17px; }
+  .dloc-info-heading { font-size: 11.5px; }
+  .dloc-info-desc { font-size: 10.5px; }
+}
+
 /* Auth modal */
 .auth-modal {
   position: fixed;
@@ -807,13 +1099,12 @@ ul, ol { list-style: none; }
 
 /* Search */
 .header-search {
-  flex: 1;
+  flex: 1 1 0;
   display: flex;
   align-items: center;
   height: 34px;
-  min-width: 0;
-  max-width: 680px;
-  margin-left: auto;
+  min-width: 120px;
+  margin: 0 12px;
   border-radius: var(--r-sm);
   overflow: hidden;
   position: relative;
@@ -6406,9 +6697,6 @@ body[data-page="chip-programming"] .srv-grid {
   }
   .header-main {
     gap: 8px;
-  }
-  .header-search {
-    max-width: none;
   }
   .delivery-loc-text {
     max-width: 96px;

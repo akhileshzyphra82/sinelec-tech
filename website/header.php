@@ -449,30 +449,98 @@ window.FLASH_TOAST  = {
 <!-- ══════════ DELIVERY LOCATION MODAL ═══════════════════════ -->
 <div class="delivery-modal" id="deliveryModal" hidden>
   <div class="delivery-modal-backdrop" data-delivery-close></div>
-  <div class="delivery-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="deliveryModalTitle">
+  <div class="delivery-modal-dialog dloc-dialog" role="dialog" aria-modal="true" aria-labelledby="deliveryModalTitle">
     <button type="button" class="delivery-modal-close" data-delivery-close aria-label="Close">×</button>
     <h3 class="delivery-modal-title" id="deliveryModalTitle">Choose Delivery Location</h3>
-    <p class="delivery-modal-subtitle">Set where you want orders to be delivered for accurate stock and shipping estimates.</p>
+    <p class="delivery-modal-subtitle">Set where you want orders delivered for accurate stock &amp; shipping estimates.</p>
 
-    <div class="delivery-modal-block">
-      <div class="delivery-modal-label">Select existing address</div>
-      <div class="delivery-address-list" id="deliveryAddressList"></div>
+    <!-- ── Tabs ── -->
+    <div class="dloc-tabs" role="tablist" aria-label="Location method">
+      <button class="dloc-tab is-active" role="tab" aria-selected="true"  data-dloc-tab="geo"    type="button">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3"/><circle cx="12" cy="12" r="9" stroke-width="1.5"/></svg>
+        Current Location
+      </button>
+      <button class="dloc-tab" role="tab" aria-selected="false" data-dloc-tab="postal" type="button">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        Enter Postal Code
+      </button>
+      <button class="dloc-tab" role="tab" aria-selected="false" data-dloc-tab="saved"  type="button">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        Saved Addresses
+      </button>
     </div>
 
-    <div class="delivery-modal-block">
-      <a href="delivery-address" class="delivery-add-address-link">+ Add new address</a>
+    <!-- ── Panel: Geolocation ── -->
+    <div class="dloc-panel is-active" id="dlocGeoPanel" role="tabpanel">
+      <p class="dloc-panel-desc">Use your device GPS to automatically detect your location for accurate delivery estimates.</p>
+      <button type="button" class="dloc-geo-btn" id="dlocGeoBtn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3"/><circle cx="12" cy="12" r="9" stroke-width="1.5"/></svg>
+        Use Current Location
+      </button>
+      <div class="dloc-feedback" id="dlocGeoFeedback" aria-live="polite"></div>
     </div>
 
-    <div class="delivery-modal-block delivery-modal-block--info">
-      <div class="delivery-modal-label">Shipping and payment term for your location</div>
-      <a href="shipping-payment-term" class="delivery-info-link">
-        <span class="delivery-info-link-copy">
-          <strong>Click here</strong>
-          <small>Review delivery timelines, VAT guidance, accepted payment methods, and region-wise shipping costs.</small>
+    <!-- ── Panel: Postal code ── -->
+    <div class="dloc-panel" id="dlocPostalPanel" role="tabpanel" hidden>
+      <p class="dloc-panel-desc">Enter your postal or zip code to check if we deliver to your area.</p>
+      <form class="dloc-postal-form" id="dlocPostalForm" novalidate>
+        <div class="dloc-postal-row">
+          <input class="dloc-postal-input" type="text" id="dlocPostalInput"
+                 placeholder="e.g. 110001 or SW1A 1AA"
+                 autocomplete="postal-code" maxlength="12" inputmode="text">
+          <button type="submit" class="dloc-postal-btn">Check</button>
+        </div>
+      </form>
+      <div class="dloc-feedback" id="dlocPostalFeedback" aria-live="polite"></div>
+    </div>
+
+    <!-- ── Panel: Saved addresses ── -->
+    <div class="dloc-panel" id="dlocSavedPanel" role="tabpanel" hidden>
+      <?php if (!$isSignedIn): ?>
+      <div class="dloc-login-prompt">
+        <span class="dloc-login-icon">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V8a5 5 0 0 1 10 0v3"/></svg>
         </span>
-        <span class="delivery-info-link-icon" aria-hidden="true">→</span>
+        <p class="dloc-login-copy">Sign in to select from your saved addresses</p>
+        <button type="button" class="dloc-login-btn" id="dlocLoginBtn">Sign In / Register</button>
+      </div>
+      <?php else: ?>
+      <div class="dloc-saved-inner">
+        <div class="dloc-saved-loading" id="dlocSavedLoading">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="dloc-spin" aria-hidden="true"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+          Loading addresses…
+        </div>
+        <div class="dloc-saved-list" id="dlocSavedList" hidden></div>
+        <div class="dloc-feedback" id="dlocSavedFeedback" aria-live="polite"></div>
+        <a href="delivery-address" class="dloc-add-link">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add New Address
+        </a>
+      </div>
+      <?php endif; ?>
+    </div>
+
+    <!-- ── Shipping info footer ── -->
+    <div class="dloc-info-footer">
+      <a href="shipping-payment-term" class="dloc-info-card">
+        <span class="dloc-info-icon" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="8" x2="12" y2="12"/>
+            <line x1="12" y1="16" x2="12.01" y2="16" stroke-width="2.5" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <span class="dloc-info-body">
+          <span class="dloc-info-heading">Shipping &amp; Payment Terms for Your Location</span>
+          <span class="dloc-info-cta">
+            Click here
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+          </span>
+          <span class="dloc-info-desc">Review delivery timelines, VAT guidance, accepted payment methods, and region-wise shipping costs.</span>
+        </span>
       </a>
     </div>
+
   </div>
 </div>
 

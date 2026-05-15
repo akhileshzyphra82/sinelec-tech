@@ -33,6 +33,7 @@ function sinelec_account_nav_items(): array
     return [
         'profile' => ['label' => 'Profile', 'href' => 'profile', 'icon' => 'user'],
         'my-orders' => ['label' => 'My Order', 'href' => 'my-orders', 'icon' => 'box'],
+        'my-list'   => ['label' => 'My List',  'href' => 'my-list',   'icon' => 'list'],
         'delivery-address' => ['label' => 'Delivery Address', 'href' => 'delivery-address', 'icon' => 'pin'],
         'change-password' => ['label' => 'Change Password', 'href' => 'change-password', 'icon' => 'lock'],
         'logout' => ['label' => 'Logout', 'href' => 'service?urlstring=' . EncryptURL('action=Logout'), 'icon' => 'logout'],
@@ -46,6 +47,7 @@ function sinelec_account_icon(string $icon): string
         'box' => '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4a2 2 0 0 0 1-1.73Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>',
         'pin' => '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0Z"/><circle cx="12" cy="10" r="3"/></svg>',
         'lock' => '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V8a5 5 0 1 1 10 0v3"/></svg>',
+        'list'   => '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4" cy="6" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.5" fill="currentColor" stroke="none"/></svg>',
         'logout' => '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>',
     ];
 
