@@ -886,6 +886,139 @@ function sinelec_smtp_deliver(
     return true;
 }
 
+/* ══════════════════════════════════════════════════════════════════
+   RBAC — Role-based permission helpers
+══════════════════════════════════════════════════════════════════ */
+
+/**
+ * Load role permissions into session (lazy, one-time per request for employees).
+ * Permissions are stored as $_SESSION['sinelec_admin']['PERMISSIONS'][menu_id] = [can_view, can_add, …]
+ */
+function sinelec_load_permissions(): void
+{
+    if ((int)($_SESSION['sinelec_admin']['USER_TYPE_ID'] ?? 0) !== 3) return;
+    if (array_key_exists('PERMISSIONS', $_SESSION['sinelec_admin'] ?? [])) return;
+
+    $roleId = (int)($_SESSION['sinelec_admin']['ROLE_ID'] ?? 0);
+    if ($roleId === 0) { $_SESSION['sinelec_admin']['PERMISSIONS'] = []; return; }
+
+    try {
+        require_once dirname(__DIR__) . '/config/db.php';
+        $db   = new MySQLDB();
+        $rows = $db->select(
+            "SELECT menu_id, can_view, can_add, can_edit, can_delete
+             FROM tbl_roles_permission WHERE role_id=" . $roleId
+        );
+        $perms = [];
+        foreach ($rows as $r) {
+            $perms[(int)$r->menu_id] = [
+                'can_view'   => (bool)$r->can_view,
+                'can_add'    => (bool)$r->can_add,
+                'can_edit'   => (bool)$r->can_edit,
+                'can_delete' => (bool)$r->can_delete,
+            ];
+        }
+        $_SESSION['sinelec_admin']['PERMISSIONS'] = $perms;
+    } catch (Exception $e) {
+        error_log('sinelec_load_permissions: ' . $e->getMessage());
+        $_SESSION['sinelec_admin']['PERMISSIONS'] = [];
+    }
+}
+
+/**
+ * Check if the current user has a given permission for a menu item.
+ *
+ * Usage:  sinelec_can('add')          → check global add right
+ *         sinelec_can('edit', 7)      → check edit right for menu_id=7
+ *
+ * Returns TRUE always for Admin (user_type_id=1).
+ * Returns TRUE for Employee (user_type_id=3) only when explicitly granted.
+ */
+function sinelec_can(string $action, int $menuId = 0): bool
+{
+    if (session_status() !== PHP_SESSION_ACTIVE) session_start();
+    $userTypeId = (int)($_SESSION['sinelec_admin']['USER_TYPE_ID'] ?? 0);
+    if ($userTypeId === 1) return true;
+
+    sinelec_load_permissions();
+    $perms = $_SESSION['sinelec_admin']['PERMISSIONS'] ?? [];
+
+    if ($menuId > 0 && isset($perms[$menuId])) {
+        return (bool)($perms[$menuId]['can_' . $action] ?? false);
+    }
+    // fallback: check if user has this action on ANY menu
+    if ($menuId === 0) {
+        foreach ($perms as $p) {
+            if (!empty($p['can_' . $action])) return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Abort with 403 if the user lacks the required permission.
+ * Use at top of action pages: sinelec_require_can('add', 9);
+ */
+function sinelec_require_can(string $action, int $menuId = 0): void
+{
+    if (!sinelec_can($action, $menuId)) {
+        http_response_code(403);
+        exit('<div style="font-family:sans-serif;padding:40px;text-align:center"><h2>403 — Access Denied</h2><p>You do not have permission to perform this action.</p><a href="javascript:history.back()">Go back</a></div>');
+    }
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   SIDEBAR — Material icon name → SVG path string
+══════════════════════════════════════════════════════════════════ */
+function sb_icon_svg(string $name): string
+{
+    static $icons = [
+        'settings'               => '<path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>',
+        'shopping_cart'          => '<path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/>',
+        'business_center'        => '<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/>',
+        'language'               => '<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>',
+        'support_agent'          => '<path d="M3 18v-6a9 9 0 0118 0v6"/><path d="M21 19a2 2 0 01-2 2h-1a2 2 0 01-2-2v-3a2 2 0 012-2h3zM3 19a2 2 0 002 2h1a2 2 0 002-2v-3a2 2 0 00-2-2H3z"/>',
+        'groups'                 => '<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>',
+        'account_balance_wallet' => '<rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><circle cx="16" cy="15" r="1.2" fill="currentColor"/>',
+        'analytics'              => '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
+        'admin_panel_settings'   => '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><circle cx="12" cy="11" r="2.5"/>',
+        'badge'                  => '<rect x="2" y="3" width="20" height="18" rx="2"/><circle cx="12" cy="10" r="3"/><path d="M7 21v-1a5 5 0 0110 0v1"/>',
+        'local_shipping'         => '<rect x="1" y="3" width="15" height="13" rx="1"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>',
+        'inventory'              => '<polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/>',
+        'storefront'             => '<path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M9 7v4a3 3 0 006 0V7"/>',
+        'request_quote'          => '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/>',
+        'factory'                => '<path d="M2 20V8l7-4v4l7-4v16H2z"/><path d="M16 20V10h6v10h-6z"/><rect x="5" y="14" width="2" height="3"/><rect x="10" y="14" width="2" height="3"/>',
+        'inventory_2'            => '<path d="M21 8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',
+        'category'               => '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+        'upload_file'            => '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><polyline points="12 18 12 12"/><polyline points="9 15 12 12 15 15"/>',
+        'warehouse'              => '<path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+        'image'                  => '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>',
+        'menu_book'              => '<path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>',
+        'link'                   => '<path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>',
+        'campaign'               => '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 010 14.14"/><path d="M15.54 8.46a5 5 0 010 7.07"/>',
+        'confirmation_number'    => '<path d="M15 5v2M15 11v2M15 17v2M5 5h14a2 2 0 012 2v3a2 2 0 000 4v3a2 2 0 01-2 2H5a2 2 0 01-2-2v-3a2 2 0 000-4V7a2 2 0 012-2z"/>',
+        'work'                   => '<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/>',
+        'person_search'          => '<circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><circle cx="11" cy="9" r="2.5"/><path d="M7.5 15a4 4 0 017 0"/>',
+        'receipt_long'           => '<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1z"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="12" y2="17"/>',
+        'payments'               => '<rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/>',
+        'description'            => '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>',
+        'article'                => '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/>',
+        'bar_chart'              => '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
+        'dashboard'              => '<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>',
+        'home'                   => '<path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+        'orders'                 => '<path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/>',
+        'products'               => '<path d="M21 8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',
+        'customers'              => '<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>',
+        'reports'                => '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
+        'users'                  => '<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>',
+        'enquiries'              => '<path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>',
+        'quotes'                 => '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/>',
+        'roles'                  => '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+        'permissions'            => '<rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V8a5 5 0 0110 0v3"/>',
+    ];
+    return $icons[$name] ?? '<rect x="3" y="3" width="18" height="18" rx="2"/>';
+}
+
 function sinelec_validate_turnstile(string $token, ?string $remoteIp = null): array
 {
 	$secretKey = sinelec_env('SECRET_KEY');

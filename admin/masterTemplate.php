@@ -8,6 +8,7 @@
  */
 if (session_status() !== PHP_SESSION_ACTIVE) session_start();
 require_once __DIR__ . '/../common/functions.php';
+require_once __DIR__ . '/../controller/admin_controller.php';
 
 if (empty($_SESSION['sinelec_admin']['USER_ID'])) {
     sinelec_set_flash('warn', 'Please sign in to access the admin panel.');
@@ -27,48 +28,9 @@ $flashToast = sinelec_consume_flash();
 $flashMsg   = (string)($flashToast['message'] ?? '');
 $flashType  = (string)($flashToast['type']    ?? 'ok');
 
-$menu = [
-    ['key'=>'dashboard','label'=>'Dashboard','href'=>'dashboard',
-     'icon'=>'<path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>'],
-    ['group'=>'Catalog','items'=>[
-        ['key'=>'categories','label'=>'Product Categories','href'=>'categories',
-         'icon'=>'<path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>'],
-        ['key'=>'products','label'=>'Products','href'=>'products',
-         'icon'=>'<rect x="3" y="3" width="18" height="18" rx="3"/><rect x="8" y="8" width="8" height="8" rx="1.5"/>'],
-    ]],
-    ['group'=>'Inventory','items'=>[
-        ['key'=>'purchase','label'=>'Purchase Records','href'=>'purchase',
-         'icon'=>'<path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/>'],
-        ['key'=>'stock','label'=>'Stock Records','href'=>'stock',
-         'icon'=>'<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>'],
-    ]],
-    ['group'=>'Orders & Sales','items'=>[
-        ['key'=>'orders','label'=>'Active Orders','href'=>'orders',
-         'icon'=>'<path d="M21 8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>'],
-        ['key'=>'orders-history','label'=>'Order History','href'=>'orders-history',
-         'icon'=>'<path d="M3 12a9 9 0 105.195-8.195"/><polyline points="3 3 3 9 9 9"/><path d="M12 7v5l3 3"/>'],
-        ['key'=>'enquiries','label'=>'Enquiries / RFQ','href'=>'enquiries',
-         'icon'=>'<path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>'],
-    ]],
-    ['group'=>'Customers','items'=>[
-        ['key'=>'customers','label'=>'Customer Details','href'=>'customers',
-         'icon'=>'<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>'],
-    ]],
-    ['group'=>'Content','items'=>[
-        ['key'=>'banners','label'=>'Banners','href'=>'banners',
-         'icon'=>'<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>'],
-        ['key'=>'news','label'=>'News & Events','href'=>'news',
-         'icon'=>'<path d="M4 22h16a2 2 0 002-2V4a2 2 0 00-2-2H8a2 2 0 00-2 2v16a2 2 0 01-2 2zm0 0a2 2 0 01-2-2v-9c0-1.1.9-2 2-2h2"/><path d="M18 14h-8"/><path d="M15 18h-5"/><path d="M10 6h8v4h-8z"/>'],
-        ['key'=>'faq','label'=>'FAQ','href'=>'faq',
-         'icon'=>'<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>'],
-    ]],
-    ['group'=>'Careers','items'=>[
-        ['key'=>'jobs','label'=>'Job Posts','href'=>'jobs',
-         'icon'=>'<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/>'],
-        ['key'=>'applicants','label'=>'Applications','href'=>'applicants',
-         'icon'=>'<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>'],
-    ]],
-];
+/* ── Build DB-driven menu ── */
+$_sbCtrl = new AdminController();
+$_dbMenu = $_sbCtrl->getAdminMenu();
 
 function sbActive(string $key, string $cur): string { return $key === $cur ? ' is-active' : ''; }
 function sbGroupOpen(array $grp, string $cur): bool {
@@ -114,23 +76,21 @@ function sbGroupOpen(array $grp, string $cur): bool {
       <span class="sb-wordmark-short">S</span>
     </div>
     <nav class="sb-nav">
-      <?php foreach ($menu as $entry): ?>
-        <?php if (isset($entry['key'])): ?>
-          <a href="<?= $entry['href'] ?>" class="sb-link<?= sbActive($entry['key'],$currentPage) ?>">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><?= $entry['icon'] ?></svg>
-            <span class="sb-link-label"><?= htmlspecialchars($entry['label']) ?></span>
-          </a>
-        <?php else: ?>
-          <div class="sb-group">
-            <div class="sb-group-label"><?= htmlspecialchars($entry['group']) ?></div>
-            <?php foreach ($entry['items'] as $item): ?>
-              <a href="<?= $item['href'] ?>" class="sb-link<?= sbActive($item['key'],$currentPage) ?>">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><?= $item['icon'] ?></svg>
-                <span class="sb-link-label"><?= htmlspecialchars($item['label']) ?></span>
-              </a>
-            <?php endforeach; ?>
-          </div>
-        <?php endif; ?>
+      <!-- Dashboard (always visible) -->
+      <a href="dashboard" class="sb-link<?= sbActive('dashboard',$currentPage) ?>">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><?= sb_icon_svg('dashboard') ?></svg>
+        <span class="sb-link-label">Dashboard</span>
+      </a>
+      <?php foreach ($_dbMenu as $grp): ?>
+        <div class="sb-group">
+          <div class="sb-group-label"><?= htmlspecialchars($grp['group']) ?></div>
+          <?php foreach ($grp['items'] as $item): ?>
+            <a href="<?= htmlspecialchars($item['href']) ?>" class="sb-link<?= sbActive($item['key'],$currentPage) ?>">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><?= sb_icon_svg($item['icon']) ?></svg>
+              <span class="sb-link-label"><?= htmlspecialchars($item['label']) ?></span>
+            </a>
+          <?php endforeach; ?>
+        </div>
       <?php endforeach; ?>
     </nav>
     <div class="sb-bottom">

@@ -48,13 +48,17 @@
       <div>
         <div class="footer-col-title">Company</div>
         <ul class="footer-links">
-          <li><a href="#" class="footer-link">Environmental Policy</a></li>
+         
           <li><a href="about" class="footer-link">About Us</a></li>
-          <li><a href="#" class="footer-link">Latest News</a></li>
-          <li><a href="#" class="footer-link">Careers</a></li>
-          <li><a href="#" class="footer-link">Disclaimers</a></li>
+           <li><a href="#" class="footer-link">Careers</a></li>
+          <li><a href="#" class="footer-link">Environmental Policy</a></li>         
+          <li><a href="#" class="footer-link">Disclaimer</a></li>
           <li><a href="#" class="footer-link">Privacy Policy</a></li>
           <li><a href="#" class="footer-link">Terms of Use</a></li>
+
+
+
+
         </ul>
       </div>
 
@@ -65,8 +69,9 @@
           <li><a href="about#contact" class="footer-link">Contact Us</a></li>
           <li><a href="request-a-quote" class="footer-link">Request Quote</a></li>
           <li><a href="shipping-payment-term" class="footer-link">Shipping &amp; Payment</a></li>
-          <li><a href="#" class="footer-link">Returns Policy</a></li>
-          <li><a href="faq" class="footer-link">FAQ</a></li>
+          <li><a href="#" class="footer-link">Technical Help & Support</a></li>
+          <li><a href="#" class="footer-link">Order Status</a></li>
+          <li><a href="#" class="footer-link">RMA Returns </a></li>
         </ul>
       </div>
 

@@ -17,7 +17,7 @@ class AdminController
             $password = (string)($post['password'] ?? '');
             if ($email === '' || $password === '') return [];
             $rows = $this->db->select(
-                "SELECT * FROM tbl_user WHERE communication_email_id='".$email."' AND user_type_id=1 LIMIT 1"
+                "SELECT * FROM tbl_user WHERE communication_email_id='".$email."' AND user_type_id IN (1,3) LIMIT 1"
             );
             if (empty($rows)) return [];
             $u = $rows[0];
@@ -29,11 +29,70 @@ class AdminController
 
     private function mapUser(object $u): array {
         return [
-            'user_id'  => (int)($u->USER_ID ?? 0),
-            'name'     => (string)($u->NAME ?? ''),
-            'email'    => (string)($u->COMMUNICATION_EMAIL_ID ?? ''),
+            'user_id'      => (int)($u->USER_ID ?? 0),
+            'name'         => (string)($u->NAME ?? ''),
+            'email'        => (string)($u->COMMUNICATION_EMAIL_ID ?? ''),
             'user_type_id' => (int)($u->USER_TYPE_ID ?? 0),
+            'role_id'      => (int)($u->ROLE_ID ?? 0),
         ];
+    }
+
+    /**
+     * Returns grouped sidebar menu for the current user.
+     * Admin (type 1): all active modules + menus.
+     * Employee (type 3): only menus where can_view=1 for their role.
+     */
+    public function getAdminMenu(): array
+    {
+        try {
+            $userTypeId = (int)($_SESSION['sinelec_admin']['USER_TYPE_ID'] ?? 0);
+            if ($userTypeId === 1) {
+                $rows = $this->db->select(
+                    "SELECT mo.module_id, mo.module_name, mo.icon AS module_icon,
+                            mn.menu_id, mn.menu_name, mn.icon AS menu_icon, mn.path_link
+                     FROM tbl_module mo
+                     JOIN tbl_menu mn ON mn.module_id = mo.module_id
+                     WHERE mo.status = 1 AND mn.status = 1
+                     ORDER BY mo.priority ASC, mn.priority ASC"
+                );
+            } else {
+                $roleId = (int)($_SESSION['sinelec_admin']['ROLE_ID'] ?? 0);
+                if ($roleId === 0) return [];
+                $rows = $this->db->select(
+                    "SELECT mo.module_id, mo.module_name, mo.icon AS module_icon,
+                            mn.menu_id, mn.menu_name, mn.icon AS menu_icon, mn.path_link
+                     FROM tbl_module mo
+                     JOIN tbl_menu mn ON mn.module_id = mo.module_id
+                     JOIN tbl_roles_permission rp ON rp.menu_id = mn.menu_id AND rp.role_id = ".(int)$roleId."
+                     WHERE mo.status = 1 AND mn.status = 1 AND rp.can_view = 1
+                     ORDER BY mo.priority ASC, mn.priority ASC"
+                );
+            }
+            /* group by module */
+            $grouped = [];
+            foreach ($rows as $r) {
+                $mid = (int)$r->module_id;
+                if (!isset($grouped[$mid])) {
+                    $grouped[$mid] = [
+                        'group'       => (string)$r->module_name,
+                        'module_icon' => (string)($r->module_icon ?? ''),
+                        'items'       => [],
+                    ];
+                }
+                $path = ltrim((string)($r->path_link ?? ''), '/');
+                $grouped[$mid]['items'][] = [
+                    'key'     => $path,
+                    'menu_id' => (int)$r->menu_id,
+                    'label'   => (string)$r->menu_name,
+                    'href'    => $path,
+                    'icon'    => (string)($r->menu_icon ?? ''),
+                ];
+            }
+            return array_values($grouped);
+        } catch (Exception $e) {
+            error_log('getAdminMenu: '.$e->getMessage());
+            return [];
+        }
     }
 
     public function getAdminProfile(int $userId): ?object

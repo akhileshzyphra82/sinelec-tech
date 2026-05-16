@@ -91,8 +91,9 @@ switch ($action) {
                 'NAME'         => (string)$admin['name'],
                 'EMAIL'        => (string)$admin['email'],
                 'USER_TYPE_ID' => (int)$admin['user_type_id'],
+                'ROLE_ID'      => (int)($admin['role_id'] ?? 0),
             ];
-            adminRedirectWithFlash('welcome', 'ok', 'Welcome back, ' . $admin['name'] . '!');
+            adminRedirectWithFlash('dashboard', 'ok', 'Welcome back, ' . $admin['name'] . '!');
         }
 
         adminRedirectWithFlash('index', 'err', 'Invalid credentials. Please try again.');
