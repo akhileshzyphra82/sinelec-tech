@@ -85,14 +85,45 @@ switch ($action) {
         $admin = $controller->loginAdmin(['username' => $username, 'password' => $password]);
 
         if (!empty($admin) && isset($admin['user_id'])) {
+            $typeId = (int)$admin['user_type_id'];
+            $roleId = (int)($admin['role_id'] ?? 0);
+
+            /* Only user_type_id 1 (admin) and 3 (employee) can access */
+            if (!in_array($typeId, [1, 3], true)) {
+                adminRedirectWithFlash('index', 'err', 'Access denied. You are not authorised to access this panel.');
+            }
+
+            /* Employees must have a role assigned */
+            if ($typeId === 3 && $roleId === 0) {
+                adminRedirectWithFlash('index', 'warn', 'Your account has no role assigned. Please contact the administrator.');
+            }
+
             session_regenerate_id(true);
             $_SESSION['sinelec_admin'] = [
                 'USER_ID'      => (int)$admin['user_id'],
                 'NAME'         => (string)$admin['name'],
                 'EMAIL'        => (string)$admin['email'],
-                'USER_TYPE_ID' => (int)$admin['user_type_id'],
-                'ROLE_ID'      => (int)($admin['role_id'] ?? 0),
+                'USER_TYPE_ID' => $typeId,
+                'ROLE_ID'      => $roleId,
             ];
+
+            /* ── Build and cache menu + flat permission lookup in session ── */
+            $menuData = $controller->getAdminMenu();
+            $_SESSION['sinelec_admin']['MENU_DATA'] = $menuData;
+
+            $perms = [];
+            foreach ($menuData as $grp) {
+                foreach ($grp['items'] as $item) {
+                    $perms[(int)$item['menu_id']] = [
+                        'can_view'   => (bool)($item['can_view']   ?? false),
+                        'can_add'    => (bool)($item['can_add']    ?? false),
+                        'can_edit'   => (bool)($item['can_edit']   ?? false),
+                        'can_delete' => (bool)($item['can_delete'] ?? false),
+                    ];
+                }
+            }
+            $_SESSION['sinelec_admin']['PERMISSIONS'] = $perms;
+
             adminRedirectWithFlash('dashboard', 'ok', 'Welcome back, ' . $admin['name'] . '!');
         }
 
@@ -337,29 +368,75 @@ switch ($action) {
     ───────────────────────────────────────────────────────────── */
     case 'InsertBanner':
         adminRequireAuth();
+        require_once __DIR__.'/../common/uploadFileCloudflare.php';
         $bannerName = trim($_POST['banner_name'] ?? '');
         if ($bannerName === '') adminRedirectWithFlash('banners', 'warn', 'Banner name is required.');
-        if (empty($_FILES['banner_image']['tmp_name'])) adminRedirectWithFlash('banners', 'warn', 'Banner image is required.');
-        $ext = adminUploadImage('banner_image', '');
-        if ($ext === '') adminRedirectWithFlash('banners', 'warn', 'Invalid image format.');
+        $imgKey = '';
+        if (!empty($_FILES['banner_image']['tmp_name'])) {
+            $r2 = uploadToR2($_FILES['banner_image'], 'banners', 'IMAGE');
+            if (!$r2['success']) adminRedirectWithFlash('banners', 'err', 'Image upload failed: '.$r2['error']);
+            $imgKey = $r2['key'];
+        }
         $id = $controller->insertBanner([
             'banner_name'        => $bannerName,
             'priority'           => (int)($_POST['priority'] ?? 0),
             'banner_description' => trim($_POST['banner_description'] ?? ''),
             'hyperlink'          => trim($_POST['hyperlink'] ?? ''),
-            'ext'                => $ext,
+            'display_flag'       => in_array($_POST['display_flag'] ?? 'Yes', ['Yes','No']) ? $_POST['display_flag'] : 'Yes',
+            'banner_bg_color'    => trim($_POST['banner_bg_color'] ?? ''),
+            'tags'               => trim($_POST['tags']         ?? ''),
+            'btn_one'            => trim($_POST['btn_one']      ?? ''),
+            'btn_one_link'       => trim($_POST['btn_one_link'] ?? ''),
+            'btn_two'            => trim($_POST['btn_two']      ?? ''),
+            'btn_two_link'       => trim($_POST['btn_two_link'] ?? ''),
+            'ext'                => $imgKey,
         ]);
-        if ($id > 0) {
-            adminMoveUpload('banner_image', __DIR__.'/../assets/uploads/banners/'.$id.'.'.$ext);
-            adminRedirectWithFlash('banners', 'ok', 'Banner added successfully.');
-        }
+        if ($id > 0) adminRedirectWithFlash('banners', 'ok', 'Banner added successfully.');
         adminRedirectWithFlash('banners', 'err', 'Failed to add banner.');
+    break;
+
+    case 'UpdateBanner':
+        adminRequireAuth();
+        require_once __DIR__.'/../common/uploadFileCloudflare.php';
+        $bannerId   = (int)($_POST['banner_id'] ?? 0);
+        $bannerName = trim($_POST['banner_name'] ?? '');
+        if ($bannerId <= 0) adminRedirectWithFlash('banners', 'warn', 'Invalid request.');
+        if ($bannerName === '') adminRedirectWithFlash('banners', 'warn', 'Banner name is required.');
+        $existingKey = trim($_POST['existing_img_key'] ?? '');
+        $newKey      = $existingKey;
+        if (!empty($_FILES['banner_image']['tmp_name'])) {
+            $r2 = replaceR2File($_FILES['banner_image'], 'banners', 'IMAGE', $existingKey ?: null, 20);
+            if (!$r2['success']) adminRedirectWithFlash('banners', 'err', 'Image upload failed: '.$r2['error']);
+            $newKey = $r2['key'];
+        }
+        $ok = $controller->updateBanner([
+            'banner_id'          => $bannerId,
+            'banner_name'        => $bannerName,
+            'priority'           => (int)($_POST['priority'] ?? 0),
+            'banner_description' => trim($_POST['banner_description'] ?? ''),
+            'hyperlink'          => trim($_POST['hyperlink'] ?? ''),
+            'display_flag'       => in_array($_POST['display_flag'] ?? 'Yes', ['Yes','No']) ? $_POST['display_flag'] : 'Yes',
+            'banner_bg_color'    => trim($_POST['banner_bg_color'] ?? ''),
+            'tags'               => trim($_POST['tags']         ?? ''),
+            'btn_one'            => trim($_POST['btn_one']      ?? ''),
+            'btn_one_link'       => trim($_POST['btn_one_link'] ?? ''),
+            'btn_two'            => trim($_POST['btn_two']      ?? ''),
+            'btn_two_link'       => trim($_POST['btn_two_link'] ?? ''),
+            'ext'                => $newKey,
+        ]);
+        if ($ok) adminRedirectWithFlash('banners', 'ok', 'Banner updated successfully.');
+        adminRedirectWithFlash('banners', 'err', 'Failed to update banner.');
     break;
 
     case 'DeleteBanner':
         adminRequireAuth();
         $bannerId = (int)($_POST['banner_id'] ?? $_GET['id'] ?? 0);
         if ($bannerId <= 0) adminRedirectWithFlash('banners', 'warn', 'Invalid request.');
+        require_once __DIR__.'/../common/uploadFileCloudflare.php';
+        $bRow = $controller->getBannerById($bannerId);
+        if ($bRow && !empty($bRow->BANNER_IMG_EXT)) {
+            deleteFromR2((string)$bRow->BANNER_IMG_EXT);
+        }
         $controller->deleteBanner($bannerId);
         adminRedirectWithFlash('banners', 'ok', 'Banner deleted.');
     break;
@@ -500,6 +577,133 @@ switch ($action) {
         if ($appId <= 0) adminRedirectWithFlash('applicants', 'warn', 'Invalid request.');
         $controller->deleteApplicant($appId);
         adminRedirectWithFlash('applicants', 'ok', 'Application deleted.');
+    break;
+
+    /* ─────────────────────────────────────────────────────────────
+       ROLES
+    ───────────────────────────────────────────────────────────── */
+    case 'SaveRole':
+        adminRequireAuth();
+        $roleName = trim($_POST['role_name'] ?? '');
+        if ($roleName === '') adminRedirectWithFlash('roles', 'warn', 'Role name is required.');
+        $perms  = (isset($_POST['perms']) && is_array($_POST['perms'])) ? $_POST['perms'] : [];
+        $roleId = $_POST['role_id'] ?? 0;
+        $result = $controller->saveRole($_POST, $perms);
+        if ($result !== false && $result > 0) {
+            $msg = ((int)$roleId > 0) ? 'Role updated successfully.' : 'Role created successfully.';
+            adminRedirectWithFlash('roles', 'ok', $msg);
+        }
+        adminRedirectWithFlash('roles', 'err', 'Failed to save role. Please try again.');
+    break;
+
+    case 'DeleteRole':
+        adminRequireAuth();
+        $roleId = (int)($_POST['role_id'] ?? 0);
+        if ($roleId <= 0) adminRedirectWithFlash('roles', 'warn', 'Invalid role.');
+        if ($controller->deleteRole($roleId)) {
+            adminRedirectWithFlash('roles', 'ok', 'Role deleted successfully.');
+        }
+        adminRedirectWithFlash('roles', 'err', 'Cannot delete — this role is assigned to one or more users.');
+    break;
+
+    /* ─────────────────────────────────────────────────────────────
+       EMPLOYEES
+    ───────────────────────────────────────────────────────────── */
+    case 'SaveEmployee':
+        adminRequireAuth();
+        $name   = trim($_POST['name'] ?? '');
+        $userId = (int)($_POST['user_id'] ?? 0);
+        if ($name === '') adminRedirectWithFlash('employee-list', 'warn', 'Full name is required.');
+        if ($userId <= 0 && trim($_POST['communication_email_id'] ?? '') === '') {
+            adminRedirectWithFlash('employee-list', 'warn', 'Email address is required.');
+        }
+        if ($userId <= 0 && trim($_POST['password'] ?? '') === '') {
+            adminRedirectWithFlash('employee-list', 'warn', 'Password is required for new employees.');
+        }
+        $result = $controller->saveEmployee($_POST);
+        if ($result === -1) {
+            adminRedirectWithFlash('employee-list', 'warn', 'This email address is already registered.');
+        }
+        if ($result !== false && $result > 0) {
+            $msg = $userId > 0 ? 'Employee updated successfully.' : 'Employee added successfully.';
+            adminRedirectWithFlash('employee-list', 'ok', $msg);
+        }
+        adminRedirectWithFlash('employee-list', 'err', 'Failed to save employee. Please try again.');
+    break;
+
+    case 'DeleteEmployee':
+        adminRequireAuth();
+        $userId = (int)($_POST['user_id'] ?? 0);
+        if ($userId <= 0) adminRedirectWithFlash('employee-list', 'warn', 'Invalid request.');
+        if ($controller->deleteEmployee($userId)) {
+            adminRedirectWithFlash('employee-list', 'ok', 'Employee deleted successfully.');
+        }
+        adminRedirectWithFlash('employee-list', 'err', 'Failed to delete employee.');
+    break;
+
+    /* ─────────────────────────────────────────────────────────────
+       CUSTOMERS
+    ───────────────────────────────────────────────────────────── */
+    case 'SaveCustomer':
+        adminRequireAuth();
+        $name   = trim($_POST['name'] ?? '');
+        $userId = (int)($_POST['user_id'] ?? 0);
+        if ($name === '') adminRedirectWithFlash('customers', 'warn', 'Full name is required.');
+        if ($userId <= 0 && trim($_POST['communication_email_id'] ?? '') === '') {
+            adminRedirectWithFlash('customers', 'warn', 'Email address is required.');
+        }
+        if ($userId <= 0 && trim($_POST['password'] ?? '') === '') {
+            adminRedirectWithFlash('customers', 'warn', 'Password is required for new customers.');
+        }
+        $result = $controller->saveCustomer($_POST);
+        if ($result === -1) {
+            adminRedirectWithFlash('customers', 'warn', 'This email address is already registered.');
+        }
+        if ($result !== false && $result > 0) {
+            $msg = $userId > 0 ? 'Customer updated successfully.' : 'Customer added successfully.';
+            adminRedirectWithFlash('customers', 'ok', $msg);
+        }
+        adminRedirectWithFlash('customers', 'err', 'Failed to save customer. Please try again.');
+    break;
+
+    case 'DeleteCustomer':
+        adminRequireAuth();
+        $userId = (int)($_POST['user_id'] ?? 0);
+        if ($userId <= 0) adminRedirectWithFlash('customers', 'warn', 'Invalid request.');
+        if ($controller->deleteCustomer($userId)) {
+            adminRedirectWithFlash('customers', 'ok', 'Customer deleted successfully.');
+        }
+        adminRedirectWithFlash('customers', 'err', 'Failed to delete customer.');
+    break;
+
+    case 'ResetCustomerPassword':
+        adminRequireAuth();
+        $userId   = (int)($_POST['user_id'] ?? 0);
+        $password = trim($_POST['new_password'] ?? '');
+        $confirm  = trim($_POST['confirm_password'] ?? '');
+        if ($userId <= 0) adminRedirectWithFlash('customers', 'warn', 'Invalid request.');
+        if ($password === '') adminRedirectWithFlash('customers', 'warn', 'New password is required.');
+        if (strlen($password) < 6) adminRedirectWithFlash('customers', 'warn', 'Password must be at least 6 characters.');
+        if ($password !== $confirm) adminRedirectWithFlash('customers', 'warn', 'Passwords do not match.');
+        if ($controller->resetCustomerPassword($userId, $password)) {
+            adminRedirectWithFlash('customers', 'ok', 'Password reset successfully.');
+        }
+        adminRedirectWithFlash('customers', 'err', 'Failed to reset password.');
+    break;
+
+    case 'ResetEmployeePassword':
+        adminRequireAuth();
+        $userId   = (int)($_POST['user_id'] ?? 0);
+        $password = trim($_POST['new_password'] ?? '');
+        $confirm  = trim($_POST['confirm_password'] ?? '');
+        if ($userId <= 0) adminRedirectWithFlash('employee-list', 'warn', 'Invalid request.');
+        if ($password === '') adminRedirectWithFlash('employee-list', 'warn', 'New password is required.');
+        if (strlen($password) < 6) adminRedirectWithFlash('employee-list', 'warn', 'Password must be at least 6 characters.');
+        if ($password !== $confirm) adminRedirectWithFlash('employee-list', 'warn', 'Passwords do not match.');
+        if ($controller->resetEmployeePassword($userId, $password)) {
+            adminRedirectWithFlash('employee-list', 'ok', 'Password reset successfully.');
+        }
+        adminRedirectWithFlash('employee-list', 'err', 'Failed to reset password.');
     break;
 
     default:

@@ -376,3 +376,153 @@ function confirmDeletePurchase(id) {
   if (el) el.value = id;
   openModal('deleteModal');
 }
+
+
+/* ═══════════════════════════════════════════════════════════════
+   KEBAB ACTION MENU
+   Uses position:fixed + getBoundingClientRect so the dropdown
+   is never clipped by a parent overflow:hidden (e.g. .card).
+   ═══════════════════════════════════════════════════════════════ */
+(function () {
+
+  function closeAll() {
+    document.querySelectorAll('.kbm-drop.open').forEach(function (d) {
+      d.classList.remove('open', 'drop-up');
+      /* clear inline positioning so it doesn't linger */
+      d.style.top = d.style.bottom = d.style.left = d.style.right = '';
+    });
+  }
+
+  window.toggleKbm = function (btn) {
+    var wrap = btn.closest('.kbm-wrap');
+    if (!wrap) return;
+    var drop   = wrap.querySelector('.kbm-drop');
+    var isOpen = drop.classList.contains('open');
+    closeAll();
+    if (isOpen) return;   /* was open → just close */
+
+    /* ── Calculate fixed position from button rect ── */
+    var btnRect   = btn.getBoundingClientRect();
+    var gap       = 7;
+    var dropW     = 170;  /* min-width matches CSS */
+
+    /* Align right edge of drop to right edge of button */
+    var rightFromEdge = window.innerWidth - btnRect.right;
+
+    /* Try opening below first */
+    drop.classList.remove('drop-up');
+    drop.style.top    = (btnRect.bottom + gap) + 'px';
+    drop.style.bottom = 'auto';
+    drop.style.right  = rightFromEdge + 'px';
+    drop.style.left   = 'auto';
+    drop.classList.add('open');
+
+    /* Check if it overflows the viewport bottom — if so, flip up */
+    var dropRect = drop.getBoundingClientRect();
+    if (dropRect.bottom > window.innerHeight - 10) {
+      drop.classList.add('drop-up');
+      drop.style.top    = 'auto';
+      drop.style.bottom = (window.innerHeight - btnRect.top + gap) + 'px';
+    }
+  };
+
+  /* Close on outside click */
+  document.addEventListener('click', function (e) {
+    if (!e.target.closest('.kbm-wrap')) closeAll();
+  });
+
+  /* Close on Escape */
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeAll();
+  });
+
+  /* Close on scroll (dropdown would drift otherwise since it's fixed) */
+  window.addEventListener('scroll', closeAll, true);
+
+  /* Close before running item action */
+  window.closeKbm = function (itemEl) {
+    var drop = itemEl ? itemEl.closest('.kbm-drop') : null;
+    if (drop) { drop.classList.remove('open', 'drop-up'); }
+  };
+
+})();
+
+
+/* ═══════════════════════════════════════════════════════════════
+   GLOBAL PAGE LOADER
+   NOTE: #pageLoader div must appear in the HTML *before* this
+   script tag (see masterTemplate.php) so getElementById works.
+
+   Flow:
+     1. Submit-button CLICK  → show loader immediately (before validation)
+     2. ~400 ms timer        → if form submit never fired, validation blocked it → hide
+     3. form submit event    → cancel that timer, keep loader, set 20 s safety fallback
+     4. beforeunload         → re-show so loader stays visible while server processes
+     5. pageshow (bfcache)   → hide if browser restores old page from cache
+   ═══════════════════════════════════════════════════════════════ */
+(function () {
+
+  var _loader      = document.getElementById('pageLoader');
+  var _valTimer    = null;   /* hides loader if validation blocks the submit */
+  var _submitted   = false;  /* true once submit event fires */
+
+  function showLoader() {
+    if (!_loader) return;
+    _loader.classList.add('active');
+    _loader.removeAttribute('aria-hidden');
+  }
+
+  function hideLoader() {
+    if (!_loader) return;
+    _loader.classList.remove('active');
+    _loader.setAttribute('aria-hidden', 'true');
+  }
+
+  /* Expose globally so inline onclick handlers can call showPageLoader() if needed */
+  window.showPageLoader = showLoader;
+  window.hidePageLoader = hideLoader;
+
+  /* ── Step 1: show on submit-button click (immediate feedback) ── */
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('button[type="submit"], input[type="submit"], button:not([type])');
+    if (!btn) return;
+    var form = btn.form || btn.closest('form');
+    if (!form) return;
+    if (form.getAttribute('data-no-loader') !== null) return;  /* opt-out */
+
+    _submitted = false;
+    showLoader();
+
+    /* ── Step 2: if submit event doesn't fire within 400 ms, validation
+       blocked it — hide the loader so the user can see the error messages ── */
+    if (_valTimer) clearTimeout(_valTimer);
+    _valTimer = setTimeout(function () {
+      if (!_submitted) hideLoader();
+    }, 400);
+  }, true);   /* capture phase */
+
+  /* ── Step 3: real submit — cancel validation timer, keep loader alive ── */
+  document.addEventListener('submit', function (e) {
+    var form = e.target;
+    if (form && form.getAttribute('data-no-loader') !== null) return;
+
+    _submitted = true;
+    if (_valTimer) { clearTimeout(_valTimer); _valTimer = null; }
+
+    showLoader();   /* ensure visible even if click listener was skipped */
+
+    /* Safety fallback: hide after 20 s in case the server never responds */
+    setTimeout(hideLoader, 20000);
+  }, true);
+
+  /* ── Step 4: keep loader visible while browser is navigating away ── */
+  window.addEventListener('beforeunload', function () {
+    showLoader();
+  });
+
+  /* ── Step 5: hide if bfcache restores the old page (back-nav) ── */
+  window.addEventListener('pageshow', function (e) {
+    if (e.persisted) hideLoader();
+  });
+
+})();

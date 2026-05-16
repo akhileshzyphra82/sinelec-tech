@@ -891,19 +891,39 @@ function sinelec_smtp_deliver(
 ══════════════════════════════════════════════════════════════════ */
 
 /**
- * Load role permissions into session (lazy, one-time per request for employees).
- * Permissions are stored as $_SESSION['sinelec_admin']['PERMISSIONS'][menu_id] = [can_view, can_add, …]
+ * Ensure PERMISSIONS is in session for employees.
+ * Normally set at login; this is a fallback for sessions created before this feature.
+ * Reads from MENU_DATA if available (no extra DB query), falls back to direct DB query.
  */
 function sinelec_load_permissions(): void
 {
+    if (session_status() !== PHP_SESSION_ACTIVE) session_start();
     if ((int)($_SESSION['sinelec_admin']['USER_TYPE_ID'] ?? 0) !== 3) return;
     if (array_key_exists('PERMISSIONS', $_SESSION['sinelec_admin'] ?? [])) return;
 
+    /* Try to rebuild from already-cached MENU_DATA first */
+    if (!empty($_SESSION['sinelec_admin']['MENU_DATA'])) {
+        $perms = [];
+        foreach ($_SESSION['sinelec_admin']['MENU_DATA'] as $grp) {
+            foreach ($grp['items'] as $item) {
+                $perms[(int)$item['menu_id']] = [
+                    'can_view'   => (bool)($item['can_view']   ?? false),
+                    'can_add'    => (bool)($item['can_add']    ?? false),
+                    'can_edit'   => (bool)($item['can_edit']   ?? false),
+                    'can_delete' => (bool)($item['can_delete'] ?? false),
+                ];
+            }
+        }
+        $_SESSION['sinelec_admin']['PERMISSIONS'] = $perms;
+        return;
+    }
+
+    /* Final fallback: query DB directly (uppercase column names) */
     $roleId = (int)($_SESSION['sinelec_admin']['ROLE_ID'] ?? 0);
     if ($roleId === 0) { $_SESSION['sinelec_admin']['PERMISSIONS'] = []; return; }
 
     try {
-        require_once dirname(__DIR__) . '/config/db.php';
+        require_once dirname(__DIR__) . '/config/db_helper.php';
         $db   = new MySQLDB();
         $rows = $db->select(
             "SELECT menu_id, can_view, can_add, can_edit, can_delete
@@ -911,11 +931,11 @@ function sinelec_load_permissions(): void
         );
         $perms = [];
         foreach ($rows as $r) {
-            $perms[(int)$r->menu_id] = [
-                'can_view'   => (bool)$r->can_view,
-                'can_add'    => (bool)$r->can_add,
-                'can_edit'   => (bool)$r->can_edit,
-                'can_delete' => (bool)$r->can_delete,
+            $perms[(int)$r->MENU_ID] = [
+                'can_view'   => (bool)$r->CAN_VIEW,
+                'can_add'    => (bool)$r->CAN_ADD,
+                'can_edit'   => (bool)$r->CAN_EDIT,
+                'can_delete' => (bool)$r->CAN_DELETE,
             ];
         }
         $_SESSION['sinelec_admin']['PERMISSIONS'] = $perms;
@@ -926,42 +946,75 @@ function sinelec_load_permissions(): void
 }
 
 /**
- * Check if the current user has a given permission for a menu item.
- *
- * Usage:  sinelec_can('add')          → check global add right
- *         sinelec_can('edit', 7)      → check edit right for menu_id=7
- *
- * Returns TRUE always for Admin (user_type_id=1).
- * Returns TRUE for Employee (user_type_id=3) only when explicitly granted.
+ * Returns the slug of the current page by reading the URL path.
+ * e.g. "/admin/employee-list" → "employee-list"
+ *      "/admin/roles.php"     → "roles"
  */
-function sinelec_can(string $action, int $menuId = 0): bool
+function sinelec_current_page(): string
 {
-    if (session_status() !== PHP_SESSION_ACTIVE) session_start();
-    $userTypeId = (int)($_SESSION['sinelec_admin']['USER_TYPE_ID'] ?? 0);
-    if ($userTypeId === 1) return true;
-
-    sinelec_load_permissions();
-    $perms = $_SESSION['sinelec_admin']['PERMISSIONS'] ?? [];
-
-    if ($menuId > 0 && isset($perms[$menuId])) {
-        return (bool)($perms[$menuId]['can_' . $action] ?? false);
+    $uri  = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?? '';
+    $slug = basename($uri);
+    if (substr($slug, -4) === '.php') {
+        $slug = substr($slug, 0, -4);
     }
-    // fallback: check if user has this action on ANY menu
-    if ($menuId === 0) {
-        foreach ($perms as $p) {
-            if (!empty($p['can_' . $action])) return true;
-        }
-    }
-    return false;
+    return strtolower($slug);
 }
 
 /**
- * Abort with 403 if the user lacks the required permission.
- * Use at top of action pages: sinelec_require_can('add', 9);
+ * Resolve the menu_id for the current page by matching its URL slug
+ * against the 'href' values stored in MENU_DATA.
+ * Returns 0 if the page is not found in the menu (no permission implied).
  */
-function sinelec_require_can(string $action, int $menuId = 0): void
+function sinelec_current_menu_id(): int
 {
-    if (!sinelec_can($action, $menuId)) {
+    $slug = sinelec_current_page();
+    foreach ($_SESSION['sinelec_admin']['MENU_DATA'] ?? [] as $grp) {
+        foreach ($grp['items'] as $item) {
+            if ($item['href'] === $slug) {
+                return (int)$item['menu_id'];
+            }
+        }
+    }
+    return 0;
+}
+
+/**
+ * Check if the current user has a given permission for the current page.
+ * The page is detected automatically from the URL (matched against menu href).
+ *
+ * Usage:  sinelec_can('view')    → can the user view the current page?
+ *         sinelec_can('add')     → can the user add on the current page?
+ *         sinelec_can('edit')    → can the user edit on the current page?
+ *         sinelec_can('delete')  → can the user delete on the current page?
+ *
+ * Admin (user_type_id=1) always returns true.
+ * Employee (user_type_id=3) returns true only when explicitly granted.
+ * Any other user type returns false.
+ */
+function sinelec_can(string $action): bool
+{
+    if (session_status() !== PHP_SESSION_ACTIVE) session_start();
+    $userTypeId = (int)($_SESSION['sinelec_admin']['USER_TYPE_ID'] ?? 0);
+
+    if ($userTypeId === 1) return true;
+    if ($userTypeId !== 3) return false;
+
+    $menuId = sinelec_current_menu_id();
+    if ($menuId === 0) return false; /* page not in this employee's menu */
+
+    sinelec_load_permissions();
+    $perms = $_SESSION['sinelec_admin']['PERMISSIONS'] ?? [];
+    return (bool)($perms[$menuId]['can_' . $action] ?? false);
+}
+
+/**
+ * Abort with 403 if the current user lacks the required permission
+ * on the current page (URL-matched).
+ * Usage: sinelec_require_can('add');
+ */
+function sinelec_require_can(string $action): void
+{
+    if (!sinelec_can($action)) {
         http_response_code(403);
         exit('<div style="font-family:sans-serif;padding:40px;text-align:center"><h2>403 — Access Denied</h2><p>You do not have permission to perform this action.</p><a href="javascript:history.back()">Go back</a></div>');
     }
@@ -1015,6 +1068,8 @@ function sb_icon_svg(string $name): string
         'quotes'                 => '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/>',
         'roles'                  => '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
         'permissions'            => '<rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V8a5 5 0 0110 0v3"/>',
+        'employee-list'          => '<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>',
+        'employees'              => '<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>',
     ];
     return $icons[$name] ?? '<rect x="3" y="3" width="18" height="18" rx="2"/>';
 }

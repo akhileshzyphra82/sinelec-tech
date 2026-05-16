@@ -8,9 +8,9 @@ class MySQLDB {
         $serverName = "localhost";
 
         if ($_SERVER['HTTP_HOST'] === 'localhost') {
-            $serverName = "162.241.15.242";
-            $username = "sinelect_db";
-            $password = "0W@IdwHzWxE&";
+           // $serverName = "162.241.15.242";
+            $username = "root";
+            $password = "";
             $database = "sinelect_panel_productdb";
         } else {
             $serverName = "localhost";

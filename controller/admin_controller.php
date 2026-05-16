@@ -38,14 +38,64 @@ class AdminController
     }
 
     /**
+     * Writes one row to tbl_activity_log.
+     * Never throws — logging must not break the calling operation.
+     *
+     * @param string       $activityType  'add' | 'edit' | 'delete'
+     * @param string       $tableName     Primary table affected
+     * @param string       $query         The SQL that was executed
+     * @param mixed        $oldData       Row state BEFORE change (object/array) — null for inserts
+     * @param mixed        $newData       Row state AFTER change (array) — null for deletes
+     */
+    private function logActivity(
+        string $activityType,
+        string $tableName,
+        string $query,
+        mixed  $oldData = null,
+        mixed  $newData = null
+    ): void {
+        try {
+            $userId     = (int)($_SESSION['sinelec_admin']['USER_ID']      ?? 0);
+            $userTypeId = (int)($_SESSION['sinelec_admin']['USER_TYPE_ID'] ?? 0);
+            $fileName   = addslashes(
+                parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?? 'cli'
+            );
+            $qEsc   = addslashes($query);
+            $tEsc   = addslashes($tableName);
+            $tyEsc  = addslashes($activityType);
+            $oldSql = $oldData !== null
+                ? "'".addslashes(json_encode($oldData, JSON_UNESCAPED_UNICODE))."'"
+                : 'NULL';
+            $newSql = $newData !== null
+                ? "'".addslashes(json_encode($newData, JSON_UNESCAPED_UNICODE))."'"
+                : 'NULL';
+
+            $this->db->insert(
+                "INSERT INTO tbl_activity_log
+                 (user_id, user_type_id, activity_type, file_name, activity_query, table_name, old_data, new_data)
+                 VALUES($userId, $userTypeId, '$tyEsc', '$fileName', '$qEsc', '$tEsc', $oldSql, $newSql)"
+            );
+        } catch (Exception $e) {
+            error_log('logActivity: '.$e->getMessage());
+        }
+    }
+
+    /**
      * Returns grouped sidebar menu for the current user.
      * Admin (type 1): all active modules + menus.
      * Employee (type 3): only menus where can_view=1 for their role.
+     */
+    /**
+     * Returns sidebar menu with per-item permission flags.
+     * Admin  (type 1): all menus, can_view/add/edit/delete = true.
+     * Employee (type 3): only can_view=1 menus for their role, with actual permission flags.
+     * Result is meant to be cached in $_SESSION['sinelec_admin']['MENU_DATA'].
      */
     public function getAdminMenu(): array
     {
         try {
             $userTypeId = (int)($_SESSION['sinelec_admin']['USER_TYPE_ID'] ?? 0);
+
             if ($userTypeId === 1) {
                 $rows = $this->db->select(
                     "SELECT mo.module_id, mo.module_name, mo.icon AS module_icon,
@@ -55,37 +105,72 @@ class AdminController
                      WHERE mo.status = 1 AND mn.status = 1
                      ORDER BY mo.priority ASC, mn.priority ASC"
                 );
-            } else {
-                $roleId = (int)($_SESSION['sinelec_admin']['ROLE_ID'] ?? 0);
-                if ($roleId === 0) return [];
-                $rows = $this->db->select(
-                    "SELECT mo.module_id, mo.module_name, mo.icon AS module_icon,
-                            mn.menu_id, mn.menu_name, mn.icon AS menu_icon, mn.path_link
-                     FROM tbl_module mo
-                     JOIN tbl_menu mn ON mn.module_id = mo.module_id
-                     JOIN tbl_roles_permission rp ON rp.menu_id = mn.menu_id AND rp.role_id = ".(int)$roleId."
-                     WHERE mo.status = 1 AND mn.status = 1 AND rp.can_view = 1
-                     ORDER BY mo.priority ASC, mn.priority ASC"
-                );
+                $grouped = [];
+                foreach ($rows as $r) {
+                    $mid = (int)$r->MODULE_ID;
+                    if (!isset($grouped[$mid])) {
+                        $grouped[$mid] = [
+                            'module_id'   => $mid,
+                            'group'       => (string)$r->MODULE_NAME,
+                            'module_icon' => (string)($r->MODULE_ICON ?? ''),
+                            'items'       => [],
+                        ];
+                    }
+                    $path = ltrim((string)($r->PATH_LINK ?? ''), '/');
+                    $grouped[$mid]['items'][] = [
+                        'key'        => $path,
+                        'menu_id'    => (int)$r->MENU_ID,
+                        'module_id'  => $mid,
+                        'label'      => (string)$r->MENU_NAME,
+                        'href'       => $path,
+                        'icon'       => (string)($r->MENU_ICON ?? ''),
+                        'can_view'   => true,
+                        'can_add'    => true,
+                        'can_edit'   => true,
+                        'can_delete' => true,
+                    ];
+                }
+                return array_values($grouped);
             }
-            /* group by module */
+
+            /* ── Employee: fetch only permitted menus with actual flags ── */
+            $roleId = (int)($_SESSION['sinelec_admin']['ROLE_ID'] ?? 0);
+            if ($roleId === 0) return [];
+
+            $rows = $this->db->select(
+                "SELECT mo.module_id, mo.module_name, mo.icon AS module_icon,
+                        mn.menu_id, mn.menu_name, mn.icon AS menu_icon, mn.path_link,
+                        rp.can_view, rp.can_add, rp.can_edit, rp.can_delete
+                 FROM tbl_module mo
+                 JOIN tbl_menu mn ON mn.module_id = mo.module_id
+                 JOIN tbl_roles_permission rp
+                      ON rp.menu_id = mn.menu_id AND rp.role_id = ".(int)$roleId."
+                 WHERE mo.status = 1 AND mn.status = 1 AND rp.can_view = 1
+                 ORDER BY mo.priority ASC, mn.priority ASC"
+            );
             $grouped = [];
             foreach ($rows as $r) {
-                $mid = (int)$r->module_id;
+                $mid = (int)$r->MODULE_ID;
                 if (!isset($grouped[$mid])) {
                     $grouped[$mid] = [
-                        'group'       => (string)$r->module_name,
-                        'module_icon' => (string)($r->module_icon ?? ''),
+                        'module_id'   => $mid,
+                        'group'       => (string)$r->MODULE_NAME,
+                        'module_icon' => (string)($r->MODULE_ICON ?? ''),
                         'items'       => [],
                     ];
                 }
-                $path = ltrim((string)($r->path_link ?? ''), '/');
+                $path = ltrim((string)($r->PATH_LINK ?? ''), '/');
                 $grouped[$mid]['items'][] = [
-                    'key'     => $path,
-                    'menu_id' => (int)$r->menu_id,
-                    'label'   => (string)$r->menu_name,
-                    'href'    => $path,
-                    'icon'    => (string)($r->menu_icon ?? ''),
+                    'key'        => $path,
+                    'menu_id'    => (int)$r->MENU_ID,
+                    'module_id'  => $mid,
+                    'label'      => (string)$r->MENU_NAME,
+                    'href'       => $path,
+                    'icon'       => (string)($r->MENU_ICON ?? ''),
+                    'can_view'   => (bool)$r->CAN_VIEW,
+                    'can_add'    => (bool)$r->CAN_ADD,
+                    'can_edit'   => (bool)$r->CAN_EDIT,
+                    'can_delete' => (bool)$r->CAN_DELETE,
                 ];
             }
             return array_values($grouped);
@@ -98,7 +183,7 @@ class AdminController
     public function getAdminProfile(int $userId): ?object
     {
         try {
-            $r = $this->db->select("SELECT * FROM tbl_user WHERE user_id=".$userId." AND user_type_id=1 LIMIT 1");
+            $r = $this->db->select("SELECT * FROM tbl_user WHERE user_id=".$userId." AND user_type_id IN (1,3) LIMIT 1");
             return $r[0] ?? null;
         } catch (Exception $e) { return null; }
     }
@@ -112,14 +197,19 @@ class AdminController
             $mob  = addslashes(trim($d['communication_mobile_num'] ?? ''));
             $comp = addslashes(trim($d['company_name'] ?? ''));
             $desig= addslashes(trim($d['designation'] ?? ''));
-            $rows = $this->db->update(
-                "UPDATE tbl_user SET name='".$name."',communication_mobile_num_isd=".$isd.",
+            $oldRow = $this->db->select("SELECT * FROM tbl_user WHERE user_id=$id LIMIT 1")[0] ?? null;
+            $sql = "UPDATE tbl_user SET name='".$name."',communication_mobile_num_isd=".$isd.",
                  communication_mobile_num='".$mob."',company_name='".$comp."',designation='".$desig."'
-                 WHERE user_id=".$id." AND user_type_id=1 LIMIT 1"
-            );
+                 WHERE user_id=".$id." AND user_type_id IN (1,3) LIMIT 1";
+            $rows = $this->db->update($sql);
             if ($rows >= 0) {
                 // keep session name in sync
                 $_SESSION['sinelec_admin']['NAME'] = $name ? stripslashes($name) : ($_SESSION['sinelec_admin']['NAME'] ?? '');
+                $this->logActivity('edit', 'tbl_user', $sql,
+                    $oldRow !== null ? (array)$oldRow : null,
+                    ['user_id'=>$id,'name'=>$name,'communication_mobile_num_isd'=>$isd,
+                     'communication_mobile_num'=>$mob,'company_name'=>$comp,'designation'=>$desig]
+                );
             }
             return $rows >= 0;
         } catch (Exception $e) { error_log('updateAdminProfile: '.$e->getMessage()); return false; }
@@ -316,10 +406,17 @@ class AdminController
             $prio   = (int)($d['priority'] ?? 0);
             $desc   = addslashes(trim($d['description'] ?? ''));
             $ext    = addslashes(trim($d['ext'] ?? ''));
-            return (int)$this->db->insert(
-                "INSERT INTO tbl_product_category(product_category_name,parent_category_id,priority,description,ext)
-                 VALUES('".$name."',".$parent.",".$prio.",'".$desc."','".$ext."')"
-            );
+            $sql = "INSERT INTO tbl_product_category(product_category_name,parent_category_id,priority,description,ext)
+                 VALUES('".$name."',".$parent.",".$prio.",'".$desc."','".$ext."')";
+            $newId = (int)$this->db->insert($sql);
+            if ($newId > 0) {
+                $this->logActivity('add', 'tbl_product_category', $sql,
+                    null,
+                    ['product_category_name'=>$name,'parent_category_id'=>$parent,
+                     'priority'=>$prio,'description'=>$desc,'ext'=>$ext]
+                );
+            }
+            return $newId;
         } catch (Exception $e) { error_log('insertCategory: '.$e->getMessage()); return 0; }
     }
 
@@ -332,11 +429,18 @@ class AdminController
             $prio   = (int)($d['priority'] ?? 0);
             $desc   = addslashes(trim($d['description'] ?? ''));
             $ext    = addslashes(trim($d['ext'] ?? ''));
-            $rows   = $this->db->update(
-                "UPDATE tbl_product_category SET product_category_name='".$name."',parent_category_id=".$parent.",
+            $oldRow = $this->getCategoryById($id);
+            $sql = "UPDATE tbl_product_category SET product_category_name='".$name."',parent_category_id=".$parent.",
                  priority=".$prio.",description='".$desc."',ext='".$ext."'
-                 WHERE product_category_id=".$id
-            );
+                 WHERE product_category_id=".$id;
+            $rows = $this->db->update($sql);
+            if ($rows >= 0) {
+                $this->logActivity('edit', 'tbl_product_category', $sql,
+                    $oldRow !== null ? (array)$oldRow : null,
+                    ['product_category_id'=>$id,'product_category_name'=>$name,
+                     'parent_category_id'=>$parent,'priority'=>$prio,'description'=>$desc,'ext'=>$ext]
+                );
+            }
             return $rows >= 0;
         } catch (Exception $e) { error_log('updateCategory: '.$e->getMessage()); return false; }
     }
@@ -347,7 +451,13 @@ class AdminController
             $c1 = $this->db->select("SELECT COUNT(*) AS C FROM tbl_product WHERE product_category_id=".$id);
             $c2 = $this->db->select("SELECT COUNT(*) AS C FROM tbl_product_category WHERE parent_category_id=".$id);
             if ((int)($c1[0]->C??0)>0 || (int)($c2[0]->C??0)>0) return false;
-            $this->db->update("DELETE FROM tbl_product_category WHERE product_category_id=".$id);
+            $oldRow = $this->getCategoryById($id);
+            $sql = "DELETE FROM tbl_product_category WHERE product_category_id=".$id;
+            $this->db->update($sql);
+            $this->logActivity('delete', 'tbl_product_category', $sql,
+                $oldRow !== null ? (array)$oldRow : null,
+                null
+            );
             return true;
         } catch (Exception $e) { error_log('deleteCategory: '.$e->getMessage()); return false; }
     }
@@ -403,11 +513,20 @@ class AdminController
             $prio    = (int)($d['priority'] ?? 0);
             $status  = in_array($d['product_status']??'',['Active','In-Active']) ? $d['product_status'] : 'Active';
             $display = in_array($d['display_flag']??'',['Yes','No']) ? $d['display_flag'] : 'Yes';
-            return (int)$this->db->insert(
-                "INSERT INTO tbl_product(product_name,product_code,product_entry_date,product_category_id,display_flag,
+            $sql = "INSERT INTO tbl_product(product_name,product_code,product_entry_date,product_category_id,display_flag,
                  product_status,product_description,product_specification,priorty,product_details,product_amt,product_tax,product_discount)
-                 VALUES('".$name."','".$code."','".date('Y-m-d')."',".$catId.",'".$display."','".$status."','".$desc."','".$spec."',".$prio.",'".$details."',".$amt.",".$tax.",".$disc.")"
-            );
+                 VALUES('".$name."','".$code."','".date('Y-m-d')."',".$catId.",'".$display."','".$status."','".$desc."','".$spec."',".$prio.",'".$details."',".$amt.",".$tax.",".$disc.")";
+            $newId = (int)$this->db->insert($sql);
+            if ($newId > 0) {
+                $this->logActivity('add', 'tbl_product', $sql,
+                    null,
+                    ['product_name'=>$name,'product_code'=>$code,'product_category_id'=>$catId,
+                     'display_flag'=>$display,'product_status'=>$status,'product_description'=>$desc,
+                     'product_specification'=>$spec,'priorty'=>$prio,'product_details'=>$details,
+                     'product_amt'=>$amt,'product_tax'=>$tax,'product_discount'=>$disc]
+                );
+            }
+            return $newId;
         } catch (Exception $e) { error_log('insertProduct: '.$e->getMessage()); return 0; }
     }
 
@@ -427,13 +546,22 @@ class AdminController
             $prio    = (int)($d['priority'] ?? 0);
             $status  = in_array($d['product_status']??'',['Active','In-Active']) ? $d['product_status'] : 'Active';
             $display = in_array($d['display_flag']??'',['Yes','No']) ? $d['display_flag'] : 'Yes';
-            $rows = $this->db->update(
-                "UPDATE tbl_product SET product_name='".$name."',product_code='".$code."',product_category_id=".$catId.",
+            $oldRow = $this->getProductById($id);
+            $sql = "UPDATE tbl_product SET product_name='".$name."',product_code='".$code."',product_category_id=".$catId.",
                  display_flag='".$display."',product_status='".$status."',product_description='".$desc."',
                  product_specification='".$spec."',priorty=".$prio.",product_details='".$details."',
                  product_amt=".$amt.",product_tax=".$tax.",product_discount=".$disc."
-                 WHERE product_id=".$id
-            );
+                 WHERE product_id=".$id;
+            $rows = $this->db->update($sql);
+            if ($rows >= 0) {
+                $this->logActivity('edit', 'tbl_product', $sql,
+                    $oldRow !== null ? (array)$oldRow : null,
+                    ['product_id'=>$id,'product_name'=>$name,'product_code'=>$code,
+                     'product_category_id'=>$catId,'display_flag'=>$display,'product_status'=>$status,
+                     'product_description'=>$desc,'product_specification'=>$spec,'priorty'=>$prio,
+                     'product_details'=>$details,'product_amt'=>$amt,'product_tax'=>$tax,'product_discount'=>$disc]
+                );
+            }
             return $rows >= 0;
         } catch (Exception $e) { error_log('updateProduct: '.$e->getMessage()); return false; }
     }
@@ -444,17 +572,30 @@ class AdminController
             $ext   = addslashes($ext);
             $imageFor = in_array($imageFor,['Product','Manual']) ? $imageFor : 'Product';
             $title = addslashes($title);
-            return (int)$this->db->insert(
-                "INSERT INTO tbl_product_img(product_id,image_ext,priorty,display_flag,image_for,product_manual_title,manual_upload_date)
-                 VALUES(".$productId.",'".$ext."',".$prio.",'Yes','".$imageFor."','".$title."','".date('Y-m-d')."')"
-            );
+            $sql = "INSERT INTO tbl_product_img(product_id,image_ext,priorty,display_flag,image_for,product_manual_title,manual_upload_date)
+                 VALUES(".$productId.",'".$ext."',".$prio.",'Yes','".$imageFor."','".$title."','".date('Y-m-d')."')";
+            $newId = (int)$this->db->insert($sql);
+            if ($newId > 0) {
+                $this->logActivity('add', 'tbl_product_img', $sql,
+                    null,
+                    ['product_id'=>$productId,'image_ext'=>$ext,'priorty'=>$prio,
+                     'display_flag'=>'Yes','image_for'=>$imageFor,'product_manual_title'=>$title]
+                );
+            }
+            return $newId;
         } catch (Exception $e) { error_log('addProductImage: '.$e->getMessage()); return 0; }
     }
 
     public function deleteProductImage(int $imageId): bool
     {
         try {
-            $this->db->update("DELETE FROM tbl_product_img WHERE image_id=".$imageId);
+            $oldRow = $this->db->select("SELECT * FROM tbl_product_img WHERE image_id=$imageId LIMIT 1")[0] ?? null;
+            $sql = "DELETE FROM tbl_product_img WHERE image_id=".$imageId;
+            $this->db->update($sql);
+            $this->logActivity('delete', 'tbl_product_img', $sql,
+                $oldRow !== null ? (array)$oldRow : null,
+                null
+            );
             return true;
         } catch (Exception $e) { return false; }
     }
@@ -465,8 +606,14 @@ class AdminController
             $c1 = $this->db->select("SELECT COUNT(*) AS C FROM tbl_enquiry_quote_product WHERE product_id=".$id);
             $c2 = $this->db->select("SELECT COUNT(*) AS C FROM tbl_product_purchase WHERE product_id=".$id);
             if ((int)($c1[0]->C??0)>0 || (int)($c2[0]->C??0)>0) return false;
+            $oldRow = $this->getProductById($id);
             $this->db->update("DELETE FROM tbl_product_img WHERE product_id=".$id);
-            $this->db->update("DELETE FROM tbl_product WHERE product_id=".$id);
+            $sql = "DELETE FROM tbl_product WHERE product_id=".$id;
+            $this->db->update($sql);
+            $this->logActivity('delete', 'tbl_product', $sql,
+                $oldRow !== null ? (array)$oldRow : null,
+                null
+            );
             return true;
         } catch (Exception $e) { error_log('deleteProduct: '.$e->getMessage()); return false; }
     }
@@ -508,9 +655,13 @@ class AdminController
                     "UPDATE tbl_product SET total_product=".$total.",total_remaining=".$remaining.",product_threshold=".$threshold." WHERE product_id=".$productId
                 );
             }
-            $this->db->insert(
-                "INSERT INTO tbl_product_purchase(product_id,quantity_purchased,date_of_purchase,purchased_from,receipt_no,purchase_amt)
-                 VALUES(".$productId.",".$qty.",'".$date."','".$from."','".$receipt."',".$amt.")"
+            $sql = "INSERT INTO tbl_product_purchase(product_id,quantity_purchased,date_of_purchase,purchased_from,receipt_no,purchase_amt)
+                 VALUES(".$productId.",".$qty.",'".$date."','".$from."','".$receipt."',".$amt.")";
+            $this->db->insert($sql);
+            $this->logActivity('add', 'tbl_product_purchase', $sql,
+                null,
+                ['product_id'=>$productId,'quantity_purchased'=>$qty,'date_of_purchase'=>$date,
+                 'purchased_from'=>$from,'receipt_no'=>$receipt,'purchase_amt'=>$amt]
             );
             return true;
         } catch (Exception $e) { error_log('insertPurchase: '.$e->getMessage()); return false; }
@@ -529,7 +680,12 @@ class AdminController
                 $remaining= max(0, (int)($stock[0]->TOTAL_REMAINING ?? 0) - $qty);
                 $this->db->update("UPDATE tbl_product SET total_product=".$total.",total_remaining=".$remaining." WHERE product_id=".$productId);
             }
-            $this->db->update("DELETE FROM tbl_product_purchase WHERE product_purchase_id=".$id);
+            $sql = "DELETE FROM tbl_product_purchase WHERE product_purchase_id=".$id;
+            $this->db->update($sql);
+            $this->logActivity('delete', 'tbl_product_purchase', $sql,
+                (array)$pp[0],
+                null
+            );
             return true;
         } catch (Exception $e) { error_log('deletePurchase: '.$e->getMessage()); return false; }
     }
@@ -621,6 +777,7 @@ class AdminController
             $courier  = addslashes(trim($extra['courier_company'] ?? ''));
             $trackId  = addslashes(trim($extra['tracking_id'] ?? ''));
             $trackUrl = addslashes(trim($extra['tracking_url'] ?? ''));
+            $oldRow = $this->db->select("SELECT * FROM tbl_order WHERE order_id=$orderId LIMIT 1")[0] ?? null;
             if ($status === 'Dispatched') {
                 // update inventory when dispatched
                 $items = $this->getOrderItems($orderId);
@@ -636,15 +793,21 @@ class AdminController
                         }
                     }
                 }
-                $this->db->update(
-                    "UPDATE tbl_order SET order_current_status='".$status."',dispatch_courier_company='".$courier."',
+                $sql = "UPDATE tbl_order SET order_current_status='".$status."',dispatch_courier_company='".$courier."',
                      dispatch_courier_tracking_id='".$trackId."',dispatch_courier_tracking_url='".$trackUrl."'
-                     WHERE order_id=".$orderId
-                );
+                     WHERE order_id=".$orderId;
+                $this->db->update($sql);
             } else {
-                $this->db->update("UPDATE tbl_order SET order_current_status='".$status."' WHERE order_id=".$orderId);
+                $sql = "UPDATE tbl_order SET order_current_status='".$status."' WHERE order_id=".$orderId;
+                $this->db->update($sql);
             }
             $this->db->insert("INSERT INTO tbl_order_history(order_id,order_status) VALUES(".$orderId.",'".$status."')");
+            $this->logActivity('edit', 'tbl_order', $sql,
+                $oldRow !== null ? (array)$oldRow : null,
+                ['order_id'=>$orderId,'order_current_status'=>$status,
+                 'dispatch_courier_company'=>$courier,'dispatch_courier_tracking_id'=>$trackId,
+                 'dispatch_courier_tracking_url'=>$trackUrl]
+            );
             return true;
         } catch (Exception $e) { error_log('updateOrderStatus: '.$e->getMessage()); return false; }
     }
@@ -696,34 +859,15 @@ class AdminController
         try {
             $allowed = ['Quotation Pending','Quotation Sent','Order Generated','Order Completed','Cancelled'];
             if (!in_array($status, $allowed)) return false;
-            $this->db->update("UPDATE tbl_enquiry_quote SET enquiry_status='".addslashes($status)."' WHERE enquiry_quote_id=".$id);
+            $oldRow = $this->getEnquiryById($id);
+            $sql = "UPDATE tbl_enquiry_quote SET enquiry_status='".addslashes($status)."' WHERE enquiry_quote_id=".$id;
+            $this->db->update($sql);
+            $this->logActivity('edit', 'tbl_enquiry_quote', $sql,
+                $oldRow !== null ? (array)$oldRow : null,
+                ['enquiry_quote_id'=>$id,'enquiry_status'=>$status]
+            );
             return true;
         } catch (Exception $e) { error_log('updateEnquiryStatus: '.$e->getMessage()); return false; }
-    }
-
-    /* ─────────────────────────────────────────────────────────────
-       CUSTOMERS
-    ───────────────────────────────────────────────────────────── */
-    public function getAllCustomers(array $filters = []): array
-    {
-        try {
-            $where = "WHERE user_type_id=2";
-            if (!empty($filters['search'])) $where .= " AND (name LIKE '%".addslashes($filters['search'])."%' OR communication_email_id LIKE '%".addslashes($filters['search'])."%')";
-            return $this->db->select(
-                "SELECT user_id, name, communication_email_id, communication_mobile_num_isd, communication_mobile_num,
-                 company_name, designation, verified_flag, account_activation_flag,
-                 (SELECT COUNT(*) FROM tbl_order WHERE user_id=tbl_user.user_id AND order_current_status!='Cart') AS order_count
-                 FROM tbl_user ".$where." ORDER BY user_id DESC"
-            );
-        } catch (Exception $e) { error_log('getAllCustomers: '.$e->getMessage()); return []; }
-    }
-
-    public function getCustomerById(int $id): ?object
-    {
-        try {
-            $r = $this->db->select("SELECT * FROM tbl_user WHERE user_id=".$id." AND user_type_id=2 LIMIT 1");
-            return $r[0] ?? null;
-        } catch (Exception $e) { return null; }
     }
 
     public function getCustomerAddresses(int $userId): array
@@ -747,6 +891,14 @@ class AdminController
         } catch (Exception $e) { return []; }
     }
 
+    public function getBannerById(int $id): ?object
+    {
+        try {
+            $r = $this->db->select("SELECT * FROM tbl_banner WHERE banner_id=".$id." LIMIT 1");
+            return $r[0] ?? null;
+        } catch (Exception $e) { return null; }
+    }
+
     public function insertBanner(array $d): int
     {
         try {
@@ -755,17 +907,70 @@ class AdminController
             $desc  = addslashes(trim($d['banner_description'] ?? ''));
             $link  = addslashes(trim($d['hyperlink'] ?? ''));
             $ext   = addslashes(trim($d['ext'] ?? ''));
-            return (int)$this->db->insert(
-                "INSERT INTO tbl_banner(banner_name,banner_img_ext,priority,banner_description,hyperlink)
-                 VALUES('".$name."','".$ext."',".$prio.",'".$desc."','".$link."')"
-            );
+            $flag  = in_array($d['display_flag'] ?? 'Yes', ['Yes', 'No']) ? $d['display_flag'] : 'Yes';
+            $color   = addslashes(trim($d['banner_bg_color'] ?? ''));
+            $tags    = addslashes(trim($d['tags']         ?? ''));
+            $btnOne  = addslashes(trim($d['btn_one']      ?? ''));
+            $btnOneL = addslashes(trim($d['btn_one_link'] ?? ''));
+            $btnTwo  = addslashes(trim($d['btn_two']      ?? ''));
+            $btnTwoL = addslashes(trim($d['btn_two_link'] ?? ''));
+            $sql = "INSERT INTO tbl_banner(banner_name,banner_img_ext,priority,banner_description,hyperlink,display_flag,color,tags,btn_one,btn_one_link,btn_two,btn_two_link)
+                    VALUES('".$name."','".$ext."',".$prio.",'".$desc."','".$link."','".$flag."','".$color."','".$tags."','".$btnOne."','".$btnOneL."','".$btnTwo."','".$btnTwoL."')";
+            $newId = (int)$this->db->insert($sql);
+            if ($newId > 0) {
+                $this->logActivity('add', 'tbl_banner', $sql,
+                    null,
+                    ['banner_name'=>$name,'banner_img_ext'=>$ext,'priority'=>$prio,'banner_description'=>$desc,
+                     'hyperlink'=>$link,'display_flag'=>$flag,'color'=>$color,'tags'=>$tags,
+                     'btn_one'=>$btnOne,'btn_one_link'=>$btnOneL,'btn_two'=>$btnTwo,'btn_two_link'=>$btnTwoL]
+                );
+            }
+            return $newId;
         } catch (Exception $e) { error_log('insertBanner: '.$e->getMessage()); return 0; }
+    }
+
+    public function updateBanner(array $d): bool
+    {
+        try {
+            $id    = (int)$d['banner_id'];
+            $old   = $this->db->select("SELECT * FROM tbl_banner WHERE banner_id=$id LIMIT 1")[0] ?? null;
+            $name  = addslashes(trim($d['banner_name']));
+            $prio  = (int)($d['priority'] ?? 0);
+            $desc  = addslashes(trim($d['banner_description'] ?? ''));
+            $link  = addslashes(trim($d['hyperlink'] ?? ''));
+            $ext   = addslashes(trim($d['ext'] ?? ''));
+            $flag  = in_array($d['display_flag'] ?? 'Yes', ['Yes', 'No']) ? $d['display_flag'] : 'Yes';
+            $color   = addslashes(trim($d['banner_bg_color'] ?? ''));
+            $tags    = addslashes(trim($d['tags']         ?? ''));
+            $btnOne  = addslashes(trim($d['btn_one']      ?? ''));
+            $btnOneL = addslashes(trim($d['btn_one_link'] ?? ''));
+            $btnTwo  = addslashes(trim($d['btn_two']      ?? ''));
+            $btnTwoL = addslashes(trim($d['btn_two_link'] ?? ''));
+            $sql = "UPDATE tbl_banner SET banner_name='$name', banner_img_ext='$ext', priority=$prio,
+                    banner_description='$desc', hyperlink='$link', display_flag='$flag', color='$color',
+                    tags='$tags', btn_one='$btnOne', btn_one_link='$btnOneL', btn_two='$btnTwo', btn_two_link='$btnTwoL'
+                    WHERE banner_id=$id";
+            $this->db->update($sql);
+            $this->logActivity('edit', 'tbl_banner', $sql,
+                $old !== null ? (array)$old : null,
+                ['banner_name'=>$name,'banner_img_ext'=>$ext,'priority'=>$prio,'banner_description'=>$desc,
+                 'hyperlink'=>$link,'display_flag'=>$flag,'color'=>$color,'tags'=>$tags,
+                 'btn_one'=>$btnOne,'btn_one_link'=>$btnOneL,'btn_two'=>$btnTwo,'btn_two_link'=>$btnTwoL]
+            );
+            return true;
+        } catch (Exception $e) { error_log('updateBanner: '.$e->getMessage()); return false; }
     }
 
     public function deleteBanner(int $id): bool
     {
         try {
-            $this->db->update("DELETE FROM tbl_banner WHERE banner_id=".$id);
+            $oldRow = $this->db->select("SELECT * FROM tbl_banner WHERE banner_id=$id LIMIT 1")[0] ?? null;
+            $sql = "DELETE FROM tbl_banner WHERE banner_id=".$id;
+            $this->db->update($sql);
+            $this->logActivity('delete', 'tbl_banner', $sql,
+                $oldRow !== null ? (array)$oldRow : null,
+                null
+            );
             return true;
         } catch (Exception $e) { return false; }
     }
@@ -798,10 +1003,17 @@ class AdminController
             $imgExt = addslashes(trim($d['img_ext'] ?? ''));
             $docExt = addslashes(trim($d['doc_ext'] ?? ''));
             $empId  = (int)($_SESSION['sinelec_admin']['USER_ID'] ?? 0);
-            return (int)$this->db->insert(
-                "INSERT INTO tbl_news_event(flag,title,created_date,description,created_by,img_ext,doc_ext)
-                 VALUES('".$flag."','".$title."','".$date."','".$desc."',".$empId.",'".$imgExt."','".$docExt."')"
-            );
+            $sql = "INSERT INTO tbl_news_event(flag,title,created_date,description,created_by,img_ext,doc_ext)
+                 VALUES('".$flag."','".$title."','".$date."','".$desc."',".$empId.",'".$imgExt."','".$docExt."')";
+            $newId = (int)$this->db->insert($sql);
+            if ($newId > 0) {
+                $this->logActivity('add', 'tbl_news_event', $sql,
+                    null,
+                    ['flag'=>$flag,'title'=>$title,'created_date'=>$date,'description'=>$desc,
+                     'created_by'=>$empId,'img_ext'=>$imgExt,'doc_ext'=>$docExt]
+                );
+            }
+            return $newId;
         } catch (Exception $e) { error_log('insertNews: '.$e->getMessage()); return 0; }
     }
 
@@ -816,11 +1028,18 @@ class AdminController
             $imgExt = addslashes(trim($d['img_ext'] ?? ''));
             $docExt = addslashes(trim($d['doc_ext'] ?? ''));
             $empId  = (int)($_SESSION['sinelec_admin']['USER_ID'] ?? 0);
-            $rows = $this->db->update(
-                "UPDATE tbl_news_event SET flag='".$flag."',title='".$title."',created_date='".$date."',
+            $oldRow = $this->getNewsById($id);
+            $sql = "UPDATE tbl_news_event SET flag='".$flag."',title='".$title."',created_date='".$date."',
                  description='".$desc."',created_by=".$empId.",img_ext='".$imgExt."',doc_ext='".$docExt."'
-                 WHERE news_event_id=".$id
-            );
+                 WHERE news_event_id=".$id;
+            $rows = $this->db->update($sql);
+            if ($rows >= 0) {
+                $this->logActivity('edit', 'tbl_news_event', $sql,
+                    $oldRow !== null ? (array)$oldRow : null,
+                    ['news_event_id'=>$id,'flag'=>$flag,'title'=>$title,'created_date'=>$date,
+                     'description'=>$desc,'created_by'=>$empId,'img_ext'=>$imgExt,'doc_ext'=>$docExt]
+                );
+            }
             return $rows >= 0;
         } catch (Exception $e) { error_log('updateNews: '.$e->getMessage()); return false; }
     }
@@ -828,7 +1047,13 @@ class AdminController
     public function deleteNews(int $id): bool
     {
         try {
-            $this->db->update("DELETE FROM tbl_news_event WHERE news_event_id=".$id);
+            $oldRow = $this->getNewsById($id);
+            $sql = "DELETE FROM tbl_news_event WHERE news_event_id=".$id;
+            $this->db->update($sql);
+            $this->logActivity('delete', 'tbl_news_event', $sql,
+                $oldRow !== null ? (array)$oldRow : null,
+                null
+            );
             return true;
         } catch (Exception $e) { return false; }
     }
@@ -857,9 +1082,15 @@ class AdminController
             $q   = addslashes(trim($d['faq_question']));
             $a   = addslashes(trim($d['faq_answer']));
             $ord = (int)($d['faq_order'] ?? 0);
-            return (int)$this->db->insert(
-                "INSERT INTO tbl_faq(faq_question,faq_answer,faq_order) VALUES('".$q."','".$a."',".$ord.")"
-            );
+            $sql = "INSERT INTO tbl_faq(faq_question,faq_answer,faq_order) VALUES('".$q."','".$a."',".$ord.")";
+            $newId = (int)$this->db->insert($sql);
+            if ($newId > 0) {
+                $this->logActivity('add', 'tbl_faq', $sql,
+                    null,
+                    ['faq_question'=>$q,'faq_answer'=>$a,'faq_order'=>$ord]
+                );
+            }
+            return $newId;
         } catch (Exception $e) { error_log('insertFAQ: '.$e->getMessage()); return 0; }
     }
 
@@ -870,9 +1101,15 @@ class AdminController
             $q   = addslashes(trim($d['faq_question']));
             $a   = addslashes(trim($d['faq_answer']));
             $ord = (int)($d['faq_order'] ?? 0);
-            $rows = $this->db->update(
-                "UPDATE tbl_faq SET faq_question='".$q."',faq_answer='".$a."',faq_order=".$ord." WHERE faq_id=".$id
-            );
+            $oldRow = $this->getFAQById($id);
+            $sql = "UPDATE tbl_faq SET faq_question='".$q."',faq_answer='".$a."',faq_order=".$ord." WHERE faq_id=".$id;
+            $rows = $this->db->update($sql);
+            if ($rows >= 0) {
+                $this->logActivity('edit', 'tbl_faq', $sql,
+                    $oldRow !== null ? (array)$oldRow : null,
+                    ['faq_id'=>$id,'faq_question'=>$q,'faq_answer'=>$a,'faq_order'=>$ord]
+                );
+            }
             return $rows >= 0;
         } catch (Exception $e) { error_log('updateFAQ: '.$e->getMessage()); return false; }
     }
@@ -880,7 +1117,13 @@ class AdminController
     public function deleteFAQ(int $id): bool
     {
         try {
-            $this->db->update("DELETE FROM tbl_faq WHERE faq_id=".$id);
+            $oldRow = $this->getFAQById($id);
+            $sql = "DELETE FROM tbl_faq WHERE faq_id=".$id;
+            $this->db->update($sql);
+            $this->logActivity('delete', 'tbl_faq', $sql,
+                $oldRow !== null ? (array)$oldRow : null,
+                null
+            );
             return true;
         } catch (Exception $e) { return false; }
     }
@@ -914,10 +1157,17 @@ class AdminController
             $loc    = addslashes(trim($d['job_location'] ?? ''));
             $desc   = addslashes(trim($d['job_discription'] ?? ''));
             $status = in_array($d['job_status']??'',['Active','In-Active']) ? $d['job_status'] : 'Active';
-            return (int)$this->db->insert(
-                "INSERT INTO tbl_job_career(job_position,job_priority,job_location,job_discription,job_status)
-                 VALUES('".$pos."',".$prio.",'".$loc."','".$desc."','".$status."')"
-            );
+            $sql = "INSERT INTO tbl_job_career(job_position,job_priority,job_location,job_discription,job_status)
+                 VALUES('".$pos."',".$prio.",'".$loc."','".$desc."','".$status."')";
+            $newId = (int)$this->db->insert($sql);
+            if ($newId > 0) {
+                $this->logActivity('add', 'tbl_job_career', $sql,
+                    null,
+                    ['job_position'=>$pos,'job_priority'=>$prio,'job_location'=>$loc,
+                     'job_discription'=>$desc,'job_status'=>$status]
+                );
+            }
+            return $newId;
         } catch (Exception $e) { error_log('insertJob: '.$e->getMessage()); return 0; }
     }
 
@@ -930,10 +1180,17 @@ class AdminController
             $loc    = addslashes(trim($d['job_location'] ?? ''));
             $desc   = addslashes(trim($d['job_discription'] ?? ''));
             $status = in_array($d['job_status']??'',['Active','In-Active']) ? $d['job_status'] : 'Active';
-            $rows = $this->db->update(
-                "UPDATE tbl_job_career SET job_position='".$pos."',job_priority=".$prio.",job_location='".$loc."',
-                 job_discription='".$desc."',job_status='".$status."' WHERE job_post_id=".$id
-            );
+            $oldRow = $this->getJobById($id);
+            $sql = "UPDATE tbl_job_career SET job_position='".$pos."',job_priority=".$prio.",job_location='".$loc."',
+                 job_discription='".$desc."',job_status='".$status."' WHERE job_post_id=".$id;
+            $rows = $this->db->update($sql);
+            if ($rows >= 0) {
+                $this->logActivity('edit', 'tbl_job_career', $sql,
+                    $oldRow !== null ? (array)$oldRow : null,
+                    ['job_post_id'=>$id,'job_position'=>$pos,'job_priority'=>$prio,
+                     'job_location'=>$loc,'job_discription'=>$desc,'job_status'=>$status]
+                );
+            }
             return $rows >= 0;
         } catch (Exception $e) { error_log('updateJob: '.$e->getMessage()); return false; }
     }
@@ -943,7 +1200,13 @@ class AdminController
         try {
             $c = $this->db->select("SELECT COUNT(*) AS C FROM tbl_candidate_applied_for_job WHERE job_post_id=".$id);
             if ((int)($c[0]->C??0) > 0) return false;
-            $this->db->update("DELETE FROM tbl_job_career WHERE job_post_id=".$id);
+            $oldRow = $this->getJobById($id);
+            $sql = "DELETE FROM tbl_job_career WHERE job_post_id=".$id;
+            $this->db->update($sql);
+            $this->logActivity('delete', 'tbl_job_career', $sql,
+                $oldRow !== null ? (array)$oldRow : null,
+                null
+            );
             return true;
         } catch (Exception $e) { return false; }
     }
@@ -968,9 +1231,460 @@ class AdminController
     public function deleteApplicant(int $id): bool
     {
         try {
-            $this->db->update("DELETE FROM tbl_candidate_applied_for_job WHERE candidate_applied_job_id=".$id);
+            $oldRow = $this->db->select("SELECT * FROM tbl_candidate_applied_for_job WHERE candidate_applied_job_id=$id LIMIT 1")[0] ?? null;
+            $sql = "DELETE FROM tbl_candidate_applied_for_job WHERE candidate_applied_job_id=".$id;
+            $this->db->update($sql);
+            $this->logActivity('delete', 'tbl_candidate_applied_for_job', $sql,
+                $oldRow !== null ? (array)$oldRow : null,
+                null
+            );
             return true;
         } catch (Exception $e) { return false; }
+    }
+
+    /* ─────────────────────────────────────────────────────────────
+       ROLES
+    ───────────────────────────────────────────────────────────── */
+    public function getAllRoles(): array
+    {
+        try {
+            return $this->db->select(
+                "SELECT r.*,
+                 COUNT(DISTINCT rp.menu_id) AS MENU_COUNT
+                 FROM tbl_roles r
+                 LEFT JOIN tbl_roles_permission rp ON rp.role_id = r.role_id
+                 GROUP BY r.role_id
+                 ORDER BY r.priority ASC, r.role_name ASC"
+            );
+        } catch (Exception $e) { error_log('getAllRoles: '.$e->getMessage()); return []; }
+    }
+
+    public function getRoleById(int $id): ?object
+    {
+        try {
+            $rows = $this->db->select("SELECT * FROM tbl_roles WHERE role_id=".$id);
+            return $rows[0] ?? null;
+        } catch (Exception $e) { return null; }
+    }
+
+    public function getModulesWithMenus(): array
+    {
+        try {
+            $rows = $this->db->select(
+                "SELECT mo.module_id AS MODULE_ID, mo.module_name AS MODULE_NAME,
+                        mn.menu_id AS MENU_ID, mn.menu_name AS MENU_NAME
+                 FROM tbl_module mo
+                 JOIN tbl_menu mn ON mn.module_id = mo.module_id
+                 WHERE mo.status = 1 AND mn.status = 1
+                 ORDER BY mo.priority ASC, mn.priority ASC"
+            );
+            $grouped = [];
+            foreach ($rows as $r) {
+                $mid = (int)$r->MODULE_ID;
+                if (!isset($grouped[$mid])) {
+                    $grouped[$mid] = [
+                        'module_id'   => $mid,
+                        'module_name' => (string)$r->MODULE_NAME,
+                        'menus'       => [],
+                    ];
+                }
+                $grouped[$mid]['menus'][] = [
+                    'menu_id'   => (int)$r->MENU_ID,
+                    'menu_name' => (string)$r->MENU_NAME,
+                ];
+            }
+            return array_values($grouped);
+        } catch (Exception $e) { error_log('getModulesWithMenus: '.$e->getMessage()); return []; }
+    }
+
+    public function getAllRolePermissions(): array
+    {
+        try {
+            $rows = $this->db->select(
+                "SELECT role_id AS ROLE_ID, menu_id AS MENU_ID,
+                        can_view AS CAN_VIEW, can_add AS CAN_ADD,
+                        can_edit AS CAN_EDIT, can_delete AS CAN_DELETE
+                 FROM tbl_roles_permission"
+            );
+            $map = [];
+            foreach ($rows as $r) {
+                $map[(int)$r->ROLE_ID][(int)$r->MENU_ID] = [
+                    'can_view'   => (int)$r->CAN_VIEW,
+                    'can_add'    => (int)$r->CAN_ADD,
+                    'can_edit'   => (int)$r->CAN_EDIT,
+                    'can_delete' => (int)$r->CAN_DELETE,
+                ];
+            }
+            return $map;
+        } catch (Exception $e) { return []; }
+    }
+
+    public function saveRole(array $d, array $perms): int|false
+    {
+        try {
+            $roleId  = (int)($d['role_id'] ?? 0);
+            $name    = addslashes(trim($d['role_name'] ?? ''));
+            $code    = addslashes(strtoupper(preg_replace('/\s+/', '_', trim($d['role_code'] ?? ''))));
+            $desc    = addslashes(trim($d['description'] ?? ''));
+            $prio    = (int)($d['priority'] ?? 0);
+            $status  = (int)($d['status'] ?? 1) === 0 ? 0 : 1;
+
+            if ($roleId > 0) {
+                $oldRow = $this->getRoleById($roleId);
+                $sql = "UPDATE tbl_roles SET role_name='".$name."', role_code='".$code."',
+                     description='".$desc."', priority=".$prio.", status=".$status."
+                     WHERE role_id=".$roleId;
+                $this->db->update($sql);
+                $this->db->update("DELETE FROM tbl_roles_permission WHERE role_id=".$roleId);
+                $this->logActivity('edit', 'tbl_roles', $sql,
+                    $oldRow !== null ? (array)$oldRow : null,
+                    ['role_id'=>$roleId,'role_name'=>$name,'role_code'=>$code,
+                     'description'=>$desc,'priority'=>$prio,'status'=>$status]
+                );
+            } else {
+                $sql = "INSERT INTO tbl_roles(role_name, role_code, description, priority, status)
+                     VALUES('".$name."', '".$code."', '".$desc."', ".$prio.", ".$status.")";
+                $roleId = (int)$this->db->insert($sql);
+                if ($roleId <= 0) return false;
+                $this->logActivity('add', 'tbl_roles', $sql,
+                    null,
+                    ['role_name'=>$name,'role_code'=>$code,'description'=>$desc,
+                     'priority'=>$prio,'status'=>$status]
+                );
+            }
+
+            /* build menu→module_id map in one query */
+            $menuMap = [];
+            if (!empty($perms)) {
+                $menuIds = implode(',', array_map('intval', array_keys($perms)));
+                $mRows   = $this->db->select(
+                    "SELECT menu_id AS MENU_ID, module_id AS MODULE_ID
+                     FROM tbl_menu WHERE menu_id IN (".$menuIds.")"
+                );
+                foreach ($mRows as $mr) {
+                    $menuMap[(int)$mr->MENU_ID] = (int)$mr->MODULE_ID;
+                }
+            }
+
+            foreach ($perms as $menuId => $p) {
+                $menuId   = (int)$menuId;
+                $moduleId = (int)($menuMap[$menuId] ?? 0);
+                if ($menuId <= 0 || $moduleId <= 0) continue;
+                $cv = empty($p['can_view'])   ? 0 : 1;
+                $ca = empty($p['can_add'])    ? 0 : 1;
+                $ce = empty($p['can_edit'])   ? 0 : 1;
+                $cd = empty($p['can_delete']) ? 0 : 1;
+                if (!($cv || $ca || $ce || $cd)) continue;
+                $this->db->insert(
+                    "INSERT INTO tbl_roles_permission
+                     (role_id, module_id, menu_id, can_view, can_add, can_edit, can_delete)
+                     VALUES(".$roleId.",".$moduleId.",".$menuId.",".$cv.",".$ca.",".$ce.",".$cd.")"
+                );
+            }
+            return $roleId;
+        } catch (Exception $e) { error_log('saveRole: '.$e->getMessage()); return false; }
+    }
+
+    public function deleteRole(int $id): bool
+    {
+        try {
+            $c = $this->db->select("SELECT COUNT(*) AS C FROM tbl_user WHERE role_id=".$id);
+            if ((int)($c[0]->C ?? 0) > 0) return false;
+            $oldRow = $this->getRoleById($id);
+            $this->db->update("DELETE FROM tbl_roles_permission WHERE role_id=".$id);
+            $sql = "DELETE FROM tbl_roles WHERE role_id=".$id;
+            $this->db->update($sql);
+            $this->logActivity('delete', 'tbl_roles', $sql,
+                $oldRow !== null ? (array)$oldRow : null,
+                null
+            );
+            return true;
+        } catch (Exception $e) { error_log('deleteRole: '.$e->getMessage()); return false; }
+    }
+
+    /* ─────────────────────────────────────────────────────────────
+       EMPLOYEES  (user_type_id = 3)
+    ───────────────────────────────────────────────────────────── */
+    public function getAllEmployees(array $filters = []): array
+    {
+        try {
+            $where = "WHERE u.user_type_id = 3";
+            if (!empty($filters['search'])) {
+                $s = addslashes($filters['search']);
+                $where .= " AND (u.name LIKE '%".$s."%' OR u.communication_email_id LIKE '%".$s."%' OR u.designation LIKE '%".$s."%')";
+            }
+            if (!empty($filters['role'])) $where .= " AND u.role_id=".(int)$filters['role'];
+            if (isset($filters['status']) && $filters['status'] !== '') {
+                $where .= " AND u.account_activation_flag='".addslashes($filters['status'])."'";
+            }
+            return $this->db->select(
+                "SELECT u.user_id, u.name, u.communication_email_id,
+                        u.communication_mobile_num_isd, u.communication_mobile_num,
+                        u.company_name, u.designation,
+                        u.account_activation_flag, u.verified_flag,
+                        u.role_id, r.role_name
+                 FROM tbl_user u  
+                 LEFT JOIN tbl_roles r ON r.role_id = u.role_id
+                 ".$where." ORDER BY u.user_id DESC"
+            );
+        } catch (Exception $e) { error_log('getAllEmployees: '.$e->getMessage()); return []; }
+    }
+
+    public function getEmployeeById(int $id): ?object
+    {
+        try {
+            $rows = $this->db->select(
+                "SELECT * FROM tbl_user WHERE user_id=".$id." AND user_type_id=3 LIMIT 1"
+            );
+            return $rows[0] ?? null;
+        } catch (Exception $e) { return null; }
+    }
+
+    /**
+     * Insert or update an employee.
+     * Returns: new/existing user_id on success, -1 if email already exists, false on error.
+     */
+    public function saveEmployee(array $d): int|false
+    {
+        try {
+            $userId  = (int)($d['user_id'] ?? 0);
+            $name    = addslashes(trim($d['name'] ?? ''));
+            $email   = addslashes(strtolower(trim($d['communication_email_id'] ?? '')));
+            $mobile  = addslashes(trim($d['communication_mobile_num'] ?? ''));
+            $isd     = (int)($d['communication_mobile_num_isd'] ?? 91);
+            $company = addslashes(trim($d['company_name'] ?? ''));
+            $desig   = addslashes(trim($d['designation'] ?? ''));
+            $roleId  = (int)($d['role_id'] ?? 0);
+            $status  = ($d['account_activation_flag'] ?? '1') === '0' ? '0' : '1';
+            $password = trim($d['password'] ?? '');
+
+            if ($userId > 0) {
+                /* ── Edit (no password update here — use resetEmployeePassword) ── */
+                $oldRow = $this->getEmployeeById($userId);
+                $roleVal = $roleId > 0 ? $roleId : 'NULL';
+                $sql = "UPDATE tbl_user
+                     SET name='".$name."',
+                         communication_mobile_num_isd=".$isd.",
+                         communication_mobile_num='".$mobile."',
+                         company_name='".$company."',
+                         designation='".$desig."',
+                         role_id=".$roleVal.",
+                         account_activation_flag='".$status."'
+                     WHERE user_id=".$userId." AND user_type_id=3";
+                $this->db->update($sql);
+                $this->logActivity('edit', 'tbl_user', $sql,
+                    $oldRow !== null ? (array)$oldRow : null,
+                    ['user_id'=>$userId,'name'=>$name,'communication_mobile_num_isd'=>$isd,
+                     'communication_mobile_num'=>$mobile,'company_name'=>$company,
+                     'designation'=>$desig,'role_id'=>$roleId,'account_activation_flag'=>$status]
+                );
+                return $userId;
+            } else {
+                /* ── Insert ── */
+                if ($email === '' || $password === '') return false;
+                $dup = $this->db->select(
+                    "SELECT COUNT(*) AS C FROM tbl_user WHERE communication_email_id='".$email."'"
+                );
+                if ((int)($dup[0]->C ?? 0) > 0) return -1;
+                $hash    = addslashes(password_hash($password, PASSWORD_DEFAULT));
+                $actKey  = bin2hex(random_bytes(16));
+                $roleVal = $roleId > 0 ? $roleId : 'NULL';
+                $sql = "INSERT INTO tbl_user
+                     (user_type_id, name, communication_email_id, erp_password,
+                      communication_mobile_num_isd, communication_mobile_num,
+                      company_name, designation, role_id,
+                      account_activation_flag, random_activation_key, verified_flag, is_pwd_updated)
+                     VALUES(3, '".$name."', '".$email."', '".$hash."',
+                            ".$isd.", '".$mobile."', '".$company."', '".$desig."', ".$roleVal.",
+                            '".$status."', '".$actKey."', 'Yes', 1)";
+                $id = (int)$this->db->insert($sql);
+                if ($id > 0) {
+                    $this->logActivity('add', 'tbl_user', $sql,
+                        null,
+                        ['user_type_id'=>3,'name'=>$name,'communication_email_id'=>$email,
+                         'erp_password'=>'[hashed]','communication_mobile_num_isd'=>$isd,
+                         'communication_mobile_num'=>$mobile,'company_name'=>$company,
+                         'designation'=>$desig,'role_id'=>$roleId,
+                         'account_activation_flag'=>$status,'verified_flag'=>'Yes']
+                    );
+                }
+                return $id > 0 ? $id : false;
+            }
+        } catch (Exception $e) { error_log('saveEmployee: '.$e->getMessage()); return false; }
+    }
+
+    public function checkEmployeeEmailExists(string $email, int $excludeUserId = 0): bool
+    {
+        try {
+            $email = addslashes(strtolower(trim($email)));
+            $sql   = "SELECT COUNT(*) AS C FROM tbl_user WHERE communication_email_id='".$email."'";
+            if ($excludeUserId > 0) $sql .= " AND user_id != ".$excludeUserId;
+            $r = $this->db->select($sql);
+            return (int)($r[0]->C ?? 0) > 0;
+        } catch (Exception $e) { return false; }
+    }
+
+    public function resetEmployeePassword(int $userId, string $password): bool
+    {
+        try {
+            $hash = addslashes(password_hash($password, PASSWORD_DEFAULT));
+            $sql = "UPDATE tbl_user SET erp_password='".$hash."', is_pwd_updated=1
+                 WHERE user_id=".$userId." AND user_type_id=3 LIMIT 1";
+            $this->db->update($sql);
+            $this->logActivity('edit', 'tbl_user', $sql,
+                null,
+                ['user_id'=>$userId,'action'=>'password_reset']
+            );
+            return true;
+        } catch (Exception $e) { error_log('resetEmployeePassword: '.$e->getMessage()); return false; }
+    }
+
+    public function deleteEmployee(int $id): bool
+    {
+        try {
+            $oldRow = $this->getEmployeeById($id);
+            $sql = "DELETE FROM tbl_user WHERE user_id=".$id." AND user_type_id=3 LIMIT 1";
+            $this->db->update($sql);
+            $this->logActivity('delete', 'tbl_user', $sql,
+                $oldRow !== null ? (array)$oldRow : null,
+                null
+            );
+            return true;
+        } catch (Exception $e) { error_log('deleteEmployee: '.$e->getMessage()); return false; }
+    }
+
+    /* ─────────────────────────────────────────────────────────────
+       CUSTOMERS  (user_type_id = 2)
+    ───────────────────────────────────────────────────────────── */
+    public function getAllCustomers(array $filters = []): array
+    {
+        try {
+            $where = "WHERE u.user_type_id = 2";
+            if (!empty($filters['search'])) {
+                $s = addslashes($filters['search']);
+                $where .= " AND (u.name LIKE '%".$s."%' OR u.communication_email_id LIKE '%".$s."%' OR u.designation LIKE '%".$s."%')";
+            }
+            if (!empty($filters['role'])) $where .= " AND u.role_id=".(int)$filters['role'];
+            if (isset($filters['status']) && $filters['status'] !== '') {
+                $where .= " AND u.account_activation_flag='".addslashes($filters['status'])."'";
+            }
+            return $this->db->select(
+                "SELECT u.user_id, u.name, u.communication_email_id,
+                        u.communication_mobile_num_isd, u.communication_mobile_num,
+                        u.company_name, u.designation,
+                        u.account_activation_flag, u.verified_flag,
+                        u.role_id, r.role_name
+                 FROM tbl_user u
+                 LEFT JOIN tbl_roles r ON r.role_id = u.role_id
+                 ".$where." ORDER BY u.user_id DESC"
+            );
+        } catch (Exception $e) { error_log('getAllCustomers: '.$e->getMessage()); return []; }
+    }
+
+    public function getCustomerById(int $id): ?object
+    {
+        try {
+            $r = $this->db->select(
+                "SELECT * FROM tbl_user WHERE user_id=".$id." AND user_type_id=2 LIMIT 1"
+            );
+            return $r[0] ?? null;
+        } catch (Exception $e) { return null; }
+    }
+
+    public function saveCustomer(array $d): int|false
+    {
+        try {
+            $userId  = (int)($d['user_id'] ?? 0);
+            $name    = addslashes(trim($d['name'] ?? ''));
+            $email   = addslashes(strtolower(trim($d['communication_email_id'] ?? '')));
+            $mobile  = addslashes(trim($d['communication_mobile_num'] ?? ''));
+            $isd     = (int)($d['communication_mobile_num_isd'] ?? 91);
+            $company = addslashes(trim($d['company_name'] ?? ''));
+            $desig   = addslashes(trim($d['designation'] ?? ''));
+            $roleId  = (int)($d['role_id'] ?? 0);
+            $status  = ($d['account_activation_flag'] ?? '1') === '0' ? '0' : '1';
+            $password = trim($d['password'] ?? '');
+
+            if ($userId > 0) {
+                $oldRow  = $this->getCustomerById($userId);
+                $roleVal = $roleId > 0 ? $roleId : 'NULL';
+                $sql = "UPDATE tbl_user
+                     SET name='".$name."',
+                         communication_mobile_num_isd=".$isd.",
+                         communication_mobile_num='".$mobile."',
+                         company_name='".$company."',
+                         designation='".$desig."',
+                         role_id=".$roleVal.",
+                         account_activation_flag='".$status."'
+                     WHERE user_id=".$userId." AND user_type_id=2";
+                $this->db->update($sql);
+                $this->logActivity('edit', 'tbl_user', $sql,
+                    $oldRow !== null ? (array)$oldRow : null,
+                    ['user_id'=>$userId,'name'=>$name,'communication_mobile_num_isd'=>$isd,
+                     'communication_mobile_num'=>$mobile,'company_name'=>$company,
+                     'designation'=>$desig,'role_id'=>$roleId,'account_activation_flag'=>$status]
+                );
+                return $userId;
+            } else {
+                if ($email === '' || $password === '') return false;
+                $dup = $this->db->select(
+                    "SELECT COUNT(*) AS C FROM tbl_user WHERE communication_email_id='".$email."'"
+                );
+                if ((int)($dup[0]->C ?? 0) > 0) return -1;
+                $hash    = addslashes(password_hash($password, PASSWORD_DEFAULT));
+                $actKey  = bin2hex(random_bytes(16));
+                $roleVal = $roleId > 0 ? $roleId : 'NULL';
+                $sql = "INSERT INTO tbl_user
+                     (user_type_id, name, communication_email_id, erp_password,
+                      communication_mobile_num_isd, communication_mobile_num,
+                      company_name, designation, role_id,
+                      account_activation_flag, random_activation_key, verified_flag, is_pwd_updated)
+                     VALUES(2, '".$name."', '".$email."', '".$hash."',
+                            ".$isd.", '".$mobile."', '".$company."', '".$desig."', ".$roleVal.",
+                            '".$status."', '".$actKey."', 'Yes', 1)";
+                $id = (int)$this->db->insert($sql);
+                if ($id > 0) {
+                    $this->logActivity('add', 'tbl_user', $sql,
+                        null,
+                        ['user_type_id'=>2,'name'=>$name,'communication_email_id'=>$email,
+                         'erp_password'=>'[hashed]','communication_mobile_num_isd'=>$isd,
+                         'communication_mobile_num'=>$mobile,'company_name'=>$company,
+                         'designation'=>$desig,'role_id'=>$roleId,
+                         'account_activation_flag'=>$status,'verified_flag'=>'Yes']
+                    );
+                }
+                return $id > 0 ? $id : false;
+            }
+        } catch (Exception $e) { error_log('saveCustomer: '.$e->getMessage()); return false; }
+    }
+
+    public function resetCustomerPassword(int $userId, string $password): bool
+    {
+        try {
+            $hash = addslashes(password_hash($password, PASSWORD_DEFAULT));
+            $sql = "UPDATE tbl_user SET erp_password='".$hash."', is_pwd_updated=1
+                 WHERE user_id=".$userId." AND user_type_id=2 LIMIT 1";
+            $this->db->update($sql);
+            $this->logActivity('edit', 'tbl_user', $sql,
+                null,
+                ['user_id'=>$userId,'action'=>'password_reset']
+            );
+            return true;
+        } catch (Exception $e) { error_log('resetCustomerPassword: '.$e->getMessage()); return false; }
+    }
+
+    public function deleteCustomer(int $id): bool
+    {
+        try {
+            $oldRow = $this->getCustomerById($id);
+            $sql = "DELETE FROM tbl_user WHERE user_id=".$id." AND user_type_id=2 LIMIT 1";
+            $this->db->update($sql);
+            $this->logActivity('delete', 'tbl_user', $sql,
+                $oldRow !== null ? (array)$oldRow : null,
+                null
+            );
+            return true;
+        } catch (Exception $e) { error_log('deleteCustomer: '.$e->getMessage()); return false; }
     }
 }
 ?>

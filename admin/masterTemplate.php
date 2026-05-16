@@ -6,12 +6,33 @@
  *   $currentPage     string  (sidebar key)
  *   $pageMainContent string  (HTML)
  */
+// ini_set('display_errors', '1');
+// ini_set('display_startup_errors', '1');
+// error_reporting(E_ALL);
 if (session_status() !== PHP_SESSION_ACTIVE) session_start();
 require_once __DIR__ . '/../common/functions.php';
 require_once __DIR__ . '/../controller/admin_controller.php';
 
+/* ── Auth guard ── */
 if (empty($_SESSION['sinelec_admin']['USER_ID'])) {
     sinelec_set_flash('warn', 'Please sign in to access the admin panel.');
+    header('location:index'); exit();
+}
+
+$_sesUserType = (int)($_SESSION['sinelec_admin']['USER_TYPE_ID'] ?? 0);
+$_sesRoleId   = (int)($_SESSION['sinelec_admin']['ROLE_ID']      ?? 0);
+
+/* Block any user type other than 1 or 3 */
+if (!in_array($_sesUserType, [1, 3], true)) {
+    session_destroy();
+    sinelec_set_flash('err', 'Access denied.');
+    header('location:index'); exit();
+}
+
+/* Employee (type 3) without a role cannot access the panel */
+if ($_sesUserType === 3 && $_sesRoleId === 0) {
+    session_destroy();
+    sinelec_set_flash('warn', 'Your account has no role assigned. Please contact the administrator.');
     header('location:index'); exit();
 }
 
@@ -23,14 +44,37 @@ $adminName  = (string)($_SESSION['sinelec_admin']['NAME']  ?? 'Admin');
 $adminEmail = (string)($_SESSION['sinelec_admin']['EMAIL'] ?? '');
 $firstName  = explode(' ', trim($adminName))[0] ?: 'Admin';
 $initials   = strtoupper(substr($firstName, 0, 1));
+$roleBadge  = $_sesUserType === 1 ? 'Admin' : 'Employee';
 
 $flashToast = sinelec_consume_flash();
 $flashMsg   = (string)($flashToast['message'] ?? '');
 $flashType  = (string)($flashToast['type']    ?? 'ok');
 
-/* ── Build DB-driven menu ── */
-$_sbCtrl = new AdminController();
-$_dbMenu = $_sbCtrl->getAdminMenu();
+/* ── Sidebar menu from session (set at login); rebuild if missing ── */
+if (empty($_SESSION['sinelec_admin']['MENU_DATA'])) {
+    $_sbCtrl  = new AdminController();
+    $menuData = $_sbCtrl->getAdminMenu();
+    $_SESSION['sinelec_admin']['MENU_DATA'] = $menuData;
+
+    /* Rebuild flat permissions lookup too */
+    if ($_sesUserType === 3) {
+        $perms = [];
+        foreach ($menuData as $grp) {
+            foreach ($grp['items'] as $item) {
+                $perms[(int)$item['menu_id']] = [
+                    'can_view'   => (bool)($item['can_view']   ?? false),
+                    'can_add'    => (bool)($item['can_add']    ?? false),
+                    'can_edit'   => (bool)($item['can_edit']   ?? false),
+                    'can_delete' => (bool)($item['can_delete'] ?? false),
+                ];
+            }
+        }
+        $_SESSION['sinelec_admin']['PERMISSIONS'] = $perms;
+    }
+}
+$_dbMenu = $_SESSION['sinelec_admin']['MENU_DATA'];
+
+//echo "<pre>"; print_r($_dbMenu); echo "</pre>"; die;
 
 function sbActive(string $key, string $cur): string { return $key === $cur ? ' is-active' : ''; }
 function sbGroupOpen(array $grp, string $cur): bool {
@@ -133,7 +177,7 @@ function sbGroupOpen(array $grp, string $cur): bool {
               <div class="hd-drop-info">
                 <div class="hd-drop-name"><?= htmlspecialchars($adminName) ?></div>
                 <div class="hd-drop-email"><?= htmlspecialchars($adminEmail) ?></div>
-                <div class="hd-drop-badge">Admin</div>
+                <div class="hd-drop-badge"><?= htmlspecialchars($roleBadge) ?></div>
               </div>
             </div>
 
@@ -172,6 +216,21 @@ function sbGroupOpen(array $grp, string $cur): bool {
       <span>&copy; <?= date('Y') ?> Sinelec Technologies Pvt. Ltd.</span>
       <span class="site-footer-version">Admin Panel v1.0</span>
     </footer>
+  </div>
+</div>
+
+<!-- Global Page Loader — must be BEFORE admin.js so the element exists when the script runs -->
+<div id="pageLoader" class="page-loader" aria-hidden="true">
+  <div class="page-loader-card">
+    <div class="page-loader-ring">
+      <svg viewBox="0 0 50 50" class="page-loader-svg">
+        <circle cx="25" cy="25" r="20" fill="none" stroke="#e2e8f0" stroke-width="4"/>
+        <circle cx="25" cy="25" r="20" fill="none" stroke="#2563eb" stroke-width="4"
+          stroke-linecap="round" stroke-dasharray="31.4 94.2"
+          class="page-loader-arc"/>
+      </svg>
+    </div>
+    <div class="page-loader-label">Processing…</div>
   </div>
 </div>
 

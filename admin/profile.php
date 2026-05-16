@@ -15,13 +15,15 @@ if (!$profile) {
     header('location:welcome'); exit();
 }
 
-$name     = (string)($profile->NAME ?? '');
-$email    = (string)($profile->COMMUNICATION_EMAIL_ID ?? '');
-$isd      = (string)($profile->COMMUNICATION_MOBILE_NUM_ISD ?? '91');
-$mobile   = (string)($profile->COMMUNICATION_MOBILE_NUM ?? '');
-$company  = (string)($profile->COMPANY_NAME ?? '');
-$desig    = (string)($profile->DESIGNATION ?? '');
-$initials = strtoupper(substr(trim($name), 0, 1) ?: 'A');
+$name       = (string)($profile->NAME ?? '');
+$email      = (string)($profile->COMMUNICATION_EMAIL_ID ?? '');
+$isd        = (string)($profile->COMMUNICATION_MOBILE_NUM_ISD ?? '91');
+$mobile     = (string)($profile->COMMUNICATION_MOBILE_NUM ?? '');
+$company    = (string)($profile->COMPANY_NAME ?? '');
+$desig      = (string)($profile->DESIGNATION ?? '');
+$initials   = strtoupper(substr(trim($name), 0, 1) ?: 'A');
+$userTypeId = (int)($_SESSION['sinelec_admin']['USER_TYPE_ID'] ?? 1);
+$roleLabel  = $userTypeId === 1 ? 'Administrator' : 'Employee';
 
 ob_start();
 ?>
@@ -29,7 +31,7 @@ ob_start();
 <div class="pg-header" style="justify-content:center;text-align:center;margin-bottom:20px;">
   <div>
     <div class="pg-title">My Profile</div>
-    <div class="pg-subtitle">Manage your admin account details.</div>
+    <div class="pg-subtitle">Manage your account details.</div>
   </div>
 </div>
 
@@ -41,11 +43,11 @@ ob_start();
       <?= htmlspecialchars($initials) ?>
     </div>
     <div>
-      <div style="font-size:18px;font-weight:700;color:#0f172a;"><?= htmlspecialchars($name ?: 'Admin') ?></div>
+      <div style="font-size:18px;font-weight:700;color:#0f172a;"><?= htmlspecialchars($name ?: 'User') ?></div>
       <div style="font-size:13px;color:#6b7280;margin-top:3px;"><?= htmlspecialchars($email) ?></div>
       <div style="display:inline-flex;align-items:center;gap:5px;margin-top:7px;padding:3px 10px;background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;">
         <span style="width:6px;height:6px;border-radius:50%;background:#22c55e;"></span>
-        Administrator
+        <?= htmlspecialchars($roleLabel) ?>
       </div>
     </div>
   </div>
