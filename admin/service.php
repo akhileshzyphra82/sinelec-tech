@@ -557,34 +557,34 @@ switch ($action) {
     case 'InsertJob':
         adminRequireAuth();
         $pos = trim($_POST['job_position'] ?? '');
-        if ($pos === '') adminRedirectWithFlash('jobs', 'warn', 'Job position is required.');
+        if ($pos === '') adminRedirectWithFlash('job-posting', 'warn', 'Job position is required.');
         $id = $controller->insertJob($_POST);
         if ($id > 0) {
-            adminRedirectWithFlash('jobs', 'ok', 'Job post added successfully.');
+            adminRedirectWithFlash('job-posting', 'ok', 'Job post added successfully.');
         }
-        adminRedirectWithFlash('jobs', 'err', 'Failed to add job post.');
+        adminRedirectWithFlash('job-posting', 'err', 'Failed to add job post.');
     break;
 
     case 'UpdateJob':
         adminRequireAuth();
         $jobId = (int)($_POST['job_post_id'] ?? 0);
-        if ($jobId <= 0) adminRedirectWithFlash('jobs', 'warn', 'Invalid request.');
+        if ($jobId <= 0) adminRedirectWithFlash('job-posting', 'warn', 'Invalid request.');
         $ok = $controller->updateJob($_POST);
         if ($ok) {
-            adminRedirectWithFlash('jobs', 'ok', 'Job post updated successfully.');
+            adminRedirectWithFlash('job-posting', 'ok', 'Job post updated successfully.');
         }
-        adminRedirectWithFlash('jobs', 'err', 'Failed to update job post.');
+        adminRedirectWithFlash('job-posting', 'err', 'Failed to update job post.');
     break;
 
     case 'DeleteJob':
         adminRequireAuth();
         $jobId = (int)($_POST['job_post_id'] ?? $_GET['id'] ?? 0);
-        if ($jobId <= 0) adminRedirectWithFlash('jobs', 'warn', 'Invalid request.');
+        if ($jobId <= 0) adminRedirectWithFlash('job-posting', 'warn', 'Invalid request.');
         $ok = $controller->deleteJob($jobId);
         if ($ok) {
-            adminRedirectWithFlash('jobs', 'ok', 'Job post deleted.');
+            adminRedirectWithFlash('job-posting', 'ok', 'Job post deleted.');
         }
-        adminRedirectWithFlash('jobs', 'err', 'Cannot delete — this post has applicants. Delete applicants first.');
+        adminRedirectWithFlash('job-posting', 'err', 'Cannot delete — this post has applicants. Delete applicants first.');
     break;
 
     /* ─────────────────────────────────────────────────────────────
@@ -593,9 +593,9 @@ switch ($action) {
     case 'DeleteApplicant':
         adminRequireAuth();
         $appId = (int)($_POST['candidate_applied_job_id'] ?? $_GET['id'] ?? 0);
-        if ($appId <= 0) adminRedirectWithFlash('applicants', 'warn', 'Invalid request.');
+        if ($appId <= 0) adminRedirectWithFlash('job-posting', 'warn', 'Invalid request.');
         $controller->deleteApplicant($appId);
-        adminRedirectWithFlash('applicants', 'ok', 'Application deleted.');
+        adminRedirectWithFlash('job-posting', 'ok', 'Application deleted.');
     break;
 
     /* ─────────────────────────────────────────────────────────────
