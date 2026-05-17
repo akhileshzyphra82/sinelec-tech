@@ -168,137 +168,156 @@ switch ($action) {
     break;
 
     /* ─────────────────────────────────────────────────────────────
-       CATEGORIES
+       PRODUCT CATEGORIES
     ───────────────────────────────────────────────────────────── */
-    case 'InsertCategory':
+    case 'SaveProductCategory':
         adminRequireAuth();
-        $name = trim($_POST['product_category_name'] ?? '');
-        if ($name === '') {
-            adminRedirectWithFlash('categories', 'warn', 'Category name is required.');
-        }
-        $ext = adminUploadImage('category_image', __DIR__.'/../assets/uploads/categories/');
-        $id  = $controller->insertCategory([
-            'name'        => $name,
-            'parent_id'   => (int)($_POST['parent_category_id'] ?? 0),
-            'priority'    => (int)($_POST['priority'] ?? 0),
-            'description' => trim($_POST['description'] ?? ''),
-            'ext'         => $ext,
-        ]);
-        if ($id > 0 && $ext !== '') {
-            adminMoveUpload('category_image', __DIR__.'/../assets/uploads/categories/'.$id.'.'.$ext);
-        }
-        if ($id > 0) {
-            adminRedirectWithFlash('categories', 'ok', 'Category added successfully.');
-        }
-        adminRedirectWithFlash('categories', 'err', 'Failed to add category.');
-    break;
+        require_once __DIR__.'/../common/uploadFileCloudflare.php';
+        $catId       = (int)($_POST['product_category_id'] ?? 0);
+        $name        = trim($_POST['product_category_name'] ?? '');
+        $existingKey = trim($_POST['existing_ext'] ?? '');
+        if ($name === '') adminRedirectWithFlash('product-category', 'warn', 'Category name is required.');
 
-    case 'UpdateCategory':
-        adminRequireAuth();
-        $catId = (int)($_POST['product_category_id'] ?? 0);
-        $name  = trim($_POST['product_category_name'] ?? '');
-        if ($catId <= 0 || $name === '') {
-            adminRedirectWithFlash('categories', 'warn', 'Invalid request.');
+        $imgKey = $existingKey;
+        if (!empty($_FILES['category_image']['tmp_name'])) {
+            /* Delete old R2 object only if key looks like an R2 path (contains '/') */
+            $oldKey = ($catId > 0 && strpos($existingKey, '/') !== false) ? $existingKey : null;
+            $r2 = $oldKey
+                ? replaceR2File($_FILES['category_image'], 'categories', 'IMAGE', $oldKey, 5)
+                : uploadToR2($_FILES['category_image'], 'categories', 'IMAGE');
+            if (!$r2['success']) adminRedirectWithFlash('product-category', 'err', 'Image upload failed: '.$r2['error']);
+            $imgKey = $r2['key'];
         }
-        $ext = adminUploadImage('category_image', __DIR__.'/../assets/uploads/categories/');
-        if ($ext === '') $ext = trim($_POST['existing_ext'] ?? '');
-        $ok = $controller->updateCategory([
+
+        $savedId = $controller->saveProductCategory([
             'id'          => $catId,
             'name'        => $name,
             'parent_id'   => (int)($_POST['parent_category_id'] ?? 0),
             'priority'    => (int)($_POST['priority'] ?? 0),
             'description' => trim($_POST['description'] ?? ''),
-            'ext'         => $ext,
+            'ext'         => $imgKey,
         ]);
-        if ($ok && !empty($_FILES['category_image']['tmp_name'])) {
-            adminMoveUpload('category_image', __DIR__.'/../assets/uploads/categories/'.$catId.'.'.$ext);
+
+        if ($savedId) {
+            $msg = $catId > 0 ? 'Category updated successfully.' : 'Category added successfully.';
+            adminRedirectWithFlash('product-category', 'ok', $msg);
         }
-        if ($ok) {
-            adminRedirectWithFlash('categories', 'ok', 'Category updated successfully.');
-        }
-        adminRedirectWithFlash('categories', 'err', 'Failed to update category.');
+        adminRedirectWithFlash('product-category', 'err', 'Failed to save category.');
     break;
 
-    case 'DeleteCategory':
+    case 'DeleteProductCategory':
         adminRequireAuth();
-        $catId = (int)($_POST['product_category_id'] ?? $_GET['id'] ?? 0);
-        if ($catId <= 0) adminRedirectWithFlash('categories', 'warn', 'Invalid request.');
+        $catId = (int)($_POST['product_category_id'] ?? 0);
+        if ($catId <= 0) adminRedirectWithFlash('product-category', 'warn', 'Invalid request.');
         $ok = $controller->deleteCategory($catId);
-        if ($ok) {
-            adminRedirectWithFlash('categories', 'ok', 'Category deleted.');
-        }
-        adminRedirectWithFlash('categories', 'err', 'Cannot delete — category has products or sub-categories.');
+        if ($ok) adminRedirectWithFlash('product-category', 'ok', 'Category deleted.');
+        adminRedirectWithFlash('product-category', 'err', 'Cannot delete — category is in use by products or sub-categories.');
     break;
 
     /* ─────────────────────────────────────────────────────────────
        PRODUCTS
     ───────────────────────────────────────────────────────────── */
-    case 'InsertProduct':
+    case 'SaveProduct':
         adminRequireAuth();
+        $pid  = (int)($_POST['product_id'] ?? 0);
         $name = trim($_POST['product_name'] ?? '');
         if ($name === '') adminRedirectWithFlash('products', 'warn', 'Product name is required.');
+        $savedId = $controller->saveProduct($_POST);
+        if ($savedId) {
+            /* Save sample codes (delete-and-reinsert) */
+            $sLangs = (array)($_POST['sample_lang'] ?? []);
+            $sIdes  = (array)($_POST['sample_ide']  ?? []);
+            $sTypes = (array)($_POST['sample_type'] ?? []);
+            $sOses  = (array)($_POST['sample_os']   ?? []);
+            $sUrls  = (array)($_POST['sample_url']  ?? []);
+            $codes  = [];
+            foreach ($sLangs as $i => $lang) {
+                $codes[] = [
+                    'lang' => trim($lang),
+                    'ide'  => trim($sIdes[$i]  ?? ''),
+                    'type' => trim($sTypes[$i] ?? ''),
+                    'os'   => trim($sOses[$i]  ?? ''),
+                    'url'  => trim($sUrls[$i]  ?? ''),
+                ];
+            }
+            $controller->saveSampleCodes((int)$savedId, $codes);
+            $msg = $pid > 0 ? 'Product updated successfully.' : 'Product added successfully.';
+            adminRedirectWithFlash('products', 'ok', $msg);
+        }
+        adminRedirectWithFlash('products', 'err', 'Failed to save product.');
+    break;
 
-        $id = $controller->insertProduct($_POST);
-        if ($id > 0) {
-            // main product image
-            if (!empty($_FILES['product_image']['tmp_name'])) {
-                $ext = adminUploadImage('product_image', '');
-                if ($ext !== '') {
-                    $imgId = $controller->addProductImage($id, $ext, 'Product', '', (int)($_POST['img_priority'] ?? 0));
-                    if ($imgId > 0) {
-                        adminMoveUpload('product_image', __DIR__.'/../assets/uploads/products/'.$imgId.'.'.$ext);
-                    }
+    case 'AddProductImages':
+        adminRequireAuth();
+        require_once __DIR__.'/../common/uploadFileCloudflare.php';
+        $pid    = (int)($_POST['product_id'] ?? 0);
+        $imgFor = ($_POST['image_for'] ?? 'Product') === 'Product Mannual' ? 'Product Mannual' : 'Product';
+        if ($pid <= 0) adminRedirectWithFlash('products', 'warn', 'Invalid product.');
+
+        $files    = $_FILES['product_images'] ?? [];
+        $uploaded = 0;
+        $count    = isset($files['tmp_name']) && is_array($files['tmp_name']) ? count($files['tmp_name']) : 1;
+
+        for ($i = 0; $i < $count; $i++) {
+            $f = [
+                'name'     => is_array($files['name']     ?? '') ? ($files['name'][$i]     ?? '') : ($files['name']     ?? ''),
+                'type'     => is_array($files['type']     ?? '') ? ($files['type'][$i]     ?? '') : ($files['type']     ?? ''),
+                'tmp_name' => is_array($files['tmp_name'] ?? '') ? ($files['tmp_name'][$i] ?? '') : ($files['tmp_name'] ?? ''),
+                'error'    => is_array($files['error']    ?? '') ? ($files['error'][$i]    ?? 4)  : ($files['error']    ?? 4),
+                'size'     => is_array($files['size']     ?? '') ? ($files['size'][$i]     ?? 0)  : ($files['size']     ?? 0),
+            ];
+            $hasFile  = !empty($f['tmp_name']) && ($f['error'] === UPLOAD_ERR_OK);
+            $imgName  = trim((string)(($_POST['image_names'][$i]   ?? '')));
+            $title    = trim((string)(($_POST['manual_titles'][$i] ?? '')));
+            $hyperLnk = trim((string)(($_POST['hyper_links'][$i]   ?? '')));
+            $dispFlag = in_array(($_POST['display_flags'][$i] ?? 'Yes'), ['Yes','No']) ? $_POST['display_flags'][$i] : 'Yes';
+            $prioVal  = (int)(($_POST['priorities'][$i] ?? ($i + 1)));
+
+            /* Product images require a file; manuals accept file OR link */
+            if ($imgFor === 'Product' && !$hasFile) continue;
+            if ($imgFor === 'Product Mannual' && !$hasFile && $hyperLnk === '') continue;
+
+            $r2Key = '';
+            if ($hasFile) {
+                $r2 = uploadToR2($f, 'products', $imgFor === 'Product Mannual' ? 'ANY' : 'IMAGE');
+                if ($r2['success']) {
+                    $r2Key = $r2['key'];
+                } elseif ($imgFor === 'Product') {
+                    continue; /* Skip product image if upload failed */
                 }
             }
-            adminRedirectWithFlash('products', 'ok', 'Product added successfully.');
-        }
-        adminRedirectWithFlash('products', 'err', 'Failed to add product.');
-    break;
 
-    case 'UpdateProduct':
-        adminRequireAuth();
-        $pid = (int)($_POST['product_id'] ?? 0);
-        if ($pid <= 0) adminRedirectWithFlash('products', 'warn', 'Invalid request.');
-
-        $ok = $controller->updateProduct($_POST);
-        if ($ok) {
-            adminRedirectWithFlash('products?id='.$pid, 'ok', 'Product updated successfully.');
+            if ($r2Key !== '' || $hyperLnk !== '') {
+                $newId = $controller->addProductImage($pid, $r2Key, $imgFor, $title, $prioVal, $imgName, $dispFlag, $hyperLnk);
+                if ($newId > 0) $uploaded++;
+            }
         }
-        adminRedirectWithFlash('products?id='.$pid, 'err', 'Failed to update product.');
-    break;
-
-    case 'AddProductImage':
-        adminRequireAuth();
-        $pid = (int)($_POST['product_id'] ?? 0);
-        if ($pid <= 0 || empty($_FILES['product_image']['tmp_name'])) {
-            adminRedirectWithFlash('products?id='.$pid, 'warn', 'No image provided.');
-        }
-        $ext = adminUploadImage('product_image', '');
-        if ($ext === '') adminRedirectWithFlash('products?id='.$pid, 'warn', 'Invalid image format (jpg/png/webp allowed).');
-        $imgId = $controller->addProductImage($pid, $ext, (string)($_POST['image_for'] ?? 'Product'), (string)($_POST['product_manual_title'] ?? ''), (int)($_POST['img_priority'] ?? 0));
-        if ($imgId > 0) {
-            adminMoveUpload('product_image', __DIR__.'/../assets/uploads/products/'.$imgId.'.'.$ext);
-            adminRedirectWithFlash('products?id='.$pid, 'ok', 'Image uploaded.');
-        }
-        adminRedirectWithFlash('products?id='.$pid, 'err', 'Failed to upload image.');
+        if ($uploaded > 0) adminRedirectWithFlash('products', 'ok', $uploaded.' file(s) saved successfully.');
+        adminRedirectWithFlash('products', 'warn', 'Nothing was saved — please upload a file or provide a direct URL.');
     break;
 
     case 'DeleteProductImage':
         adminRequireAuth();
-        $imgId = (int)($_POST['image_id'] ?? $_GET['image_id'] ?? 0);
-        $pid   = (int)($_POST['product_id'] ?? $_GET['product_id'] ?? 0);
+        $imgId = (int)($_POST['image_id'] ?? 0);
+        if ($imgId <= 0) adminRedirectWithFlash('products', 'warn', 'Invalid request.');
+        $imgRow = $controller->getProductImageById($imgId);
+        if ($imgRow) {
+            $r2Key = (string)($imgRow->IMAGE_EXT ?? '');
+            if ($r2Key !== '' && strpos($r2Key, '/') !== false) {
+                require_once __DIR__.'/../common/uploadFileCloudflare.php';
+                deleteFromR2($r2Key);
+            }
+        }
         $controller->deleteProductImage($imgId);
-        adminRedirectWithFlash('products?id='.$pid, 'ok', 'Image removed.');
+        adminRedirectWithFlash('products', 'ok', 'Image deleted.');
     break;
 
     case 'DeleteProduct':
         adminRequireAuth();
-        $pid = (int)($_POST['product_id'] ?? $_GET['id'] ?? 0);
+        $pid = (int)($_POST['product_id'] ?? 0);
         if ($pid <= 0) adminRedirectWithFlash('products', 'warn', 'Invalid request.');
         $ok = $controller->deleteProduct($pid);
-        if ($ok) {
-            adminRedirectWithFlash('products', 'ok', 'Product deleted.');
-        }
+        if ($ok) adminRedirectWithFlash('products', 'ok', 'Product deleted successfully.');
         adminRedirectWithFlash('products', 'err', 'Cannot delete — product has enquiries or purchase records.');
     break;
 
@@ -704,6 +723,850 @@ switch ($action) {
             adminRedirectWithFlash('employee-list', 'ok', 'Password reset successfully.');
         }
         adminRedirectWithFlash('employee-list', 'err', 'Failed to reset password.');
+    break;
+
+    /* ─────────────────────────────────────────────────────────────
+       MANUFACTURERS
+    ───────────────────────────────────────────────────────────── */
+    case 'SaveManufacturer':
+        adminRequireAuth();
+        require_once __DIR__.'/../common/uploadFileCloudflare.php';
+        $mfrId       = (int)($_POST['manufacturer_id'] ?? 0);
+        $name        = trim($_POST['name'] ?? '');
+        $existingKey = trim($_POST['existing_logo'] ?? '');
+        if ($name === '') adminRedirectWithFlash('manufacturers', 'warn', 'Manufacturer name is required.');
+
+        $logoKey = $existingKey;
+        if (!empty($_FILES['manufacturer_logo']['tmp_name'])) {
+            $oldKey = ($mfrId > 0 && strpos($existingKey, '/') !== false) ? $existingKey : null;
+            $r2 = $oldKey
+                ? replaceR2File($_FILES['manufacturer_logo'], 'manufacturers', 'IMAGE', $oldKey, 5)
+                : uploadToR2($_FILES['manufacturer_logo'], 'manufacturers', 'IMAGE');
+            if (!$r2['success']) adminRedirectWithFlash('manufacturers', 'err', 'Logo upload failed: '.$r2['error']);
+            $logoKey = $r2['key'];
+        }
+
+        $catIdsRaw = (array)($_POST['product_category_ids'] ?? []);
+        $catIds    = implode(',', array_filter(array_map('intval', $catIdsRaw)));
+
+        $savedId = $controller->saveManufacturer([
+            'id'                   => $mfrId,
+            'name'                 => $name,
+            'logo'                 => $logoKey,
+            'country_id'           => (int)($_POST['country_id'] ?? 0),
+            'description'          => trim($_POST['description'] ?? ''),
+            'product_category_ids' => $catIds,
+            'status'               => (int)($_POST['status'] ?? 1),
+        ]);
+
+        if ($savedId) {
+            $msg = $mfrId > 0 ? 'Manufacturer updated successfully.' : 'Manufacturer added successfully.';
+            adminRedirectWithFlash('manufacturers', 'ok', $msg);
+        }
+        adminRedirectWithFlash('manufacturers', 'err', 'Failed to save manufacturer.');
+    break;
+
+    case 'DeleteManufacturer':
+        adminRequireAuth();
+        $mfrId = (int)($_POST['manufacturer_id'] ?? 0);
+        if ($mfrId <= 0) adminRedirectWithFlash('manufacturers', 'warn', 'Invalid request.');
+        if ($controller->deleteManufacturer($mfrId)) {
+            adminRedirectWithFlash('manufacturers', 'ok', 'Manufacturer deleted successfully.');
+        }
+        adminRedirectWithFlash('manufacturers', 'err', 'Failed to delete manufacturer.');
+    break;
+
+    /* ─────────────────────────────────────────────────────────────
+       QUOTATIONS
+    ───────────────────────────────────────────────────────────── */
+    case 'CreateQuoteCustomer':
+        adminRequireAuth();
+        header('Content-Type: application/json');
+        $qcName  = trim($_POST['name']  ?? '');
+        $qcEmail = trim($_POST['email'] ?? '');
+        if ($qcName === '' || $qcEmail === '') {
+            echo json_encode(['success'=>false,'msg'=>'Name and email are required.']); exit();
+        }
+        $qcResult = $controller->quickCreateCustomer([
+            'name'                         => $qcName,
+            'communication_email_id'       => $qcEmail,
+            'communication_mobile_num'     => trim($_POST['phone']     ?? ''),
+            'communication_mobile_num_isd' => (int)($_POST['phone_isd']?? 91),
+            'company_name'                 => trim($_POST['company_name'] ?? ''),
+            'designation'                  => trim($_POST['designation']  ?? ''),
+        ]);
+        if ($qcResult === -1) {
+            echo json_encode(['success'=>false,'msg'=>'A customer with this email already exists.']); exit();
+        } elseif ($qcResult) {
+            echo json_encode([
+                'success'    => true,
+                'user_id'    => $qcResult,
+                'user_name'  => $qcName,
+                'user_email' => $qcEmail,
+                'user_phone' => trim($_POST['phone']      ?? ''),
+                'phone_isd'  => (int)($_POST['phone_isd'] ?? 91),
+                'company'    => trim($_POST['company_name'] ?? ''),
+            ]);
+        } else {
+            echo json_encode(['success'=>false,'msg'=>'Failed to create customer. Please try again.']);
+        }
+        exit();
+    break;
+
+    case 'GetUserAddresses':
+        adminRequireAuth();
+        header('Content-Type: application/json');
+        $guaUid = (int)($_POST['user_id'] ?? 0);
+        if ($guaUid <= 0) { echo json_encode([]); exit(); }
+        $guaAddrs = $controller->getUserAddressesForQuote($guaUid);
+        $guaResult = array_map(function($a) {
+            $cn = (string)($a->COUNTRY_NAME ?? $a->COUNTRY ?? '');
+            return [
+                'id'        => (int)(float)($a->USER_ADDRESS_ID  ?? 0),
+                'label'     => (string)($a->LABEL               ?? 'Home'),
+                'name'      => (string)($a->USER_NAME            ?? ''),
+                'company'   => (string)($a->COMPANY_NAME         ?? ''),
+                'address'   => (string)($a->ADDRESS              ?? ''),
+                'line1'     => (string)($a->ADDRESS_LINE_ONE     ?? ''),
+                'line2'     => (string)($a->ADDRESS_LINE_TWO     ?? ''),
+                'landmark'  => (string)($a->LANDMARK             ?? ''),
+                'city'      => (string)($a->CITY                 ?? ''),
+                'state'     => (string)($a->STATE                ?? ''),
+                'zip'       => (string)($a->ZIP                  ?? ''),
+                'country'   => $cn,
+                'country_id'=> (int)(float)($a->COUNTRY_ID       ?? 0),
+                'phone'     => (string)($a->DELIVERY_PHONE_NO    ?? ''),
+                'mcc'       => (int)($a->MOBILE_COUNTRY_CODE     ?? 91),
+                'eu_vat'    => (string)($a->EU_VAT               ?? ''),
+                'rec_name'  => (string)($a->RECIPIENT_NAME       ?? ''),
+                'rec_email' => (string)($a->RECIPIENT_EMAIL      ?? ''),
+                'rec_phone' => (string)($a->RECIPIENT_CONTACT    ?? ''),
+                'summary'   => implode(', ', array_filter([
+                    (string)($a->ADDRESS ?? ''),
+                    (string)($a->CITY    ?? ''),
+                    (string)($a->STATE   ?? ''),
+                    $cn,
+                    (string)($a->ZIP     ?? ''),
+                ])),
+            ];
+        }, $guaAddrs);
+        echo json_encode($guaResult);
+        exit();
+    break;
+
+    case 'SaveQuoteAddress':
+        adminRequireAuth();
+        header('Content-Type: application/json');
+        $sqaUid = (int)($_POST['user_id'] ?? 0);
+        if ($sqaUid <= 0) { echo json_encode(['success'=>false,'msg'=>'Invalid user.']); exit(); }
+        $sqaId = $controller->saveUserAddress($_POST);
+        if ($sqaId) {
+            $sqaAddrs = $controller->getUserAddressesForQuote($sqaUid);
+            $sqaSaved = null;
+            foreach ($sqaAddrs as $sa) {
+                if ((int)(float)($sa->USER_ADDRESS_ID ?? 0) === $sqaId) { $sqaSaved = $sa; break; }
+            }
+            $sqaCn = $sqaSaved ? (string)($sqaSaved->COUNTRY_NAME ?? $sqaSaved->COUNTRY ?? '') : '';
+            echo json_encode([
+                'success' => true,
+                'id'      => $sqaId,
+                'label'   => $sqaSaved ? (string)($sqaSaved->LABEL ?? 'Home') : 'Home',
+                'name'    => $sqaSaved ? (string)($sqaSaved->USER_NAME   ?? '') : '',
+                'company' => $sqaSaved ? (string)($sqaSaved->COMPANY_NAME?? '') : '',
+                'address' => $sqaSaved ? (string)($sqaSaved->ADDRESS      ?? '') : '',
+                'city'    => $sqaSaved ? (string)($sqaSaved->CITY         ?? '') : '',
+                'state'   => $sqaSaved ? (string)($sqaSaved->STATE        ?? '') : '',
+                'zip'     => $sqaSaved ? (string)($sqaSaved->ZIP          ?? '') : '',
+                'country' => $sqaCn,
+                'summary' => implode(', ', array_filter([
+                    $sqaSaved ? (string)($sqaSaved->ADDRESS ?? '') : '',
+                    $sqaSaved ? (string)($sqaSaved->CITY    ?? '') : '',
+                    $sqaSaved ? (string)($sqaSaved->STATE   ?? '') : '',
+                    $sqaCn,
+                    $sqaSaved ? (string)($sqaSaved->ZIP     ?? '') : '',
+                ])),
+            ]);
+        } else {
+            echo json_encode(['success'=>false,'msg'=>'Failed to save address.']);
+        }
+        exit();
+    break;
+
+    case 'SaveQuotation':
+        adminRequireAuth();
+        $qid         = (int)($_POST['enquiry_quote_id'] ?? 0);
+        $isDuplicate = !empty($_POST['is_duplicate']) && $_POST['is_duplicate'] === '1';
+        $uid  = (int)($_POST['user_id']          ?? 0);
+        if ($uid <= 0) adminRedirectWithFlash('quotation', 'warn', 'Please select a customer.');
+
+        /* Build products array */
+        $catIds  = (array)($_POST['prod_cat_id']  ?? []);
+        $prodIds = (array)($_POST['prod_prod_id'] ?? []);
+        $qtys    = (array)($_POST['prod_qty']     ?? []);
+        $prices  = (array)($_POST['prod_price']   ?? []);
+        $discs   = (array)($_POST['prod_disc']    ?? []);
+        $products = [];
+        foreach ($prodIds as $i => $pid2) {
+            if ((int)$pid2 <= 0) continue;
+            $products[] = [
+                'cat_id'   => (int)($catIds[$i]  ?? 0),
+                'prod_id'  => (int)$pid2,
+                'qty'      => (int)($qtys[$i]    ?? 1),
+                'price'    => (float)($prices[$i] ?? 0),
+                'disc_pct' => (float)($discs[$i]  ?? 0),
+            ];
+        }
+        if (empty($products)) adminRedirectWithFlash('quotation', 'warn', 'At least one product is required.');
+
+        $savedId = $controller->saveQuotation($_POST);
+        if ($savedId) {
+            $controller->saveQuotationProducts((int)$savedId, $products);
+
+            /* ── Resolve all data needed for email ── */
+            $isNew      = $qid <= 0 || $isDuplicate;
+            $savedQ     = $controller->getQuotationById((int)$savedId);
+            $company    = $controller->getCompanyDetails();
+            $quoteRef   = 'QT-' . str_pad((string)$savedId, 6, '0', STR_PAD_LEFT);
+            $custEmail  = trim((string)($savedQ->USER_EMAIL_RESOLVED ?? $savedQ->USER_EMAIL ?? ''));
+            $custName   = htmlspecialchars((string)($savedQ->USER_NAME_RESOLVED ?? $savedQ->USER_NAME ?? 'Customer'));
+            $totalAmt   = number_format((float)($_POST['enquiry_total_amt'] ?? 0), 2);
+            $pdfLink    = (isset($_SERVER['HTTP_HOST']) ? 'https://' . $_SERVER['HTTP_HOST'] : '')
+                        . '/admin/quotation-pdf?id=' . $savedId . '&uid=' . $uid;
+            $coName     = $company ? htmlspecialchars((string)($company->NAME ?? 'Our Company')) : 'Our Company';
+
+            /* Recipient email from delivery address (if set) */
+            $recEmail = '';
+            $addrId2  = (int)($_POST['user_address_id'] ?? 0);
+            if ($addrId2 > 0 && $uid > 0) {
+                $addrs2 = $controller->getUserAddressesForQuote($uid);
+                foreach ($addrs2 as $a2) {
+                    if ((int)(float)($a2->USER_ADDRESS_ID ?? 0) === $addrId2) {
+                        $recEmail = trim((string)($a2->RECIPIENT_EMAIL ?? ''));
+                        break;
+                    }
+                }
+            }
+
+            /* Support emails from tbl_company (comma-separated) */
+            $supportEmails = [];
+            if ($company) {
+                $raw = trim((string)($company->SUPPORT_MAIL_ID ?? ''));
+                if ($raw !== '') {
+                    $supportEmails = array_filter(array_map('trim', explode(',', $raw)));
+                }
+            }
+
+            /* ── Build professional email bodies ── */
+            $coEmailDisp  = $company ? htmlspecialchars((string)($company->EMAIL           ?? '')) : '';
+            $coPhoneDisp  = $company ? htmlspecialchars((string)($company->CONTACT_NUMBER  ?? '')) : '';
+            $coLogoAbsUrl = $company ? trim((string)($company->LOGO ?? '')) : '';
+            $actionLabel  = $isNew ? 'created' : 'updated';
+            $coContactHtml = '';
+            if ($coEmailDisp) $coContactHtml .= '<a href="mailto:'.$coEmailDisp.'" style="color:#6366f1;text-decoration:none;">'.$coEmailDisp.'</a>';
+            if ($coEmailDisp && $coPhoneDisp) $coContactHtml .= ' &nbsp;|&nbsp; ';
+            if ($coPhoneDisp) $coContactHtml .= htmlspecialchars($coPhoneDisp);
+
+            /* Customer-facing email */
+            $bodyCustomer = '
+<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:\'Segoe UI\',Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:32px 16px;">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+
+  <!-- Header -->
+  <tr><td style="background:linear-gradient(135deg,#4f46e5 0%,#6366f1 100%);border-radius:12px 12px 0 0;padding:32px 40px;text-align:center;">
+    '.($coLogoAbsUrl ? '<img src="'.$coLogoAbsUrl.'" alt="'.$coName.'" style="max-height:52px;max-width:180px;object-fit:contain;filter:brightness(0) invert(1);margin-bottom:12px;display:block;margin-left:auto;margin-right:auto;">' : '').'
+    <div style="color:#fff;font-size:22px;font-weight:700;letter-spacing:.5px;">'.($coLogoAbsUrl ? '' : $coName).'</div>
+    <div style="color:rgba(255,255,255,.75);font-size:13px;margin-top:4px;">Quotation '.($isNew ? 'Confirmation' : 'Update').'</div>
+  </td></tr>
+
+  <!-- Body -->
+  <tr><td style="background:#ffffff;padding:40px 40px 32px;">
+    <p style="margin:0 0 20px;font-size:16px;font-weight:700;color:#1e293b;">Dear '.$custName.',</p>
+    <p style="margin:0 0 16px;font-size:14px;color:#475569;line-height:1.7;">
+      '.($isNew
+        ? 'We are pleased to share your quotation from <strong>'.$coName.'</strong>. Please find the details of your requested quotation below. We have carefully prepared this based on your requirements and look forward to your confirmation.'
+        : 'This is to inform you that your quotation with <strong>'.$coName.'</strong> has been <strong>revised and updated</strong>. Please review the latest details below.').'
+    </p>
+
+    <!-- Quote Card -->
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;margin:24px 0;">
+      <tr>
+        <td style="padding:20px 24px;border-bottom:1px solid #e2e8f0;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:4px;">Quotation Reference</div>
+          <div style="font-size:20px;font-weight:800;color:#4f46e5;">'.$quoteRef.'</div>
+        </td>
+        <td style="padding:20px 24px;border-bottom:1px solid #e2e8f0;text-align:right;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:4px;">Total Amount</div>
+          <div style="font-size:22px;font-weight:800;color:#059669;">€'.$totalAmt.'</div>
+        </td>
+      </tr>
+      <tr>
+        <td colspan="2" style="padding:16px 24px;text-align:center;">
+          <a href="'.$pdfLink.'" target="_blank"
+             style="display:inline-block;background:#4f46e5;color:#ffffff;font-size:14px;font-weight:600;padding:12px 32px;border-radius:8px;text-decoration:none;letter-spacing:.3px;">
+            &#128196; View &amp; Download Quotation
+          </a>
+        </td>
+      </tr>
+    </table>
+
+    <p style="margin:0 0 12px;font-size:13px;color:#64748b;line-height:1.7;">
+      If you have any questions about this quotation or wish to make changes, please do not hesitate to contact us.
+      We are happy to assist you and ensure the best possible solution for your needs.
+    </p>
+    <p style="margin:0;font-size:13px;color:#64748b;line-height:1.7;">
+      To accept this quotation, simply reply to this email or reach out to us directly. We look forward to the opportunity to work with you.
+    </p>
+  </td></tr>
+
+  <!-- Sign-off -->
+  <tr><td style="background:#f8fafc;padding:24px 40px;border-top:1px solid #e2e8f0;">
+    <p style="margin:0 0 4px;font-size:13px;color:#475569;">Warm regards,</p>
+    <p style="margin:0 0 4px;font-size:14px;font-weight:700;color:#1e293b;">'.$coName.'</p>
+    '.($coContactHtml ? '<p style="margin:0;font-size:12px;color:#94a3b8;">'.$coContactHtml.'</p>' : '').'
+  </td></tr>
+
+  <!-- Footer -->
+  <tr><td style="background:#e2e8f0;border-radius:0 0 12px 12px;padding:14px 40px;text-align:center;">
+    <p style="margin:0;font-size:11px;color:#94a3b8;">
+      This email was sent by '.$coName.' regarding quotation <strong>'.$quoteRef.'</strong>.<br>
+      Please do not reply directly to this automated message.
+    </p>
+  </td></tr>
+
+</table>
+</td></tr></table>
+</body></html>';
+
+            /* Internal / support-team email */
+            $bodyInternal = '
+<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:\'Segoe UI\',Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 16px;">
+<tr><td align="center">
+<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#fff;border-radius:10px;overflow:hidden;border:1px solid #e2e8f0;">
+  <tr><td style="background:'.($isNew ? '#059669' : '#d97706').';padding:18px 28px;">
+    <div style="color:#fff;font-size:15px;font-weight:700;">&#128276; Quotation '.($isNew ? 'Created' : 'Updated').': '.$quoteRef.'</div>
+  </td></tr>
+  <tr><td style="padding:24px 28px;">
+    <table width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;padding-bottom:4px;">Customer</td>
+        <td style="font-size:13px;font-weight:700;color:#1e293b;padding-bottom:4px;">'.$custName.'</td>
+      </tr>
+      <tr>
+        <td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;padding-bottom:4px;">Reference</td>
+        <td style="font-size:13px;color:#4f46e5;font-weight:700;padding-bottom:4px;">'.$quoteRef.'</td>
+      </tr>
+      <tr>
+        <td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;padding-bottom:4px;">Total Amount</td>
+        <td style="font-size:13px;font-weight:700;color:#059669;padding-bottom:4px;">€'.$totalAmt.'</td>
+      </tr>
+      <tr>
+        <td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;padding-bottom:16px;">Action</td>
+        <td style="font-size:13px;color:#475569;padding-bottom:16px;">'.($isNew ? 'New quotation has been created and sent to the customer.' : 'Existing quotation has been updated and customer has been notified.').'</td>
+      </tr>
+    </table>
+    <a href="'.$pdfLink.'" target="_blank" style="display:inline-block;background:#4f46e5;color:#fff;font-size:13px;font-weight:600;padding:10px 24px;border-radius:7px;text-decoration:none;">View Quotation PDF &rarr;</a>
+  </td></tr>
+  <tr><td style="background:#f8fafc;padding:12px 28px;border-top:1px solid #e2e8f0;">
+    <p style="margin:0;font-size:11px;color:#94a3b8;">Internal notification — '.$coName.' Quotation System</p>
+  </td></tr>
+</table>
+</td></tr></table>
+</body></html>';
+
+            /* ── Collect recipients — deduplicate by email ── */
+            $sentTo     = [];
+            $recipients = [];
+
+            // 1. Customer / user email
+            if ($custEmail !== '' && !in_array(strtolower($custEmail), $sentTo)) {
+                $sentTo[] = strtolower($custEmail);
+                $recipients[] = ['to_mail_id'=>$custEmail, 'subject'=>($isNew ? 'Your Quotation is Ready' : 'Your Quotation Has Been Updated').' — '.$quoteRef.' | '.$coName, 'body'=>$bodyCustomer];
+            }
+
+            // 2. Recipient email from delivery address
+            if ($recEmail !== '' && !in_array(strtolower($recEmail), $sentTo)) {
+                $sentTo[] = strtolower($recEmail);
+                $recipients[] = ['to_mail_id'=>$recEmail, 'subject'=>($isNew ? 'Your Quotation is Ready' : 'Your Quotation Has Been Updated').' — '.$quoteRef.' | '.$coName, 'body'=>$bodyCustomer];
+            }
+
+            // 3. Company support email(s)
+            foreach ($supportEmails as $smail) {
+                if ($smail !== '' && !in_array(strtolower($smail), $sentTo)) {
+                    $sentTo[] = strtolower($smail);
+                    $recipients[] = ['to_mail_id'=>$smail, 'subject'=>'['.($isNew ? 'New' : 'Updated').'] Quotation '.$quoteRef.' — '.$custName, 'body'=>$bodyInternal];
+                }
+            }
+
+            if (!empty($recipients)) sinelec_send_mail($recipients);
+
+            $flashMsg = $isDuplicate
+                ? 'New quotation ' . $quoteRef . ' created from duplicate and email sent.'
+                : ($qid > 0 ? 'Quotation updated successfully.' : 'Quotation created and email sent.');
+            adminRedirectWithFlash('quotation', 'ok', $flashMsg);
+        }
+        adminRedirectWithFlash('quotation', 'err', 'Failed to save quotation.');
+    break;
+
+    case 'DeleteQuotation':
+        adminRequireAuth();
+        $qid = (int)($_POST['enquiry_quote_id'] ?? 0);
+        if ($qid <= 0) adminRedirectWithFlash('quotation', 'warn', 'Invalid request.');
+        if ($controller->deleteQuotation($qid)) {
+            adminRedirectWithFlash('quotation', 'ok', 'Quotation deleted successfully.');
+        }
+        adminRedirectWithFlash('quotation', 'err', 'Failed to delete quotation.');
+    break;
+
+    case 'UpdateQuotationStatus':
+        adminRequireAuth();
+        $qid    = (int)($_POST['enquiry_quote_id'] ?? 0);
+        $status = trim($_POST['enquiry_status'] ?? '');
+        $remark = trim($_POST['remark'] ?? '');
+        if ($qid <= 0 || $status === '') adminRedirectWithFlash('quotation', 'warn', 'Invalid request.');
+        if ($status === 'Quotation Cancel' && $remark === '')
+            adminRedirectWithFlash('quotation', 'warn', 'Please provide a reason for cancellation.');
+
+        if (!$controller->updateQuotationStatus($qid, $status, $remark)) {
+            adminRedirectWithFlash('quotation', 'err', 'Failed to update status.');
+        }
+
+        /* ── Resolve quotation & company data ─────────────────────── */
+        $usQ        = $controller->getQuotationById($qid);
+        $usComp     = $controller->getCompanyDetails();
+
+        $usQuoteRef = 'QT-' . str_pad((string)$qid, 6, '0', STR_PAD_LEFT);
+        $usCustName = htmlspecialchars((string)($usQ->USER_NAME_RESOLVED  ?? $usQ->USER_NAME  ?? 'Customer'));
+        $usCustEmail= (string)($usQ->USER_EMAIL_RESOLVED ?? $usQ->USER_EMAIL ?? '');
+        $usUid      = (int)(float)($usQ->USER_ID    ?? 0);
+        $usAddrId   = (int)(float)($usQ->USER_ADDRESS_ID ?? 0);
+        $usTotalAmt = number_format((float)($usQ->ENQUIRY_TOTAL_AMT ?? 0), 2);
+        $usPdfLink  = (isset($_SERVER['HTTP_HOST']) ? 'https://' . $_SERVER['HTTP_HOST'] : '')
+                    . '/admin/quotation-pdf?id=' . $qid . '&uid=' . $usUid;
+
+        $usCoName      = $usComp ? htmlspecialchars((string)($usComp->NAME           ?? 'Our Company')) : 'Our Company';
+        $usCoEmail     = $usComp ? htmlspecialchars((string)($usComp->EMAIL          ?? '')) : '';
+        $usCoPhone     = $usComp ? htmlspecialchars((string)($usComp->CONTACT_NUMBER ?? '')) : '';
+        $usCoLogoUrl   = $usComp ? trim((string)($usComp->LOGO ?? '')) : '';
+
+        $usCoContactHtml = '';
+        if ($usCoEmail) $usCoContactHtml .= '<a href="mailto:'.$usCoEmail.'" style="color:#6366f1;text-decoration:none;">'.$usCoEmail.'</a>';
+        if ($usCoEmail && $usCoPhone) $usCoContactHtml .= ' &nbsp;|&nbsp; ';
+        if ($usCoPhone) $usCoContactHtml .= $usCoPhone;
+
+        /* ── Recipient email from delivery address ──────────────────── */
+        $usRecEmail = '';
+        if ($usAddrId > 0 && $usUid > 0) {
+            $usAddrs = $controller->getUserAddressesForQuote($usUid);
+            foreach ($usAddrs as $ua) {
+                if ((int)(float)($ua->USER_ADDRESS_ID ?? 0) === $usAddrId) {
+                    $usRecEmail = trim((string)($ua->RECIPIENT_EMAIL ?? ''));
+                    break;
+                }
+            }
+        }
+
+        /* ── Support emails ─────────────────────────────────────────── */
+        $usSupportEmails = [];
+        if ($usComp) {
+            $usRaw = trim((string)($usComp->SUPPORT_MAIL_ID ?? ''));
+            if ($usRaw !== '') $usSupportEmails = array_filter(array_map('trim', explode(',', $usRaw)));
+        }
+
+        /* ── Status badge styling ───────────────────────────────────── */
+        $usStatusLower = strtolower($status);
+        $usStatusColor = match(true) {
+            str_contains($usStatusLower, 'complet')  => ['bg'=>'#dcfce7','text'=>'#15803d','border'=>'#86efac'],
+            str_contains($usStatusLower, 'sent')      => ['bg'=>'#dbeafe','text'=>'#1d4ed8','border'=>'#93c5fd'],
+            str_contains($usStatusLower, 'generat')   => ['bg'=>'#ede9fe','text'=>'#6d28d9','border'=>'#c4b5fd'],
+            str_contains($usStatusLower, 'cancel')    => ['bg'=>'#fee2e2','text'=>'#b91c1c','border'=>'#fca5a5'],
+            str_contains($usStatusLower, 'approv')    => ['bg'=>'#dcfce7','text'=>'#15803d','border'=>'#86efac'],
+            str_contains($usStatusLower, 'review')    => ['bg'=>'#fef3c7','text'=>'#92400e','border'=>'#fcd34d'],
+            default                                    => ['bg'=>'#fef3c7','text'=>'#92400e','border'=>'#fcd34d'],
+        };
+        $usStatusBadge = '<span style="display:inline-block;background:'.$usStatusColor['bg'].';color:'.$usStatusColor['text'].
+            ';border:1px solid '.$usStatusColor['border'].';font-size:13px;font-weight:700;padding:5px 16px;border-radius:20px;letter-spacing:.3px;">'.
+            htmlspecialchars($status).'</span>';
+
+        /* ── Cancellation flag & remark block ─────────────────────── */
+        $usIsCancel    = ($status === 'Quotation Cancel');
+        $usRemarkSafe  = htmlspecialchars($remark);
+        $usHeaderBg    = $usIsCancel
+                       ? 'background:linear-gradient(135deg,#b91c1c 0%,#dc2626 100%)'
+                       : 'background:linear-gradient(135deg,#4f46e5 0%,#6366f1 100%)';
+        $usHeaderSub   = $usIsCancel ? 'Quotation Cancellation Notice' : 'Quotation Status Update';
+
+        /* Remark block for customer email */
+        $usRemarkBlockCust = '';
+        if ($usIsCancel && $usRemarkSafe !== '') {
+            $usRemarkBlockCust = '
+    <!-- Cancellation Reason -->
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#fff5f5;border:1px solid #fecaca;border-radius:10px;margin:0 0 20px;">
+      <tr>
+        <td style="padding:16px 20px;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#b91c1c;margin-bottom:8px;">
+            &#9888; Reason for Cancellation
+          </div>
+          <div style="font-size:14px;color:#7f1d1d;line-height:1.7;">'.$usRemarkSafe.'</div>
+        </td>
+      </tr>
+    </table>';
+        }
+
+        /* Remark row for internal email */
+        $usRemarkRowInt = '';
+        if ($usIsCancel && $usRemarkSafe !== '') {
+            $usRemarkRowInt = '
+      <tr>
+        <td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;padding-bottom:4px;vertical-align:top;">Cancellation Reason</td>
+        <td style="font-size:13px;color:#7f1d1d;background:#fff5f5;border-radius:6px;padding:8px 10px;margin-bottom:16px;line-height:1.6;">'.$usRemarkSafe.'</td>
+      </tr>';
+        }
+
+        $usCancelClosingCust = $usIsCancel
+            ? '<p style="margin:0 0 12px;font-size:13px;color:#64748b;line-height:1.7;">We apologise for any inconvenience caused. If you believe this is an error or wish to discuss further, please contact us and we will be happy to assist you.</p>
+               <p style="margin:0;font-size:13px;color:#64748b;line-height:1.7;">We hope to have the opportunity to serve you again in the future.</p>'
+            : '<p style="margin:0 0 12px;font-size:13px;color:#64748b;line-height:1.7;">If you have any questions regarding this status change or need further assistance, please do not hesitate to reach out to us. Our team is always ready to help.</p>
+               <p style="margin:0;font-size:13px;color:#64748b;line-height:1.7;">Thank you for your continued trust and business. We look forward to serving you.</p>';
+
+        $usInternalHeaderBg = $usIsCancel ? 'background:#b91c1c' : 'background:#7c3aed';
+        $usInternalIcon     = $usIsCancel ? '&#10060;' : '&#128204;';
+        $usInternalTitle    = $usIsCancel ? 'Quotation Cancelled: '.$usQuoteRef : 'Status Updated: '.$usQuoteRef;
+
+        /* ── Customer-facing email ──────────────────────────────────── */
+        $usBodyCustomer = '
+<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:\'Segoe UI\',Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:32px 16px;">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+
+  <!-- Header -->
+  <tr><td style="'.$usHeaderBg.';border-radius:12px 12px 0 0;padding:32px 40px;text-align:center;">
+    '.($usCoLogoUrl ? '<img src="'.$usCoLogoUrl.'" alt="'.$usCoName.'" style="max-height:52px;max-width:180px;object-fit:contain;filter:brightness(0) invert(1);margin-bottom:12px;display:block;margin-left:auto;margin-right:auto;">' : '').'
+    <div style="color:#fff;font-size:22px;font-weight:700;letter-spacing:.5px;">'.($usCoLogoUrl ? '' : $usCoName).'</div>
+    <div style="color:rgba(255,255,255,.75);font-size:13px;margin-top:4px;">'.$usHeaderSub.'</div>
+  </td></tr>
+
+  <!-- Body -->
+  <tr><td style="background:#ffffff;padding:40px 40px 32px;">
+    <p style="margin:0 0 20px;font-size:16px;font-weight:700;color:#1e293b;">Dear '.$usCustName.',</p>
+    <p style="margin:0 0 16px;font-size:14px;color:#475569;line-height:1.7;">
+      '.($usIsCancel
+          ? 'We regret to inform you that your quotation with <strong>'.$usCoName.'</strong> has been <strong style="color:#dc2626;">cancelled</strong>. Please find the details below.'
+          : 'We would like to inform you that the status of your quotation with <strong>'.$usCoName.'</strong> has been updated. Please find the latest details below.').'
+    </p>
+
+    <!-- Quote Card -->
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;margin:24px 0;">
+      <tr>
+        <td style="padding:20px 24px;border-bottom:1px solid #e2e8f0;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:4px;">Quotation Reference</div>
+          <div style="font-size:20px;font-weight:800;color:#4f46e5;">'.$usQuoteRef.'</div>
+        </td>
+        <td style="padding:20px 24px;border-bottom:1px solid #e2e8f0;text-align:right;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:4px;">Total Amount</div>
+          <div style="font-size:22px;font-weight:800;color:#059669;">€'.$usTotalAmt.'</div>
+        </td>
+      </tr>
+      <tr>
+        <td colspan="2" style="padding:16px 24px;border-bottom:1px solid #e2e8f0;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:8px;">Current Status</div>
+          '.$usStatusBadge.'
+        </td>
+      </tr>
+      '.($usIsCancel ? '' : '
+      <tr>
+        <td colspan="2" style="padding:16px 24px;text-align:center;">
+          <a href="'.$usPdfLink.'" target="_blank"
+             style="display:inline-block;background:#4f46e5;color:#ffffff;font-size:13px;font-weight:600;padding:10px 22px;border-radius:8px;text-decoration:none;letter-spacing:.3px;">
+            &#128196; View Quotation
+          </a>
+        </td>
+      </tr>').'
+    </table>
+
+    '.$usRemarkBlockCust.'
+    '.$usCancelClosingCust.'
+  </td></tr>
+
+  <!-- Sign-off -->
+  <tr><td style="background:#f8fafc;padding:24px 40px;border-top:1px solid #e2e8f0;">
+    <p style="margin:0 0 4px;font-size:13px;color:#475569;">Warm regards,</p>
+    <p style="margin:0 0 4px;font-size:14px;font-weight:700;color:#1e293b;">'.$usCoName.'</p>
+    '.($usCoContactHtml ? '<p style="margin:0;font-size:12px;color:#94a3b8;">'.$usCoContactHtml.'</p>' : '').'
+  </td></tr>
+
+  <!-- Footer -->
+  <tr><td style="background:#e2e8f0;border-radius:0 0 12px 12px;padding:14px 40px;text-align:center;">
+    <p style="margin:0;font-size:11px;color:#94a3b8;">
+      This is an automated notification from '.$usCoName.' regarding quotation <strong>'.$usQuoteRef.'</strong>.<br>
+      Please do not reply directly to this message.
+    </p>
+  </td></tr>
+
+</table>
+</td></tr></table>
+</body></html>';
+
+        /* ── Internal notification email ────────────────────────────── */
+        $usBodyInternal = '
+<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:\'Segoe UI\',Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 16px;">
+<tr><td align="center">
+<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#fff;border-radius:10px;overflow:hidden;border:1px solid #e2e8f0;">
+  <tr><td style="'.$usInternalHeaderBg.';padding:18px 28px;">
+    <div style="color:#fff;font-size:15px;font-weight:700;">'.$usInternalIcon.' '.$usInternalTitle.'</div>
+  </td></tr>
+  <tr><td style="padding:24px 28px;">
+    <table width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;padding-bottom:4px;width:40%;">Customer</td>
+        <td style="font-size:13px;font-weight:700;color:#1e293b;padding-bottom:4px;">'.$usCustName.'</td>
+      </tr>
+      <tr>
+        <td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;padding-bottom:4px;">Reference</td>
+        <td style="font-size:13px;color:#4f46e5;font-weight:700;padding-bottom:4px;">'.$usQuoteRef.'</td>
+      </tr>
+      <tr>
+        <td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;padding-bottom:4px;">Total Amount</td>
+        <td style="font-size:13px;font-weight:700;color:#059669;padding-bottom:4px;">€'.$usTotalAmt.'</td>
+      </tr>
+      <tr>
+        <td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;padding-bottom:16px;">New Status</td>
+        <td style="padding-bottom:16px;">'.$usStatusBadge.'</td>
+      </tr>
+      '.$usRemarkRowInt.'
+    </table>
+    <a href="'.$usPdfLink.'" target="_blank" style="display:inline-block;background:#4f46e5;color:#fff;font-size:13px;font-weight:600;padding:10px 24px;border-radius:7px;text-decoration:none;">View Quotation PDF &rarr;</a>
+  </td></tr>
+  <tr><td style="background:#f8fafc;padding:12px 28px;border-top:1px solid #e2e8f0;">
+    <p style="margin:0;font-size:11px;color:#94a3b8;">Internal notification — '.$usCoName.' Quotation System</p>
+  </td></tr>
+</table>
+</td></tr></table>
+</body></html>';
+
+        /* ── Deduplicate & dispatch ──────────────────────────────────── */
+        $usSentTo = []; $usRecips = [];
+
+        $usCustSubject = $usIsCancel
+            ? 'Your Quotation '.$usQuoteRef.' Has Been Cancelled | '.$usCoName
+            : 'Your Quotation Status Update — '.$usQuoteRef.' | '.$usCoName;
+        $usIntSubject  = $usIsCancel
+            ? '[Cancelled] Quotation '.$usQuoteRef.' — '.$usCustName
+            : '[Status: '.htmlspecialchars($status).'] Quotation '.$usQuoteRef.' — '.$usCustName;
+
+        /* 1. Customer email (customer-facing body) */
+        if ($usCustEmail !== '' && !in_array(strtolower($usCustEmail), $usSentTo)) {
+            $usSentTo[] = strtolower($usCustEmail);
+            $usRecips[] = ['to_mail_id'=>$usCustEmail, 'subject'=>$usCustSubject, 'body'=>$usBodyCustomer];
+        }
+        /* 2. Recipient email (customer-facing body) */
+        if ($usRecEmail !== '' && !in_array(strtolower($usRecEmail), $usSentTo)) {
+            $usSentTo[] = strtolower($usRecEmail);
+            $usRecips[] = ['to_mail_id'=>$usRecEmail, 'subject'=>$usCustSubject, 'body'=>$usBodyCustomer];
+        }
+        /* 3. Support / company emails (internal body) */
+        foreach ($usSupportEmails as $usSmail) {
+            if ($usSmail !== '' && !in_array(strtolower($usSmail), $usSentTo)) {
+                $usSentTo[] = strtolower($usSmail);
+                $usRecips[] = ['to_mail_id'=>$usSmail, 'subject'=>$usIntSubject, 'body'=>$usBodyInternal];
+            }
+        }
+
+        if (!empty($usRecips)) sinelec_send_mail($usRecips);
+
+        $usNotified = implode(', ', array_map('htmlspecialchars', array_slice($usSentTo, 0, 2)));
+        adminRedirectWithFlash('quotation', 'ok',
+            'Status updated to "' . htmlspecialchars($status) . '"'
+            . ($usNotified ? ' &amp; notification sent to ' . $usNotified : '') . '.');
+    break;
+
+    case 'ResendQuotation':
+        adminRequireAuth();
+        $qid = (int)($_POST['enquiry_quote_id'] ?? 0);
+        if ($qid <= 0) adminRedirectWithFlash('quotation', 'warn', 'Invalid request.');
+        $q = $controller->getQuotationById($qid);
+        if (!$q) adminRedirectWithFlash('quotation', 'err', 'Quotation not found.');
+        $custEmail = (string)($q->USER_EMAIL_RESOLVED ?? $q->USER_EMAIL ?? '');
+        if ($custEmail === '') adminRedirectWithFlash('quotation', 'warn', 'No email address on file for this customer.');
+
+        $quoteRef  = 'QT-' . str_pad((string)$qid, 6, '0', STR_PAD_LEFT);
+        $custName  = htmlspecialchars((string)($q->USER_NAME_RESOLVED ?? $q->USER_NAME ?? 'Customer'));
+        $resendUid = (int)(float)($q->USER_ID ?? 0);
+        $totalAmt  = number_format((float)($q->ENQUIRY_TOTAL_AMT ?? 0), 2);
+        $pdfLink   = (isset($_SERVER['HTTP_HOST']) ? 'https://' . $_SERVER['HTTP_HOST'] : '') . '/admin/quotation-pdf?id=' . $qid . '&uid=' . $resendUid;
+        $rComp     = $controller->getCompanyDetails();
+        $rCoName   = $rComp ? htmlspecialchars((string)($rComp->NAME ?? 'Our Company')) : 'Our Company';
+
+        /* Recipient email from saved delivery address */
+        $rRecEmail = '';
+        $rAddrId   = (int)(float)($q->USER_ADDRESS_ID ?? 0);
+        if ($rAddrId > 0 && $resendUid > 0) {
+            $rAddrs = $controller->getUserAddressesForQuote($resendUid);
+            foreach ($rAddrs as $ra) {
+                if ((int)(float)($ra->USER_ADDRESS_ID ?? 0) === $rAddrId) {
+                    $rRecEmail = trim((string)($ra->RECIPIENT_EMAIL ?? ''));
+                    break;
+                }
+            }
+        }
+
+        /* Support emails */
+        $rSupportEmails = [];
+        if ($rComp) {
+            $rRaw = trim((string)($rComp->SUPPORT_MAIL_ID ?? ''));
+            if ($rRaw !== '') $rSupportEmails = array_filter(array_map('trim', explode(',', $rRaw)));
+        }
+
+        $rCoEmailDisp  = $rComp ? htmlspecialchars((string)($rComp->EMAIL          ?? '')) : '';
+        $rCoPhoneDisp  = $rComp ? htmlspecialchars((string)($rComp->CONTACT_NUMBER ?? '')) : '';
+        $rCoLogoAbsUrl = $rComp ? trim((string)($rComp->LOGO ?? '')) : '';
+        $rCoContactHtml = '';
+        if ($rCoEmailDisp) $rCoContactHtml .= '<a href="mailto:'.$rCoEmailDisp.'" style="color:#6366f1;text-decoration:none;">'.$rCoEmailDisp.'</a>';
+        if ($rCoEmailDisp && $rCoPhoneDisp) $rCoContactHtml .= ' &nbsp;|&nbsp; ';
+        if ($rCoPhoneDisp) $rCoContactHtml .= $rCoPhoneDisp;
+
+        $bodyResend = '
+<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:\'Segoe UI\',Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:32px 16px;">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+
+  <!-- Header -->
+  <tr><td style="background:linear-gradient(135deg,#4f46e5 0%,#6366f1 100%);border-radius:12px 12px 0 0;padding:32px 40px;text-align:center;">
+    '.($rCoLogoAbsUrl ? '<img src="'.$rCoLogoAbsUrl.'" alt="'.$rCoName.'" style="max-height:52px;max-width:180px;object-fit:contain;filter:brightness(0) invert(1);margin-bottom:12px;display:block;margin-left:auto;margin-right:auto;">' : '').'
+    <div style="color:#fff;font-size:22px;font-weight:700;letter-spacing:.5px;">'.($rCoLogoAbsUrl ? '' : $rCoName).'</div>
+    <div style="color:rgba(255,255,255,.75);font-size:13px;margin-top:4px;">Quotation — As Requested</div>
+  </td></tr>
+
+  <!-- Body -->
+  <tr><td style="background:#ffffff;padding:40px 40px 32px;">
+    <p style="margin:0 0 20px;font-size:16px;font-weight:700;color:#1e293b;">Dear '.$custName.',</p>
+    <p style="margin:0 0 16px;font-size:14px;color:#475569;line-height:1.7;">
+      As requested, please find the re-issued copy of your quotation from <strong>'.$rCoName.'</strong> attached below.
+      This quotation contains all the details of the products and services discussed. We hope this meets your expectations.
+    </p>
+
+    <!-- Quote Card -->
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;margin:24px 0;">
+      <tr>
+        <td style="padding:20px 24px;border-bottom:1px solid #e2e8f0;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:4px;">Quotation Reference</div>
+          <div style="font-size:20px;font-weight:800;color:#4f46e5;">'.$quoteRef.'</div>
+        </td>
+        <td style="padding:20px 24px;border-bottom:1px solid #e2e8f0;text-align:right;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:4px;">Total Amount</div>
+          <div style="font-size:22px;font-weight:800;color:#059669;">€'.$totalAmt.'</div>
+        </td>
+      </tr>
+      <tr>
+        <td colspan="2" style="padding:16px 24px;text-align:center;">
+          <a href="'.$pdfLink.'" target="_blank"
+             style="display:inline-block;background:#4f46e5;color:#ffffff;font-size:14px;font-weight:600;padding:12px 32px;border-radius:8px;text-decoration:none;letter-spacing:.3px;">
+            &#128196; View &amp; Download Quotation
+          </a>
+        </td>
+      </tr>
+    </table>
+
+    <p style="margin:0 0 12px;font-size:13px;color:#64748b;line-height:1.7;">
+      Should you need any clarification, wish to negotiate terms, or require any modifications, our team is always available to assist you promptly.
+    </p>
+    <p style="margin:0;font-size:13px;color:#64748b;line-height:1.7;">
+      We value your business and appreciate the opportunity to serve you.
+    </p>
+  </td></tr>
+
+  <!-- Sign-off -->
+  <tr><td style="background:#f8fafc;padding:24px 40px;border-top:1px solid #e2e8f0;">
+    <p style="margin:0 0 4px;font-size:13px;color:#475569;">Warm regards,</p>
+    <p style="margin:0 0 4px;font-size:14px;font-weight:700;color:#1e293b;">'.$rCoName.'</p>
+    '.($rCoContactHtml ? '<p style="margin:0;font-size:12px;color:#94a3b8;">'.$rCoContactHtml.'</p>' : '').'
+  </td></tr>
+
+  <!-- Footer -->
+  <tr><td style="background:#e2e8f0;border-radius:0 0 12px 12px;padding:14px 40px;text-align:center;">
+    <p style="margin:0;font-size:11px;color:#94a3b8;">
+      This email was sent by '.$rCoName.' regarding quotation <strong>'.$quoteRef.'</strong>.<br>
+      Please do not reply directly to this automated message.
+    </p>
+  </td></tr>
+
+</table>
+</td></tr></table>
+</body></html>';
+
+        $bodyIntR = '
+<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:\'Segoe UI\',Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 16px;">
+<tr><td align="center">
+<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#fff;border-radius:10px;overflow:hidden;border:1px solid #e2e8f0;">
+  <tr><td style="background:#0891b2;padding:18px 28px;">
+    <div style="color:#fff;font-size:15px;font-weight:700;">&#128260; Quotation Resent: '.$quoteRef.'</div>
+  </td></tr>
+  <tr><td style="padding:24px 28px;">
+    <table width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;padding-bottom:4px;">Customer</td>
+        <td style="font-size:13px;font-weight:700;color:#1e293b;padding-bottom:4px;">'.$custName.'</td>
+      </tr>
+      <tr>
+        <td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;padding-bottom:4px;">Reference</td>
+        <td style="font-size:13px;color:#4f46e5;font-weight:700;padding-bottom:4px;">'.$quoteRef.'</td>
+      </tr>
+      <tr>
+        <td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;padding-bottom:4px;">Total Amount</td>
+        <td style="font-size:13px;font-weight:700;color:#059669;padding-bottom:4px;">€'.$totalAmt.'</td>
+      </tr>
+      <tr>
+        <td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;padding-bottom:16px;">Status</td>
+        <td style="font-size:13px;color:#475569;padding-bottom:16px;">Quotation has been resent to the customer as requested.</td>
+      </tr>
+    </table>
+    <a href="'.$pdfLink.'" target="_blank" style="display:inline-block;background:#4f46e5;color:#fff;font-size:13px;font-weight:600;padding:10px 24px;border-radius:7px;text-decoration:none;">View Quotation PDF &rarr;</a>
+  </td></tr>
+  <tr><td style="background:#f8fafc;padding:12px 28px;border-top:1px solid #e2e8f0;">
+    <p style="margin:0;font-size:11px;color:#94a3b8;">Internal notification — '.$rCoName.' Quotation System</p>
+  </td></tr>
+</table>
+</td></tr></table>
+</body></html>';
+
+        $rSentTo = []; $rRecips = [];
+        if ($custEmail !== '' && !in_array(strtolower($custEmail), $rSentTo)) {
+            $rSentTo[] = strtolower($custEmail);
+            $rRecips[] = ['to_mail_id'=>$custEmail, 'subject'=>'Your Quotation '.$quoteRef.' — '.$rCoName, 'body'=>$bodyResend];
+        }
+        if ($rRecEmail !== '' && !in_array(strtolower($rRecEmail), $rSentTo)) {
+            $rSentTo[] = strtolower($rRecEmail);
+            $rRecips[] = ['to_mail_id'=>$rRecEmail, 'subject'=>'Your Quotation '.$quoteRef.' — '.$rCoName, 'body'=>$bodyResend];
+        }
+        foreach ($rSupportEmails as $rSmail) {
+            if ($rSmail !== '' && !in_array(strtolower($rSmail), $rSentTo)) {
+                $rSentTo[] = strtolower($rSmail);
+                $rRecips[] = ['to_mail_id'=>$rSmail, 'subject'=>'[Resent] Quotation '.$quoteRef.' — '.$custName, 'body'=>$bodyIntR];
+            }
+        }
+        if (!empty($rRecips)) sinelec_send_mail($rRecips);
+        $notified = implode(', ', array_map('htmlspecialchars', array_slice($rSentTo, 0, 2)));
+        adminRedirectWithFlash('quotation', 'ok', 'Quotation re-sent' . ($notified ? ' to ' . $notified : '') . '.');
+    break;
+
+    case 'UpdateCompany':
+        adminRequireAuth();
+        if (!$controller->updateCompanyDetails($_POST)) {
+            adminRedirectWithFlash('company', 'err', 'Failed to save company details.');
+        }
+        adminRedirectWithFlash('company', 'ok', 'Company details updated successfully.');
     break;
 
     default:

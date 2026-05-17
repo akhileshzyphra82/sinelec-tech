@@ -373,10 +373,13 @@ class AdminController
     {
         try {
             return $this->db->select(
-                "SELECT pc.*, parent.product_category_name AS parent_name
+                "SELECT pc.*,
+                        parent.product_category_name AS parent_name,
+                        (SELECT COUNT(*) FROM tbl_product_category sub
+                         WHERE sub.parent_category_id = pc.product_category_id) AS sub_count
                  FROM tbl_product_category pc
-                 LEFT JOIN tbl_product_category parent ON parent.product_category_id=pc.parent_category_id
-                 ORDER BY pc.parent_category_id, pc.priority, pc.product_category_name"
+                 LEFT JOIN tbl_product_category parent ON parent.product_category_id = pc.parent_category_id
+                 ORDER BY pc.parent_category_id ASC, pc.priority ASC, pc.product_category_name ASC"
             );
         } catch (Exception $e) { error_log('getAllCategories: '.$e->getMessage()); return []; }
     }
@@ -460,6 +463,31 @@ class AdminController
             );
             return true;
         } catch (Exception $e) { error_log('deleteCategory: '.$e->getMessage()); return false; }
+    }
+
+    /* Single save — insert when id=0, update when id>0 */
+    public function saveProductCategory(array $d): int|false
+    {
+        $id = (int)($d['id'] ?? 0);
+        if ($id > 0) {
+            $ok = $this->updateCategory([
+                'id'          => $id,
+                'name'        => $d['name'] ?? '',
+                'parent_id'   => $d['parent_id'] ?? 0,
+                'priority'    => $d['priority'] ?? 0,
+                'description' => $d['description'] ?? '',
+                'ext'         => $d['ext'] ?? '',
+            ]);
+            return $ok ? $id : false;
+        }
+        $newId = $this->insertCategory([
+            'name'        => $d['name'] ?? '',
+            'parent_id'   => $d['parent_id'] ?? 0,
+            'priority'    => $d['priority'] ?? 0,
+            'description' => $d['description'] ?? '',
+            'ext'         => $d['ext'] ?? '',
+        ]);
+        return $newId > 0 ? $newId : false;
     }
 
     /* ─────────────────────────────────────────────────────────────
@@ -566,24 +594,44 @@ class AdminController
         } catch (Exception $e) { error_log('updateProduct: '.$e->getMessage()); return false; }
     }
 
-    public function addProductImage(int $productId, string $ext, string $imageFor, string $title = '', int $prio = 0): int
+    public function addProductImage(int $productId, string $ext, string $imageFor, string $title = '', int $prio = 0, string $imageName = '', string $displayFlag = 'Yes', string $hyperLink = ''): int
     {
+        $ext         = addslashes($ext);
+        $imageFor    = in_array($imageFor, ['Product', 'Product Mannual']) ? $imageFor : 'Product';
+        $title       = addslashes($title);
+        $imageName   = addslashes($imageName);
+        $displayFlag = in_array($displayFlag, ['Yes', 'No']) ? $displayFlag : 'Yes';
+        $hyperLink   = addslashes($hyperLink);
+        $date        = date('Y-m-d');
+
+        /* Try full INSERT (with image_name + hyper_link columns).
+           If those columns don't exist yet, fall back to base INSERT. */
+        $newId = 0;
         try {
-            $ext   = addslashes($ext);
-            $imageFor = in_array($imageFor,['Product','Manual']) ? $imageFor : 'Product';
-            $title = addslashes($title);
-            $sql = "INSERT INTO tbl_product_img(product_id,image_ext,priorty,display_flag,image_for,product_manual_title,manual_upload_date)
-                 VALUES(".$productId.",'".$ext."',".$prio.",'Yes','".$imageFor."','".$title."','".date('Y-m-d')."')";
+            $sql   = "INSERT INTO tbl_product_img(product_id,image_ext,image_name,priorty,display_flag,image_for,product_manual_title,hyper_link,manual_upload_date)
+                      VALUES({$productId},'{$ext}','{$imageName}',{$prio},'{$displayFlag}','{$imageFor}','{$title}','{$hyperLink}','{$date}')";
             $newId = (int)$this->db->insert($sql);
-            if ($newId > 0) {
-                $this->logActivity('add', 'tbl_product_img', $sql,
-                    null,
-                    ['product_id'=>$productId,'image_ext'=>$ext,'priorty'=>$prio,
-                     'display_flag'=>'Yes','image_for'=>$imageFor,'product_manual_title'=>$title]
-                );
+        } catch (Exception $e) {
+            /* Columns image_name / hyper_link may not exist yet — fall back */
+            error_log('addProductImage full INSERT failed, trying base: '.$e->getMessage());
+            try {
+                $sql   = "INSERT INTO tbl_product_img(product_id,image_ext,priorty,display_flag,image_for,product_manual_title,manual_upload_date)
+                          VALUES({$productId},'{$ext}',{$prio},'{$displayFlag}','{$imageFor}','{$title}','{$date}')";
+                $newId = (int)$this->db->insert($sql);
+            } catch (Exception $e2) {
+                error_log('addProductImage base INSERT also failed: '.$e2->getMessage());
+                return 0;
             }
-            return $newId;
-        } catch (Exception $e) { error_log('addProductImage: '.$e->getMessage()); return 0; }
+        }
+
+        if ($newId > 0) {
+            $this->logActivity('add', 'tbl_product_img', $sql ?? '', null,
+                ['product_id'=>$productId,'image_ext'=>$ext,'image_name'=>$imageName,
+                 'priorty'=>$prio,'display_flag'=>$displayFlag,'image_for'=>$imageFor,
+                 'product_manual_title'=>$title,'hyper_link'=>$hyperLink]
+            );
+        }
+        return $newId;
     }
 
     public function deleteProductImage(int $imageId): bool
@@ -616,6 +664,142 @@ class AdminController
             );
             return true;
         } catch (Exception $e) { error_log('deleteProduct: '.$e->getMessage()); return false; }
+    }
+
+    public function saveProduct(array $d): int|false
+    {
+        try {
+            $id        = (int)($d['product_id'] ?? 0);
+            $name      = addslashes(trim($d['product_name'] ?? ''));
+            $code      = addslashes(trim($d['product_code'] ?? ''));
+            $catId     = (int)($d['product_category_id'] ?? 0);
+            $desc      = addslashes(trim($d['product_description'] ?? ''));
+            $spec      = addslashes(trim($d['product_specification'] ?? ''));
+            $details   = addslashes(trim($d['product_details'] ?? ''));
+            $amt       = (float)($d['product_amt'] ?? 0);
+            $tax       = (float)($d['product_tax'] ?? 0);
+            $disc      = (float)($d['product_discount'] ?? 0);
+            $prio      = (int)($d['priorty'] ?? 0);
+            $threshold = (float)($d['product_threshold'] ?? 1);
+            $status    = in_array($d['product_status'] ?? '', ['Active','In-Active']) ? $d['product_status'] : 'Active';
+            $display   = in_array($d['display_flag'] ?? '', ['Yes','No']) ? $d['display_flag'] : 'Yes';
+            $label     = addslashes(trim($d['label'] ?? ''));
+            $ratingRaw = trim($d['rating'] ?? '');
+            $offerRaw  = trim($d['offer_percentage'] ?? '');
+
+            if ($name === '') return false;
+
+            $labelVal  = $label !== '' ? "'".$label."'" : 'NULL';
+            $ratingVal = ($ratingRaw !== '' && is_numeric($ratingRaw)) ? (float)$ratingRaw : 'NULL';
+            $offerVal  = ($offerRaw  !== '' && is_numeric($offerRaw))  ? (float)$offerRaw  : 'NULL';
+
+            if ($id > 0) {
+                $oldRow = $this->getProductById($id);
+                $sql = "UPDATE tbl_product SET
+                     product_name='".$name."', product_code='".$code."',
+                     product_category_id=".$catId.", display_flag='".$display."',
+                     product_status='".$status."', product_description='".$desc."',
+                     product_specification='".$spec."', priorty=".$prio.",
+                     product_details='".$details."', product_amt=".$amt.",
+                     product_tax=".$tax.", product_discount=".$disc.",
+                     label=".$labelVal.", rating=".$ratingVal.",
+                     offer_percentage=".$offerVal.", product_threshold=".$threshold."
+                     WHERE product_id=".$id;
+                $this->db->update($sql);
+                $this->logActivity('edit', 'tbl_product', $sql,
+                    $oldRow !== null ? (array)$oldRow : null,
+                    ['product_id'=>$id,'product_name'=>$name,'product_code'=>$code,
+                     'product_category_id'=>$catId,'product_status'=>$status]
+                );
+                return $id;
+            }
+
+            $sql = "INSERT INTO tbl_product
+                 (product_name, product_code, product_entry_date, product_category_id,
+                  display_flag, product_status, product_description, product_specification,
+                  priorty, product_details, product_amt, product_tax, product_discount,
+                  label, rating, offer_percentage, product_threshold)
+                 VALUES('".$name."', '".$code."', '".date('Y-m-d')."', ".$catId.",
+                        '".$display."', '".$status."', '".$desc."', '".$spec."',
+                        ".$prio.", '".$details."', ".$amt.", ".$tax.", ".$disc.",
+                        ".$labelVal.", ".$ratingVal.", ".$offerVal.", ".$threshold.")";
+            $newId = (int)$this->db->insert($sql);
+            if ($newId > 0) {
+                $this->logActivity('add', 'tbl_product', $sql, null,
+                    ['product_name'=>$name,'product_code'=>$code,'product_category_id'=>$catId,
+                     'product_status'=>$status,'product_amt'=>$amt]
+                );
+            }
+            return $newId > 0 ? $newId : false;
+        } catch (Exception $e) { error_log('saveProduct: '.$e->getMessage()); return false; }
+    }
+
+    public function getProductImageById(int $id): ?object
+    {
+        try {
+            $r = $this->db->select("SELECT * FROM tbl_product_img WHERE image_id=".$id." LIMIT 1");
+            return $r[0] ?? null;
+        } catch (Exception $e) { return null; }
+    }
+
+    public function getAllProductImagesIndexed(): array
+    {
+        try {
+            $rows    = $this->db->select(
+                "SELECT * FROM tbl_product_img ORDER BY product_id ASC, priorty ASC, image_id ASC"
+            );
+            $indexed = [];
+            foreach ($rows as $r) {
+                $pid = (int)(float)($r->PRODUCT_ID ?? 0);
+                $indexed[$pid][] = $r;
+            }
+            return $indexed;
+        } catch (Exception $e) { error_log('getAllProductImagesIndexed: '.$e->getMessage()); return []; }
+    }
+
+    /* SAMPLE CODES ──────────────────────────────────────────────── */
+    public function getAllSampleCodesIndexed(): array
+    {
+        try {
+            $rows    = $this->db->select(
+                "SELECT * FROM tbl_product_sample_code ORDER BY product_id ASC, product_sample_code_id ASC"
+            );
+            $indexed = [];
+            foreach ($rows as $r) {
+                $pid = (int)(float)($r->PRODUCT_ID ?? 0);
+                if ($pid > 0) $indexed[$pid][] = $r;
+            }
+            return $indexed;
+        } catch (Exception $e) { error_log('getAllSampleCodesIndexed: '.$e->getMessage()); return []; }
+    }
+
+    public function getSampleCodesByProductId(int $pid): array
+    {
+        try {
+            return $this->db->select(
+                "SELECT * FROM tbl_product_sample_code WHERE product_id={$pid} ORDER BY product_sample_code_id ASC"
+            );
+        } catch (Exception $e) { error_log('getSampleCodesByProductId: '.$e->getMessage()); return []; }
+    }
+
+    public function saveSampleCodes(int $pid, array $codes): void
+    {
+        try {
+            /* Delete all existing rows for this product then re-insert */
+            $this->db->update("DELETE FROM tbl_product_sample_code WHERE product_id={$pid}");
+            foreach ($codes as $c) {
+                $lang = addslashes(trim((string)($c['lang'] ?? '')));
+                $ide  = addslashes(trim((string)($c['ide']  ?? '')));
+                $type = addslashes(trim((string)($c['type'] ?? '')));
+                $os   = addslashes(trim((string)($c['os']   ?? '')));
+                $url  = addslashes(trim((string)($c['url']  ?? '')));
+                if ($lang === '' && $ide === '' && $url === '') continue; /* skip blank rows */
+                $this->db->insert(
+                    "INSERT INTO tbl_product_sample_code(product_id,language_technology,ide_compiler,type,os,ext)
+                     VALUES({$pid},'{$lang}','{$ide}','{$type}','{$os}','{$url}')"
+                );
+            }
+        } catch (Exception $e) { error_log('saveSampleCodes: '.$e->getMessage()); }
     }
 
     /* ─────────────────────────────────────────────────────────────
@@ -1685,6 +1869,464 @@ class AdminController
             );
             return true;
         } catch (Exception $e) { error_log('deleteCustomer: '.$e->getMessage()); return false; }
+    }
+
+    /* ─────────────────────────────────────────────────────────────
+       COMPANY
+    ───────────────────────────────────────────────────────────── */
+    public function getCompanyDetails(): ?object
+    {
+        try {
+            $r = $this->db->select("SELECT * FROM tbl_company ORDER BY company_id ASC LIMIT 1");
+            return $r[0] ?? null;
+        } catch (Exception $e) { error_log('getCompanyDetails: '.$e->getMessage()); return null; }
+    }
+
+    public function updateCompanyDetails(array $d): bool
+    {
+        try {
+            $co = $this->getCompanyDetails();
+            $id = $co ? (int)(float)($co->COMPANY_ID ?? 0) : 0;
+
+            $name        = addslashes(trim($d['name']             ?? ''));
+            $logo        = addslashes(trim($d['logo']             ?? ''));
+            $description = addslashes(trim($d['description']      ?? ''));
+            $contact     = addslashes(trim($d['contact_number']   ?? ''));
+            $email       = addslashes(trim($d['email']            ?? ''));
+            $address     = addslashes(trim($d['address']          ?? ''));
+            $fax         = addslashes(trim($d['fax']              ?? ''));
+            $facebook    = addslashes(trim($d['facebook_url']     ?? ''));
+            $instagram   = addslashes(trim($d['instagram_url']    ?? ''));
+            $linkedin    = addslashes(trim($d['linkedin_url']     ?? ''));
+            $twitter     = addslashes(trim($d['twitter_url']      ?? ''));
+            $youtube     = addslashes(trim($d['youtube_url']      ?? ''));
+            $whatsapp    = addslashes(trim($d['whatsapp_number']  ?? ''));
+            $support     = addslashes(trim($d['support_mail_id']  ?? ''));
+            $instructions= addslashes(trim($d['instructions']     ?? ''));
+
+            if ($id > 0) {
+                $sql = "UPDATE tbl_company SET
+                    name='$name', logo='$logo', description='$description',
+                    contact_number='$contact', email='$email', address='$address', fax='$fax',
+                    facebook_url='$facebook', instagram_url='$instagram', linkedin_url='$linkedin',
+                    twitter_url='$twitter', youtube_url='$youtube', whatsapp_number='$whatsapp',
+                    support_mail_id='$support', instructions='$instructions'
+                    WHERE company_id=$id";
+                $this->db->update($sql);
+            } else {
+                $sql = "INSERT INTO tbl_company
+                    (name,logo,description,contact_number,email,address,fax,
+                     facebook_url,instagram_url,linkedin_url,twitter_url,youtube_url,
+                     whatsapp_number,support_mail_id,instructions)
+                    VALUES('$name','$logo','$description','$contact','$email','$address','$fax',
+                     '$facebook','$instagram','$linkedin','$twitter','$youtube',
+                     '$whatsapp','$support','$instructions')";
+                $this->db->insert($sql);
+            }
+            $this->logActivity('edit', 'tbl_company', '', null, ['name' => $name]);
+            return true;
+        } catch (Exception $e) { error_log('updateCompanyDetails: '.$e->getMessage()); return false; }
+    }
+
+    /* ─────────────────────────────────────────────────────────────
+       COUNTRIES
+    ───────────────────────────────────────────────────────────── */
+    public function getAllCountries(): array
+    {
+        try {
+            return $this->db->select(
+                "SELECT country_id, country FROM tbl_country ORDER BY country ASC"
+            );
+        } catch (Exception $e) { error_log('getAllCountries: '.$e->getMessage()); return []; }
+    }
+
+    /* ─────────────────────────────────────────────────────────────
+       MANUFACTURERS
+    ───────────────────────────────────────────────────────────── */
+    public function getAllManufacturers(string $search = ''): array
+    {
+        try {
+            $where = '';
+            if ($search !== '') {
+                $s = addslashes($search);
+                $where = "WHERE m.name LIKE '%".$s."%'";
+            }
+            return $this->db->select(
+                "SELECT m.*, c.country AS country_name
+                 FROM tbl_manufacturers m
+                 LEFT JOIN tbl_country c ON c.country_id = m.country_id
+                 ".$where."
+                 ORDER BY m.name ASC"
+            );
+        } catch (Exception $e) { error_log('getAllManufacturers: '.$e->getMessage()); return []; }
+    }
+
+    public function getManufacturerById(int $id): ?object
+    {
+        try {
+            $r = $this->db->select(
+                "SELECT m.*, c.country AS country_name
+                 FROM tbl_manufacturers m
+                 LEFT JOIN tbl_country c ON c.country_id = m.country_id
+                 WHERE m.manufacturer_id=".$id." LIMIT 1"
+            );
+            return $r[0] ?? null;
+        } catch (Exception $e) { return null; }
+    }
+
+    public function saveManufacturer(array $d): int|false
+    {
+        try {
+            $id         = (int)($d['id'] ?? 0);
+            $name       = addslashes(trim($d['name'] ?? ''));
+            $logo       = addslashes(trim($d['logo'] ?? ''));
+            $countryId  = (int)($d['country_id'] ?? 0);
+            $desc       = addslashes(trim($d['description'] ?? ''));
+            $catIds     = addslashes(trim($d['product_category_ids'] ?? ''));
+            $status     = (int)($d['status'] ?? 1);
+            $countryVal = $countryId > 0 ? $countryId : 'NULL';
+
+            if ($id > 0) {
+                $oldRow = $this->getManufacturerById($id);
+                $sql = "UPDATE tbl_manufacturers
+                     SET name='".$name."',
+                         logo='".$logo."',
+                         country_id=".$countryVal.",
+                         description='".$desc."',
+                         product_category_ids='".$catIds."',
+                         status=".$status."
+                     WHERE manufacturer_id=".$id." LIMIT 1";
+                $this->db->update($sql);
+                $this->logActivity('edit', 'tbl_manufacturers', $sql,
+                    $oldRow !== null ? (array)$oldRow : null,
+                    ['manufacturer_id'=>$id,'name'=>$name,'logo'=>$logo,'country_id'=>$countryId,
+                     'description'=>$desc,'product_category_ids'=>$catIds,'status'=>$status]
+                );
+                return $id;
+            }
+
+            if ($name === '') return false;
+            $sql = "INSERT INTO tbl_manufacturers
+                 (name, logo, country_id, description, product_category_ids, status)
+                 VALUES('".$name."', '".$logo."', ".$countryVal.", '".$desc."', '".$catIds."', ".$status.")";
+            $newId = (int)$this->db->insert($sql);
+            if ($newId > 0) {
+                $this->logActivity('add', 'tbl_manufacturers', $sql,
+                    null,
+                    ['name'=>$name,'logo'=>$logo,'country_id'=>$countryId,
+                     'description'=>$desc,'product_category_ids'=>$catIds,'status'=>$status]
+                );
+            }
+            return $newId > 0 ? $newId : false;
+        } catch (Exception $e) { error_log('saveManufacturer: '.$e->getMessage()); return false; }
+    }
+
+    /* ─────────────────────────────────────────────────────────────
+       QUOTATION
+    ───────────────────────────────────────────────────────────── */
+    public function getAllQuotations(string $search = '', string $status = ''): array
+    {
+        try {
+            $where = '1=1';
+            if ($search !== '') {
+                $s = addslashes($search);
+                $where .= " AND (COALESCE(u.name, eq.user_name) LIKE '%$s%'
+                             OR COALESCE(u.communication_email_id, eq.user_email) LIKE '%$s%'
+                             OR COALESCE(u.company_name, eq.company_name) LIKE '%$s%'
+                             OR eq.enquiry_quote_id = '$s')";
+            }
+            if ($status !== '') {
+                $st = addslashes($status);
+                $where .= " AND eq.enquiry_status = '$st'";
+            }
+            return $this->db->select(
+                "SELECT eq.enquiry_quote_id, eq.user_id, eq.user_address_id, eq.billing_address_id,
+                        eq.enquiry_date, eq.enquiry_status, eq.customer_order_no, eq.customer_supplier_no,
+                        eq.enquiry_vat_amt, eq.enquiry_shipping_amt, eq.enquiry_total_amt,
+                        eq.discount_percentage, eq.discount_amt, eq.vat_number,
+                        COALESCE(u.name, eq.user_name) AS user_name,
+                        COALESCE(u.communication_email_id, eq.user_email) AS user_email,
+                        COALESCE(u.communication_mobile_num, eq.user_phone) AS user_phone,
+                        COALESCE(u.company_name, eq.company_name) AS company_name,
+                        COUNT(eqp.enquiry_quote_product_id) AS product_count
+                 FROM tbl_enquiry_quote eq
+                 LEFT JOIN tbl_user u ON u.user_id = eq.user_id AND eq.user_id > 0
+                 LEFT JOIN tbl_enquiry_quote_product eqp ON eqp.enquiry_quote_id = eq.enquiry_quote_id
+                 WHERE $where
+                 GROUP BY eq.enquiry_quote_id
+                 ORDER BY eq.enquiry_date DESC"
+            );
+        } catch (Exception $e) { error_log('getAllQuotations: '.$e->getMessage()); return []; }
+    }
+
+    public function getQuotationById(int $id): ?object
+    {
+        try {
+            $rows = $this->db->select(
+                "SELECT eq.*,
+                        COALESCE(u.name, eq.user_name) AS user_name_resolved,
+                        COALESCE(u.communication_email_id, eq.user_email) AS user_email_resolved,
+                        COALESCE(u.communication_mobile_num, eq.user_phone) AS user_phone_resolved,
+                        COALESCE(u.company_name, eq.company_name) AS company_name_resolved
+                 FROM tbl_enquiry_quote eq
+                 LEFT JOIN tbl_user u ON u.user_id = eq.user_id AND eq.user_id > 0
+                 WHERE eq.enquiry_quote_id=$id LIMIT 1"
+            );
+            return $rows[0] ?? null;
+        } catch (Exception $e) { return null; }
+    }
+
+    public function getQuotationProducts(int $id): array
+    {
+        try {
+            return $this->db->select(
+                "SELECT eqp.*, p.product_name, p.product_code, pc.product_category_name
+                 FROM tbl_enquiry_quote_product eqp
+                 LEFT JOIN tbl_product p  ON p.product_id  = eqp.product_id
+                 LEFT JOIN tbl_product_category pc ON pc.product_category_id = eqp.product_category_id
+                 WHERE eqp.enquiry_quote_id = $id
+                 ORDER BY eqp.enquiry_quote_product_id ASC"
+            );
+        } catch (Exception $e) { return []; }
+    }
+
+    public function getAllQuotationProductsIndexed(): array
+    {
+        try {
+            $rows    = $this->db->select(
+                "SELECT eqp.*, p.product_name, p.product_code, pc.product_category_name
+                 FROM tbl_enquiry_quote_product eqp
+                 LEFT JOIN tbl_product p ON p.product_id = eqp.product_id
+                 LEFT JOIN tbl_product_category pc ON pc.product_category_id = eqp.product_category_id
+                 ORDER BY eqp.enquiry_quote_id ASC, eqp.enquiry_quote_product_id ASC"
+            );
+            $indexed = [];
+            foreach ($rows as $r) {
+                $qid = (int)(float)($r->ENQUIRY_QUOTE_ID ?? 0);
+                $indexed[$qid][] = $r;
+            }
+            return $indexed;
+        } catch (Exception $e) { error_log('getAllQuotationProductsIndexed: '.$e->getMessage()); return []; }
+    }
+
+    public function saveQuotation(array $d): int|false
+    {
+        try {
+            $id        = (int)($d['enquiry_quote_id']     ?? 0);
+            $userId    = (int)($d['user_id']              ?? 0);
+            $addrId    = (int)($d['user_address_id']      ?? 0);
+            $bilAddrId = (int)($d['billing_address_id']   ?? 0);
+            $status    = in_array($d['enquiry_status'] ?? '', ['Quotation Pending','Quotation Sent','Order Generated','Order Completed'])
+                         ? $d['enquiry_status'] : 'Quotation Pending';
+            $vatAmt   = (float)($d['enquiry_vat_amt']      ?? 0);
+            $shipAmt  = (float)($d['enquiry_shipping_amt'] ?? 0);
+            $totalAmt = (float)($d['enquiry_total_amt']    ?? 0);
+            $discPct  = (float)($d['discount_percentage']  ?? 0);
+            $discAmt  = (float)($d['discount_amt']         ?? 0);
+            $custOrd  = addslashes($d['customer_order_no']    ?? '');
+            $custSup  = addslashes($d['customer_supplier_no'] ?? '');
+            $vatNum   = addslashes(trim($d['vat_number'] ?? ''));
+            $bilVal   = $bilAddrId > 0 ? $bilAddrId : ($addrId > 0 ? $addrId : 0);
+
+            if ($id > 0) {
+                $sql = "UPDATE tbl_enquiry_quote SET
+                    user_id=$userId, user_address_id=$addrId, billing_address_id=$bilVal,
+                    enquiry_status='$status',
+                    enquiry_vat_amt=$vatAmt, enquiry_shipping_amt=$shipAmt, enquiry_total_amt=$totalAmt,
+                    discount_percentage=$discPct, discount_amt=$discAmt,
+                    vat_number='$vatNum',
+                    customer_order_no='$custOrd', customer_supplier_no='$custSup'
+                    WHERE enquiry_quote_id=$id";
+                $this->db->update($sql);
+                $this->logActivity('edit', 'tbl_enquiry_quote', $sql, null, ['id'=>$id]);
+                return $id;
+            } else {
+                $sql = "INSERT INTO tbl_enquiry_quote(
+                    user_id, user_address_id, billing_address_id, enquiry_status,
+                    enquiry_vat_amt, enquiry_shipping_amt, enquiry_total_amt,
+                    discount_percentage, discount_amt, vat_number,
+                    customer_order_no, customer_supplier_no, order_id)
+                    VALUES($userId, $addrId, $bilVal, '$status',
+                    $vatAmt, $shipAmt, $totalAmt, $discPct, $discAmt, '$vatNum',
+                    '$custOrd', '$custSup', 0)";
+                $newId = (int)$this->db->insert($sql);
+                if ($newId > 0) $this->logActivity('add', 'tbl_enquiry_quote', $sql, null, ['id'=>$newId]);
+                return $newId > 0 ? $newId : false;
+            }
+        } catch (Exception $e) { error_log('saveQuotation: '.$e->getMessage()); return false; }
+    }
+
+    public function saveQuotationProducts(int $qid, array $products): void
+    {
+        try {
+            $this->db->update("DELETE FROM tbl_enquiry_quote_product WHERE enquiry_quote_id=$qid");
+            foreach ($products as $p) {
+                $catId   = (int)($p['cat_id']   ?? 0);
+                $prodId  = (int)($p['prod_id']  ?? 0);
+                $qty     = (int)($p['qty']      ?? 0);
+                $price   = (float)($p['price']  ?? 0);
+                $discPct = (float)($p['disc_pct'] ?? 0);
+                if ($prodId <= 0 || $qty <= 0) continue;
+                $this->db->insert(
+                    "INSERT INTO tbl_enquiry_quote_product
+                     (enquiry_quote_id,product_category_id,product_id,product_quantity,product_amt,product_discount_pct)
+                     VALUES($qid,$catId,$prodId,$qty,$price,$discPct)"
+                );
+            }
+        } catch (Exception $e) { error_log('saveQuotationProducts: '.$e->getMessage()); }
+    }
+
+    public function deleteQuotation(int $id): bool
+    {
+        try {
+            $this->db->update("DELETE FROM tbl_enquiry_quote WHERE enquiry_quote_id=$id");
+            $this->logActivity('delete', 'tbl_enquiry_quote', '', null, ['id'=>$id]);
+            return true;
+        } catch (Exception $e) { return false; }
+    }
+
+    public function updateQuotationStatus(int $id, string $status, string $remark = ''): bool
+    {
+        try {
+            $valid = ['Quotation Pending','Quotation Sent','Order Generated','Order Completed','Quotation Cancel'];
+            if (!in_array($status, $valid)) return false;
+            $s = addslashes($status);
+            $r = addslashes(trim($remark));
+            $remarkSql = $r !== '' ? ", remark='$r'" : '';
+            $this->db->update("UPDATE tbl_enquiry_quote SET enquiry_status='$s'$remarkSql WHERE enquiry_quote_id=$id");
+            $this->logActivity('edit','tbl_enquiry_quote','',null,['id'=>$id,'status'=>$status]);
+            return true;
+        } catch (Exception $e) { return false; }
+    }
+
+    public function getCustomersForQuote(): array
+    {
+        try {
+            return $this->db->select(
+                "SELECT u.user_id,
+                        u.name AS user_name,
+                        u.communication_email_id AS user_email,
+                        IFNULL(u.communication_mobile_num,'') AS user_phone,
+                        IFNULL(u.communication_mobile_num_isd, 91) AS user_phone_isd,
+                        IFNULL(u.company_name,'') AS company_name,
+                        IFNULL(u.designation,'') AS designation
+                 FROM tbl_user u WHERE u.user_type_id = 2 ORDER BY u.name ASC"
+            );
+        } catch (Exception $e) { return []; }
+    }
+
+    /* Quick-create a customer from the quotation modal (no password required from user) */
+    public function quickCreateCustomer(array $d): int|false
+    {
+        try {
+            $name    = addslashes(trim($d['name']    ?? ''));
+            $email   = addslashes(strtolower(trim($d['communication_email_id'] ?? '')));
+            $mobile  = addslashes(trim($d['communication_mobile_num']     ?? ''));
+            $isd     = (int)($d['communication_mobile_num_isd'] ?? 91);
+            $company = addslashes(trim($d['company_name'] ?? ''));
+            $desig   = addslashes(trim($d['designation']  ?? ''));
+
+            if ($name === '' || $email === '') return false;
+
+            $dup = $this->db->select(
+                "SELECT COUNT(*) AS C FROM tbl_user WHERE communication_email_id='".$email."'"
+            );
+            if ((int)($dup[0]->C ?? 0) > 0) return -1; // duplicate email
+
+            $password = bin2hex(random_bytes(8));
+            $hash     = addslashes(password_hash($password, PASSWORD_DEFAULT));
+            $actKey   = bin2hex(random_bytes(16));
+
+            $sql = "INSERT INTO tbl_user
+                 (user_type_id, name, communication_email_id, erp_password,
+                  communication_mobile_num_isd, communication_mobile_num,
+                  company_name, designation,
+                  account_activation_flag, random_activation_key, verified_flag, is_pwd_updated)
+                 VALUES(2, '".$name."', '".$email."', '".$hash."',
+                        ".$isd.", '".$mobile."', '".$company."', '".$desig."',
+                        '1', '".$actKey."', 'Yes', 0)";
+            $newId = (int)$this->db->insert($sql);
+            if ($newId > 0) {
+                $this->logActivity('add', 'tbl_user', $sql, null,
+                    ['source'=>'quotation_quick_create','user_type_id'=>2,'name'=>$name,'email'=>$email]
+                );
+            }
+            return $newId > 0 ? $newId : false;
+        } catch (Exception $e) { error_log('quickCreateCustomer: '.$e->getMessage()); return false; }
+    }
+
+    /* Get all addresses for a user — used by quotation address selector */
+    public function getUserAddressesForQuote(int $userId): array
+    {
+        try {
+            return $this->db->select(
+                "SELECT ua.user_address_id, ua.user_id, ua.label,
+                        ua.user_name, ua.company_name,
+                        ua.address, ua.address_line_one, ua.address_line_two, ua.landmark,
+                        ua.city, ua.state, ua.zip,
+                        ua.country_id, ua.country, ua.eu_vat,
+                        ua.delivery_phone_no, ua.mobile_country_code,
+                        ua.recipient_name, ua.recipient_email, ua.recipient_contact,
+                        c.country AS country_name
+                 FROM tbl_user_address ua
+                 LEFT JOIN tbl_country c ON c.country_id = ua.country_id
+                 WHERE ua.user_id = ".$userId."
+                 ORDER BY ua.user_address_id ASC"
+            );
+        } catch (Exception $e) { error_log('getUserAddressesForQuote: '.$e->getMessage()); return []; }
+    }
+
+    /* Save a new address record to tbl_user_address */
+    public function saveUserAddress(array $d): int|false
+    {
+        try {
+            $userId    = (int)($d['user_id'] ?? 0);
+            if ($userId <= 0) return false;
+            $label     = in_array($d['label'] ?? '', ['Home','Office','Other']) ? $d['label'] : 'Home';
+            $userName  = addslashes(trim($d['addr_user_name']   ?? ''));
+            $company   = addslashes(trim($d['addr_company_name']?? ''));
+            $phone     = addslashes(trim($d['delivery_phone_no']?? ''));
+            $mcc       = (int)($d['mobile_country_code'] ?? 91);
+            $address   = addslashes(trim($d['address']          ?? ''));
+            $line1     = addslashes(trim($d['address_line_one'] ?? ''));
+            $line2     = addslashes(trim($d['address_line_two'] ?? ''));
+            $landmark  = addslashes(trim($d['landmark']         ?? ''));
+            $city      = addslashes(trim($d['city']             ?? ''));
+            $state     = addslashes(trim($d['state']            ?? ''));
+            $zip       = addslashes(trim($d['zip']              ?? ''));
+            $countryId = (int)($d['country_id'] ?? 0);
+            $country   = addslashes(trim($d['country']          ?? ''));
+            $euVat     = addslashes(trim($d['eu_vat']           ?? ''));
+            $recName   = addslashes(trim($d['recipient_name']    ?? ''));
+            $recEmail  = addslashes(trim($d['recipient_email']   ?? ''));
+            $recPhone  = addslashes(trim($d['recipient_contact'] ?? ''));
+
+            $sql = "INSERT INTO tbl_user_address
+                 (user_id, label, user_name, company_name, delivery_phone_no, mobile_country_code,
+                  address, address_line_one, address_line_two, landmark,
+                  city, state, zip, country_id, country, eu_vat,
+                  recipient_name, recipient_email, recipient_contact)
+                 VALUES($userId, '$label', '$userName', '$company', '$phone', $mcc,
+                        '$address', '$line1', '$line2', '$landmark',
+                        '$city', '$state', '$zip', $countryId, '$country', '$euVat',
+                        '$recName', '$recEmail', '$recPhone')";
+            $newId = (int)$this->db->insert($sql);
+            return $newId > 0 ? $newId : false;
+        } catch (Exception $e) { error_log('saveUserAddress: '.$e->getMessage()); return false; }
+    }
+
+    public function deleteManufacturer(int $id): bool
+    {
+        try {
+            $oldRow = $this->getManufacturerById($id);
+            $sql = "DELETE FROM tbl_manufacturers WHERE manufacturer_id=".$id." LIMIT 1";
+            $this->db->update($sql);
+            $this->logActivity('delete', 'tbl_manufacturers', $sql,
+                $oldRow !== null ? (array)$oldRow : null,
+                null
+            );
+            return true;
+        } catch (Exception $e) { error_log('deleteManufacturer: '.$e->getMessage()); return false; }
     }
 }
 ?>

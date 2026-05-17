@@ -332,6 +332,9 @@ img { max-width: 100%; }
 
 .tbl-wrap { overflow-x: auto; }
 table.dt { width: 100%; border-collapse: collapse; font-size: 13px; }
+.dt th:not(:last-child),
+.dt td:not(:last-child) { border-right: 1px solid #f1f5f9; }
+
 .dt th {
   text-align: left; padding: 10px 13px;
   font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px;
@@ -1054,3 +1057,33 @@ select.prof-input:not([disabled]) { cursor: pointer; }
   font-size: 12.5px; font-weight: 600; color: #374151;
   letter-spacing: .3px;
 }
+
+/* ─────────────────────────────────────────────────────────────
+   PRODUCT CATEGORIES
+───────────────────────────────────────────────────────────── */
+.cat-thumb { width: 38px; height: 38px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); }
+.cat-initial { width: 38px; height: 38px; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 14px; font-weight: 700; }
+.cat-parent-row > td { background: #fff; }
+.cat-sub-row > td { background: #f8fafc; }
+.cat-sub-row > td:first-child { border-left: 3px solid #6366f1; }
+
+.sub-toggle-btn { display: inline-flex; align-items: center; gap: 5px; background: #eef2ff; border: none; border-radius: 20px; padding: 4px 10px; cursor: pointer; transition: background .15s; font-size: 12px; color: #4f46e5; }
+.sub-toggle-btn:hover { background: #e0e7ff; }
+.sub-count-badge { font-weight: 700; }
+.sub-chevron { transition: transform .2s; flex-shrink: 0; }
+.sub-chevron.open { transform: rotate(180deg); }
+
+.cat-upload-zone { border: 1.5px dashed var(--border); border-radius: 8px; cursor: pointer; transition: border-color .15s; min-height: 64px; display: flex; align-items: center; justify-content: center; padding: 8px 12px; gap: 10px; }
+.cat-upload-zone:hover { border-color: var(--primary); background: #f8f9ff; }
+#catUploadEmpty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; }
+#catUploadPreview { display: flex; align-items: center; gap: 10px; width: 100%; }
+
+.ql-container { border-radius: 0 0 6px 6px !important; border-color: var(--border) !important; font-family: inherit !important; }
+.ql-toolbar { border-radius: 6px 6px 0 0 !important; border-color: var(--border) !important; background: #fafbfc; }
+.ql-editor { min-height: 140px; font-size: 13px; }
+
+.cat-desc-view { font-size: 13px; line-height: 1.7; color: var(--text); }
+.cat-desc-view h1, .cat-desc-view h2, .cat-desc-view h3 { margin: .5em 0; font-weight: 700; }
+.cat-desc-view ul, .cat-desc-view ol { padding-left: 1.4em; margin: .4em 0; }
+.cat-desc-view a { color: var(--primary); text-decoration: underline; }
+.cat-desc-view p { margin: .3em 0; }
