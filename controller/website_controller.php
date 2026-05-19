@@ -530,8 +530,88 @@ class WebsiteController
 
     // }
 
+    /* ── Careers ──────────────────────────────────────────────────── */
+
+    public function getActiveJobs(): array
+    {
+        try {
+            return $this->dbHelper->select(
+                "SELECT * FROM tbl_job_career WHERE job_status='Active' ORDER BY job_priority DESC, job_post_id DESC"
+            );
+        } catch (Exception $e) {
+            error_log('getActiveJobs: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * Returns new candidate_applied_job_id on success, 0 on failure.
+     */
+    public function insertApplicant(array $d): int
+    {
+        try {
+            $jobId   = (int)(float)($d['job_post_id']            ?? 0);
+            $name    = addslashes(trim($d['candidate_name']       ?? ''));
+            $email   = addslashes(strtolower(trim($d['candidate_email'] ?? '')));
+            $phone   = (int)(float)($d['candidate_phone']         ?? 0);
+            $exp     = (int)($d['candidate_experience']           ?? 0);
+            $resExt  = addslashes(trim($d['resume_file_ext']      ?? ''));
+            $date    = date('Y-m-d');
+
+            if ($jobId <= 0 || $name === '' || $email === '' || $resExt === '') return 0;
+
+            $sql = "INSERT INTO tbl_candidate_applied_for_job
+                    (job_post_id, candidate_name, candidate_email, candidate_phone,
+                     candidate_experience, resume_file_ext, applied_date)
+                    VALUES ($jobId, '$name', '$email', $phone, $exp, '$resExt', '$date')";
+
+            return (int)$this->dbHelper->insert($sql);
+        } catch (Exception $e) {
+            error_log('insertApplicant: ' . $e->getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * Returns: 'subscribed' | 'already' | 'blocked' | 'error'
+     */
+    public function insertSubscriber(string $email): string
+    {
+        try {
+            $email = strtolower(trim($email));
+            if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                return 'error';
+            }
+            $esc = addslashes($email);
+
+            $rows = $this->dbHelper->select(
+                "SELECT subscriber_id, status FROM tbl_subscriber WHERE email='$esc' LIMIT 1"
+            );
+
+            if (!empty($rows)) {
+                $s = (int)($rows[0]->STATUS ?? 1);
+                if ($s === 2) return 'blocked';
+                if ($s === 1) return 'already';
+                /* status=0 (unsubscribed) — re-activate */
+                $this->dbHelper->update(
+                    "UPDATE tbl_subscriber SET status=1 WHERE email='$esc' LIMIT 1"
+                );
+                return 'subscribed';
+            }
+
+            $this->dbHelper->insert(
+                "INSERT INTO tbl_subscriber (email, status) VALUES ('$esc', 1)"
+            );
+            return 'subscribed';
+
+        } catch (Exception $e) {
+            error_log('insertSubscriber: ' . $e->getMessage());
+            return 'error';
+        }
+    }
 
 
-    
-}   
+
+
+}
 ?>

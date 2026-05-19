@@ -806,6 +806,10 @@ ob_start();
 ══════════════════════════════════════════════════════ -->
 <script src="https://cdn.quilljs.com/1.3.7/quill.min.js"></script>
 <script>
+/* ── Modal helpers ─────────────────────────────────────────────── */
+function openModal(id)  { var el = document.getElementById(id); if(el) el.classList.add('open'); }
+function closeModal(id) { var el = document.getElementById(id); if(el) el.classList.remove('open'); }
+
 /* ── Baked data ────────────────────────────────────────────────── */
 const JOBS_DATA = <?= json_encode(array_values($jobsJs)) ?>;
 

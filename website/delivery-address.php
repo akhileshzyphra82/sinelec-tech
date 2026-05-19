@@ -16,7 +16,7 @@ $mobile = '+' . trim((string)($user['COMMUNICATION_MOBILE_NUM_ISD'] ?? '91')) . 
 
       <section class="account-main da-main">
         <div class="da-page-head">
-          <h1 class="da-page-title">My Addresses</h1>
+          <h1 class="da-page-title">My Address</h1>
           <button type="button" class="da-add-btn" id="toggleNewAddressForm" aria-expanded="false" aria-controls="newAddressPanel">
             <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 1v13M1 7.5h13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
             Add New Address

@@ -1104,7 +1104,7 @@ ul, ol { list-style: none; }
   align-items: center;
   height: 34px;
   min-width: 120px;
-  margin: 0 12px;
+  margin: 0 5% 0 12px;
   border-radius: var(--r-sm);
   overflow: hidden;
   position: relative;

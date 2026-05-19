@@ -2221,10 +2221,11 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       }
 
-      document.getElementById('nlForm')?.addEventListener('submit', e => {
-        e.preventDefault();
-        toast('Subscribed! Thank you.', 'ok');
-        e.target.reset();
+      document.getElementById('nlForm')?.addEventListener('submit', function(e) {
+        var input = this.querySelector('input[type="email"]');
+        if (!input || !input.value.trim()) { e.preventDefault(); return; }
+        var btn = this.querySelector('button[type="submit"]');
+        if (btn) { btn.disabled = true; btn.textContent = 'Subscribing…'; }
       });
       break;
 

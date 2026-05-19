@@ -34,7 +34,7 @@ function sinelec_account_nav_items(): array
         'profile' => ['label' => 'Profile', 'href' => 'profile', 'icon' => 'user'],
         'my-orders' => ['label' => 'My Order', 'href' => 'my-orders', 'icon' => 'box'],
         'my-list'   => ['label' => 'My List',  'href' => 'my-list',   'icon' => 'list'],
-        'delivery-address' => ['label' => 'Delivery Address', 'href' => 'delivery-address', 'icon' => 'pin'],
+        'delivery-address' => ['label' => 'My Address', 'href' => 'delivery-address', 'icon' => 'pin'],
         'change-password' => ['label' => 'Change Password', 'href' => 'change-password', 'icon' => 'lock'],
         'logout' => ['label' => 'Logout', 'href' => 'service?urlstring=' . EncryptURL('action=Logout'), 'icon' => 'logout'],
     ];

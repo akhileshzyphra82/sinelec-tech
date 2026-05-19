@@ -521,9 +521,69 @@ switch($action)
         redirectWithFlash('profile', 'err', 'Unable to update profile right now. Please try again.');
     break;
 
+    case 'ApplyJob':
+        require_once __DIR__ . '/../common/uploadFileCloudflare.php';
 
-    
-	
+        $jobId = (int)(float)($_POST['job_post_id'] ?? 0);
+        $name  = trim($_POST['candidate_name']      ?? '');
+        $email = trim($_POST['candidate_email']     ?? '');
+        $phone = trim($_POST['candidate_phone']     ?? '');
+        $exp   = (int)($_POST['candidate_experience'] ?? 0);
+
+        if ($jobId <= 0 || $name === '' || $email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            redirectWithFlash('career', 'warn', 'Please fill all required fields correctly.');
+        }
+
+        /* Upload resume to R2 */
+        if (empty($_FILES['resume']['tmp_name'])) {
+            redirectWithFlash('career', 'warn', 'Please attach your resume (PDF, DOC, or DOCX).');
+        }
+
+        $upload = uploadToR2($_FILES['resume'], 'careers/resumes', 'pdf,doc,docx', 5);
+        if (!$upload['success']) {
+            redirectWithFlash('career', 'err', 'Resume upload failed: ' . $upload['error']);
+        }
+
+        $ext   = strtolower(pathinfo($upload['key'], PATHINFO_EXTENSION));
+        $newId = $controller->insertApplicant([
+            'job_post_id'          => $jobId,
+            'candidate_name'       => $name,
+            'candidate_email'      => $email,
+            'candidate_phone'      => preg_replace('/\D/', '', $phone),
+            'candidate_experience' => $exp,
+            'resume_file_ext'      => $ext,
+        ]);
+
+        if ($newId > 0) {
+            redirectWithFlash('career', 'ok', 'Application submitted successfully! We\'ll be in touch soon.');
+        }
+
+        /* Rollback: delete uploaded resume if DB insert failed */
+        deleteFromR2($upload['key']);
+        redirectWithFlash('career', 'err', 'Could not save your application. Please try again.');
+    break;
+
+    case 'Subscribe':
+        $email = strtolower(trim($_POST['email'] ?? ''));
+        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            redirectWithFlash('index', 'warn', 'Please enter a valid email address.');
+        }
+        $result = $controller->insertSubscriber($email);
+        if ($result === 'subscribed') {
+            redirectWithFlash('index', 'ok', 'You\'re subscribed! Thanks for joining.');
+        }
+        if ($result === 'already') {
+            redirectWithFlash('index', 'warn', 'This email is already subscribed.');
+        }
+        if ($result === 'blocked') {
+            redirectWithFlash('index', 'warn', 'This email cannot be subscribed.');
+        }
+        redirectWithFlash('index', 'err', 'Something went wrong. Please try again.');
+    break;
+
+
+
+
 }
 
 

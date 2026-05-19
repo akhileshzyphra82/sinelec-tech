@@ -349,7 +349,7 @@ require_once 'header.php';
  
 
   <!-- Trust Badges -->
-  <div class="trust-badges">
+  <!-- <div class="trust-badges">
     <div class="trust-badges-grid">
      
       <div>
@@ -382,7 +382,7 @@ require_once 'header.php';
         <div class="trust-badge-sub">Orders before 2 PM</div>
       </div>
     </div>
-  </div>
+  </div> -->
 
  
   <!-- Newsletter -->
@@ -392,8 +392,8 @@ require_once 'header.php';
       <div class="newsletter-title">Get Deals, New Products &amp; Tech Tips</div>
       <div class="newsletter-sub">Subscribe for exclusive offers, datasheets and application notes.</div>
     </div>
-    <form id="nlForm" class="newsletter-form" novalidate>
-      <input type="email" required placeholder="Enter your email address" class="newsletter-input">
+    <form id="nlForm" class="newsletter-form" method="POST" action="service?action=Subscribe">
+      <input type="email" name="email" required placeholder="Enter your email address" class="newsletter-input" autocomplete="email">
       <button type="submit" class="btn btn-blue">Subscribe</button>
     </form>
   </div>

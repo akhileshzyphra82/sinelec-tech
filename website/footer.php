@@ -48,17 +48,12 @@
       <div>
         <div class="footer-col-title">Company</div>
         <ul class="footer-links">
-         
           <li><a href="about" class="footer-link">About Us</a></li>
-           <li><a href="#" class="footer-link">Careers</a></li>
-          <li><a href="#" class="footer-link">Environmental Policy</a></li>         
+           <li><a href="career" class="footer-link">Careers</a></li>
+          <li><a href="#" class="footer-link">Legal Information</a></li>         
           <li><a href="#" class="footer-link">Disclaimer</a></li>
           <li><a href="#" class="footer-link">Privacy Policy</a></li>
           <li><a href="#" class="footer-link">Terms of Use</a></li>
-
-
-
-
         </ul>
       </div>
 
