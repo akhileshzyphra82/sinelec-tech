@@ -1,5 +1,11 @@
 <?php
 require_once __DIR__ . '/account-helpers.php';
+if (!isset($company)) {
+    if (!class_exists('WebsiteController')) require_once __DIR__ . '/../controller/website_controller.php';
+    $_wc = new WebsiteController();
+    $company = $_wc->getCompanyInfo();
+    unset($_wc);
+}
 $flashToast = sinelec_consume_flash();
 $msg = (string)($flashToast['message'] ?? '');
 $toastType = (string)($flashToast['type'] ?? 'ok');
@@ -111,8 +117,12 @@ window.FLASH_TOAST  = {
       </button>
 
       <!-- Logo -->
+      <?php
+      $logoSrc = trim((string)($company->LOGO ?? ''));
+      if ($logoSrc === '') $logoSrc = '../assets/logo.png';
+      ?>
       <a href="index" class="logo" aria-label="Sinelec Tech — Home">
-        <img src="../assets/logo.png" alt="Sinelec Tech" class="logo-img">
+        <img src="<?= htmlspecialchars($logoSrc) ?>" alt="Sinelec Tech" class="logo-img">
       </a>
 
       <!-- Search -->

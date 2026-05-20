@@ -544,14 +544,13 @@ switch($action)
             redirectWithFlash('career', 'err', 'Resume upload failed: ' . $upload['error']);
         }
 
-        $ext   = strtolower(pathinfo($upload['key'], PATHINFO_EXTENSION));
         $newId = $controller->insertApplicant([
             'job_post_id'          => $jobId,
             'candidate_name'       => $name,
             'candidate_email'      => $email,
             'candidate_phone'      => preg_replace('/\D/', '', $phone),
             'candidate_experience' => $exp,
-            'resume_file_ext'      => $ext,
+            'resume_file_ext'      => $upload['key'],
         ]);
 
         if ($newId > 0) {

@@ -1412,6 +1412,13 @@ class AdminController
         } catch (Exception $e) { error_log('getAllApplicants: '.$e->getMessage()); return []; }
     }
 
+    public function getApplicantById(int $id): ?object
+    {
+        try {
+            return $this->db->select("SELECT * FROM tbl_candidate_applied_for_job WHERE candidate_applied_job_id=$id LIMIT 1")[0] ?? null;
+        } catch (Exception $e) { return null; }
+    }
+
     public function deleteApplicant(int $id): bool
     {
         try {
@@ -1888,21 +1895,30 @@ class AdminController
             $co = $this->getCompanyDetails();
             $id = $co ? (int)(float)($co->COMPANY_ID ?? 0) : 0;
 
-            $name        = addslashes(trim($d['name']             ?? ''));
-            $logo        = addslashes(trim($d['logo']             ?? ''));
-            $description = addslashes(trim($d['description']      ?? ''));
-            $contact     = addslashes(trim($d['contact_number']   ?? ''));
-            $email       = addslashes(trim($d['email']            ?? ''));
-            $address     = addslashes(trim($d['address']          ?? ''));
-            $fax         = addslashes(trim($d['fax']              ?? ''));
-            $facebook    = addslashes(trim($d['facebook_url']     ?? ''));
-            $instagram   = addslashes(trim($d['instagram_url']    ?? ''));
-            $linkedin    = addslashes(trim($d['linkedin_url']     ?? ''));
-            $twitter     = addslashes(trim($d['twitter_url']      ?? ''));
-            $youtube     = addslashes(trim($d['youtube_url']      ?? ''));
-            $whatsapp    = addslashes(trim($d['whatsapp_number']  ?? ''));
-            $support     = addslashes(trim($d['support_mail_id']  ?? ''));
-            $instructions= addslashes(trim($d['instructions']     ?? ''));
+            $name          = addslashes(trim($d['name']                  ?? ''));
+            $logo          = addslashes(trim($d['logo']                  ?? ''));
+            $description   = addslashes(trim($d['description']           ?? ''));
+            $contact       = addslashes(trim($d['contact_number']        ?? ''));
+            $email         = addslashes(trim($d['email']                 ?? ''));
+            $address       = addslashes(trim($d['address']               ?? ''));
+            $fax           = addslashes(trim($d['fax']                   ?? ''));
+            $facebook      = addslashes(trim($d['facebook_url']          ?? ''));
+            $instagram     = addslashes(trim($d['instagram_url']         ?? ''));
+            $linkedin      = addslashes(trim($d['linkedin_url']          ?? ''));
+            $twitter       = addslashes(trim($d['twitter_url']           ?? ''));
+            $youtube       = addslashes(trim($d['youtube_url']           ?? ''));
+            $whatsapp      = addslashes(trim($d['whatsapp_number']       ?? ''));
+            $support       = addslashes(trim($d['support_mail_id']       ?? ''));
+            $instructions  = addslashes(trim($d['instructions']          ?? ''));
+            $aboutUs       = addslashes(trim($d['about_us']              ?? ''));
+            $legal         = addslashes(trim($d['legal_information']     ?? ''));
+            $disclaimer    = addslashes(trim($d['disclaimer']            ?? ''));
+            $privacy       = addslashes(trim($d['privacy_policy']        ?? ''));
+            $terms         = addslashes(trim($d['terms_of_use']          ?? ''));
+            $botName       = addslashes(trim($d['bot_name']              ?? ''));
+            $mapUrl        = addslashes(trim($d['map_url']               ?? ''));
+            $branchAddr    = addslashes(trim($d['branch_office_address'] ?? ''));
+            $officeHrs     = addslashes(trim($d['office_hrs']            ?? ''));
 
             if ($id > 0) {
                 $sql = "UPDATE tbl_company SET
@@ -1910,17 +1926,25 @@ class AdminController
                     contact_number='$contact', email='$email', address='$address', fax='$fax',
                     facebook_url='$facebook', instagram_url='$instagram', linkedin_url='$linkedin',
                     twitter_url='$twitter', youtube_url='$youtube', whatsapp_number='$whatsapp',
-                    support_mail_id='$support', instructions='$instructions'
+                    support_mail_id='$support', instructions='$instructions',
+                    about_us='$aboutUs', legal_information='$legal', disclaimer='$disclaimer',
+                    privacy_policy='$privacy', terms_of_use='$terms',
+                    bot_name='$botName', map_url='$mapUrl',
+                    branch_office_address='$branchAddr', office_hrs='$officeHrs'
                     WHERE company_id=$id";
                 $this->db->update($sql);
             } else {
                 $sql = "INSERT INTO tbl_company
                     (name,logo,description,contact_number,email,address,fax,
                      facebook_url,instagram_url,linkedin_url,twitter_url,youtube_url,
-                     whatsapp_number,support_mail_id,instructions)
+                     whatsapp_number,support_mail_id,instructions,
+                     about_us,legal_information,disclaimer,privacy_policy,terms_of_use,
+                     bot_name,map_url,branch_office_address,office_hrs)
                     VALUES('$name','$logo','$description','$contact','$email','$address','$fax',
                      '$facebook','$instagram','$linkedin','$twitter','$youtube',
-                     '$whatsapp','$support','$instructions')";
+                     '$whatsapp','$support','$instructions',
+                     '$aboutUs','$legal','$disclaimer','$privacy','$terms',
+                     '$botName','$mapUrl','$branchAddr','$officeHrs')";
                 $this->db->insert($sql);
             }
             $this->logActivity('edit', 'tbl_company', '', null, ['name' => $name]);

@@ -316,6 +316,21 @@
     }
   });
 
+  /* Prevent wheel/touch scroll inside the chatbot window from bubbling to page */
+  windowEl.addEventListener('wheel', function (event) {
+    var el = messagesEl;
+    var atTop    = el.scrollTop === 0;
+    var atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
+    if ((event.deltaY < 0 && atTop) || (event.deltaY > 0 && atBottom)) {
+      event.preventDefault();
+    }
+    event.stopPropagation();
+  }, { passive: false });
+
+  windowEl.addEventListener('touchmove', function (event) {
+    event.stopPropagation();
+  }, { passive: true });
+
   addGreeting();
   renderSuggestionsInline();
 

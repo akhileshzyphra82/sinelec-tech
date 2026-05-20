@@ -594,6 +594,15 @@ switch ($action) {
         adminRequireAuth();
         $appId = (int)($_POST['candidate_applied_job_id'] ?? $_GET['id'] ?? 0);
         if ($appId <= 0) adminRedirectWithFlash('job-posting', 'warn', 'Invalid request.');
+        /* Delete resume from R2 before removing DB record */
+        $appRow = $controller->getApplicantById($appId);
+        if ($appRow) {
+            $resKey = (string)($appRow->RESUME_FILE_EXT ?? '');
+            if ($resKey !== '' && strpos($resKey, '/') !== false) {
+                require_once __DIR__.'/../common/uploadFileCloudflare.php';
+                deleteFromR2($resKey);
+            }
+        }
         $controller->deleteApplicant($appId);
         adminRedirectWithFlash('job-posting', 'ok', 'Application deleted.');
     break;

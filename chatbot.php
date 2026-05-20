@@ -2,6 +2,15 @@
 $sinelaKnowledge = require __DIR__ . '/knowledges.php';
 $assistant = $sinelaKnowledge['assistant'] ?? [];
 $company = $sinelaKnowledge['company'] ?? [];
+/* Override bot name from tbl_company if available */
+if (!isset($company) || !is_object($company)) {
+    if (!class_exists('WebsiteController')) require_once __DIR__ . '/controller/website_controller.php';
+    $_cbWc = new WebsiteController();
+    $company = $_cbWc->getCompanyInfo();
+    unset($_cbWc);
+}
+$_botName = trim((string)(is_object($company) ? ($company->BOT_NAME ?? '') : ''));
+if ($_botName !== '') $assistant['name'] = $_botName;
 ?>
 <div class="sinela-chatbot" id="sinelaChatbot" data-auto-open="true">
   <button
@@ -20,7 +29,7 @@ $company = $sinelaKnowledge['company'] ?? [];
         <path d="M12 17.5c1 1.2 2.2 1.8 4 1.8s3-.6 4-1.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
       </svg>
     </span>
-    <span class="sinela-fab-label">Sinela AI</span>
+    <span class="sinela-fab-label"><?= htmlspecialchars($assistant['name'] ?? 'Sinela AI') ?></span>
     <span class="sinela-fab-pulse"></span>
   </button>
 

@@ -10,21 +10,30 @@ $controller = new AdminController();
 $co = $controller->getCompanyDetails();
 
 $f = [
-    'name'             => (string)($co->NAME              ?? ''),
-    'logo'             => (string)($co->LOGO              ?? ''),
-    'description'      => (string)($co->DESCRIPTION       ?? ''),
-    'contact_number'   => (string)($co->CONTACT_NUMBER    ?? ''),
-    'email'            => (string)($co->EMAIL             ?? ''),
-    'address'          => (string)($co->ADDRESS           ?? ''),
-    'fax'              => (string)($co->FAX               ?? ''),
-    'facebook_url'     => (string)($co->FACEBOOK_URL      ?? ''),
-    'instagram_url'    => (string)($co->INSTAGRAM_URL     ?? ''),
-    'linkedin_url'     => (string)($co->LINKEDIN_URL      ?? ''),
-    'twitter_url'      => (string)($co->TWITTER_URL       ?? ''),
-    'youtube_url'      => (string)($co->YOUTUBE_URL       ?? ''),
-    'whatsapp_number'  => (string)($co->WHATSAPP_NUMBER   ?? ''),
-    'support_mail_id'  => (string)($co->SUPPORT_MAIL_ID   ?? ''),
-    'instructions'     => (string)($co->INSTRUCTIONS      ?? ''),
+    'name'                  => (string)($co->NAME                  ?? ''),
+    'logo'                  => (string)($co->LOGO                  ?? ''),
+    'description'           => (string)($co->DESCRIPTION           ?? ''),
+    'contact_number'        => (string)($co->CONTACT_NUMBER        ?? ''),
+    'email'                 => (string)($co->EMAIL                 ?? ''),
+    'address'               => (string)($co->ADDRESS               ?? ''),
+    'fax'                   => (string)($co->FAX                   ?? ''),
+    'facebook_url'          => (string)($co->FACEBOOK_URL          ?? ''),
+    'instagram_url'         => (string)($co->INSTAGRAM_URL         ?? ''),
+    'linkedin_url'          => (string)($co->LINKEDIN_URL          ?? ''),
+    'twitter_url'           => (string)($co->TWITTER_URL           ?? ''),
+    'youtube_url'           => (string)($co->YOUTUBE_URL           ?? ''),
+    'whatsapp_number'       => (string)($co->WHATSAPP_NUMBER       ?? ''),
+    'support_mail_id'       => (string)($co->SUPPORT_MAIL_ID       ?? ''),
+    'instructions'          => (string)($co->INSTRUCTIONS          ?? ''),
+    'about_us'              => (string)($co->ABOUT_US              ?? ''),
+    'legal_information'     => (string)($co->LEGAL_INFORMATION     ?? ''),
+    'disclaimer'            => (string)($co->DISCLAIMER            ?? ''),
+    'privacy_policy'        => (string)($co->PRIVACY_POLICY        ?? ''),
+    'terms_of_use'          => (string)($co->TERMS_OF_USE          ?? ''),
+    'bot_name'              => (string)($co->BOT_NAME              ?? ''),
+    'map_url'               => (string)($co->MAP_URL               ?? ''),
+    'branch_office_address' => (string)($co->BRANCH_OFFICE_ADDRESS ?? ''),
+    'office_hrs'            => (string)($co->OFFICE_HRS            ?? ''),
 ];
 
 ob_start();
@@ -304,6 +313,79 @@ ob_start();
         </div>
     </div>
 
+    <!-- ── Content Pages ──────────────────────────────────────── -->
+    <div class="co-section">
+        <div class="co-section-head">
+            <div class="co-section-icon" style="background:#f0fdf4;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            </div>
+            <div class="co-section-title">Content Pages</div>
+        </div>
+        <div class="co-section-body">
+
+            <!-- About Us -->
+            <div class="fg" style="margin-bottom:20px;">
+                <label class="form-label">About Us</label>
+                <input type="hidden" name="about_us" id="coAboutHidden">
+                <div id="coAboutEditor" style="min-height:160px;border-radius:0 0 6px 6px;font-size:13px;"></div>
+            </div>
+
+            <!-- Legal Information -->
+            <div class="fg" style="margin-bottom:20px;">
+                <label class="form-label">Legal Information</label>
+                <input type="hidden" name="legal_information" id="coLegalHidden">
+                <div id="coLegalEditor" style="min-height:160px;border-radius:0 0 6px 6px;font-size:13px;"></div>
+            </div>
+
+            <!-- Disclaimer -->
+            <div class="fg" style="margin-bottom:20px;">
+                <label class="form-label">Disclaimer</label>
+                <input type="hidden" name="disclaimer" id="coDisclaimerHidden">
+                <div id="coDisclaimerEditor" style="min-height:160px;border-radius:0 0 6px 6px;font-size:13px;"></div>
+            </div>
+
+            <!-- Privacy Policy -->
+            <div class="fg" style="margin-bottom:20px;">
+                <label class="form-label">Privacy Policy</label>
+                <input type="hidden" name="privacy_policy" id="coPrivacyHidden">
+                <div id="coPrivacyEditor" style="min-height:160px;border-radius:0 0 6px 6px;font-size:13px;"></div>
+            </div>
+
+            <!-- Terms of Use -->
+            <div class="fg" style="margin-bottom:20px;">
+                <label class="form-label">Terms of Use</label>
+                <input type="hidden" name="terms_of_use" id="coTermsHidden">
+                <div id="coTermsEditor" style="min-height:160px;border-radius:0 0 6px 6px;font-size:13px;"></div>
+            </div>
+
+            <!-- Branch Office Address -->
+            <div class="fg" style="margin-bottom:20px;">
+                <label class="form-label">Branch Office Address</label>
+                <input type="hidden" name="branch_office_address" id="coBranchHidden">
+                <div id="coBranchEditor" style="min-height:100px;border-radius:0 0 6px 6px;font-size:13px;"></div>
+            </div>
+
+            <div class="co-grid-2" style="margin-bottom:16px;">
+                <div class="fg">
+                    <label class="form-label">Bot Name</label>
+                    <input type="text" name="bot_name" class="form-control" value="<?= htmlspecialchars($f['bot_name']) ?>" placeholder="e.g. Sinela AI">
+                    <div class="co-hint">Display name for the website chatbot.</div>
+                </div>
+                <div class="fg">
+                    <label class="form-label">Office Hours</label>
+                    <input type="text" name="office_hrs" class="form-control" value="<?= htmlspecialchars($f['office_hrs']) ?>" placeholder="e.g. Mon–Fri, 9am–6pm CET">
+                </div>
+            </div>
+
+            <div class="fg">
+                <label class="form-label">Google Map URL</label>
+                <input type="text" name="map_url" class="form-control" value="<?= htmlspecialchars($f['map_url']) ?>" placeholder="https://maps.google.com/maps?q=...">
+                <div class="co-hint">Embed URL from Google Maps for the contact/about page map.</div>
+            </div>
+
+        </div>
+    </div>
+
     <!-- ── Actions ──────────────────────────────────────────────── -->
     <div style="display:flex;align-items:center;gap:12px;padding:4px 0 24px;">
         <button type="submit" class="btn btn--primary" style="min-width:160px;">
@@ -329,20 +411,52 @@ var _qOpts = {
         ['clean']
     ]}
 };
-var qDesc  = new Quill('#coDescEditor',  Object.assign({}, _qOpts, { placeholder: 'Short description of your company…' }));
-var qInstr = new Quill('#coInstrEditor', Object.assign({}, _qOpts, { placeholder: 'Enter terms, conditions, payment instructions…' }));
+var qDesc       = new Quill('#coDescEditor',       Object.assign({}, _qOpts, { placeholder: 'Short description of your company…' }));
+var qInstr      = new Quill('#coInstrEditor',      Object.assign({}, _qOpts, { placeholder: 'Enter terms, conditions, payment instructions…' }));
+var qAbout      = new Quill('#coAboutEditor',      Object.assign({}, _qOpts, { placeholder: 'About Us content…' }));
+var qLegal      = new Quill('#coLegalEditor',      Object.assign({}, _qOpts, { placeholder: 'Legal Information content…' }));
+var qDisclaimer = new Quill('#coDisclaimerEditor', Object.assign({}, _qOpts, { placeholder: 'Disclaimer content…' }));
+var qPrivacy    = new Quill('#coPrivacyEditor',    Object.assign({}, _qOpts, { placeholder: 'Privacy Policy content…' }));
+var qTerms      = new Quill('#coTermsEditor',      Object.assign({}, _qOpts, { placeholder: 'Terms of Use content…' }));
+var qBranch     = new Quill('#coBranchEditor',     Object.assign({}, _qOpts, { placeholder: 'Branch office address details…' }));
 
 /* Pre-fill from saved HTML */
-var _savedDesc  = <?= json_encode($f['description']) ?>;
-var _savedInstr = <?= json_encode($f['instructions']) ?>;
-if (_savedDesc)  qDesc.clipboard.dangerouslyPasteHTML(_savedDesc);
-if (_savedInstr) qInstr.clipboard.dangerouslyPasteHTML(_savedInstr);
+var _decode = function(s) {
+    if (!s) return '';
+    var txt = document.createElement('textarea');
+    txt.innerHTML = s;
+    return txt.value;
+};
+var _saved = {
+    desc:       _decode(<?= json_encode($f['description']) ?>),
+    instr:      _decode(<?= json_encode($f['instructions']) ?>),
+    about:      _decode(<?= json_encode($f['about_us']) ?>),
+    legal:      _decode(<?= json_encode($f['legal_information']) ?>),
+    disclaimer: _decode(<?= json_encode($f['disclaimer']) ?>),
+    privacy:    _decode(<?= json_encode($f['privacy_policy']) ?>),
+    terms:      _decode(<?= json_encode($f['terms_of_use']) ?>),
+    branch:     _decode(<?= json_encode($f['branch_office_address']) ?>)
+};
+if (_saved.desc)       qDesc.clipboard.dangerouslyPasteHTML(_saved.desc);
+if (_saved.instr)      qInstr.clipboard.dangerouslyPasteHTML(_saved.instr);
+if (_saved.about)      qAbout.clipboard.dangerouslyPasteHTML(_saved.about);
+if (_saved.legal)      qLegal.clipboard.dangerouslyPasteHTML(_saved.legal);
+if (_saved.disclaimer) qDisclaimer.clipboard.dangerouslyPasteHTML(_saved.disclaimer);
+if (_saved.privacy)    qPrivacy.clipboard.dangerouslyPasteHTML(_saved.privacy);
+if (_saved.terms)      qTerms.clipboard.dangerouslyPasteHTML(_saved.terms);
+if (_saved.branch)     qBranch.clipboard.dangerouslyPasteHTML(_saved.branch);
 
 /* Sync to hidden inputs on submit */
 document.getElementById('companyForm').addEventListener('submit', function() {
     var clean = function(q) { var h = q.root.innerHTML; return h === '<p><br></p>' ? '' : h; };
-    document.getElementById('coDescHidden').value  = clean(qDesc);
-    document.getElementById('coInstrHidden').value = clean(qInstr);
+    document.getElementById('coDescHidden').value       = clean(qDesc);
+    document.getElementById('coInstrHidden').value      = clean(qInstr);
+    document.getElementById('coAboutHidden').value      = clean(qAbout);
+    document.getElementById('coLegalHidden').value      = clean(qLegal);
+    document.getElementById('coDisclaimerHidden').value = clean(qDisclaimer);
+    document.getElementById('coPrivacyHidden').value    = clean(qPrivacy);
+    document.getElementById('coTermsHidden').value      = clean(qTerms);
+    document.getElementById('coBranchHidden').value     = clean(qBranch);
 });
 
 function previewLogo(url) {

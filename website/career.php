@@ -16,7 +16,7 @@ require_once 'header.php';
 .cr-hero {
   background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 60%, #1a56a0 100%);
   color: #fff;
-  padding: 72px 0 56px;
+  padding: 64px 0;
   text-align: center;
   position: relative;
   overflow: hidden;
@@ -28,47 +28,29 @@ require_once 'header.php';
   background: radial-gradient(ellipse 70% 60% at 50% 0%, rgba(59,130,246,.18) 0%, transparent 70%);
   pointer-events: none;
 }
-.cr-hero-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: rgba(59,130,246,.18);
-  border: 1px solid rgba(59,130,246,.35);
-  color: #93c5fd;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: .5px;
-  text-transform: uppercase;
-  padding: 5px 14px;
-  border-radius: 20px;
-  margin-bottom: 18px;
-}
-.cr-hero-title {
-  font-size: clamp(28px, 5vw, 48px);
-  font-weight: 800;
-  line-height: 1.15;
-  margin-bottom: 14px;
-  letter-spacing: -.5px;
-}
-.cr-hero-title span { color: #60a5fa; }
-.cr-hero-sub {
-  font-size: 16px;
-  color: #94a3b8;
-  max-width: 520px;
-  margin: 0 auto 30px;
-  line-height: 1.65;
-}
-.cr-hero-stats {
+/* ── Breadcrumb ─────────────────────────────────────────────────── */
+.cr-breadcrumb {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 32px;
-  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 13px;
+  margin-bottom: 18px;
 }
-.cr-stat { text-align: center; }
-.cr-stat-val { font-size: 28px; font-weight: 800; color: #fff; line-height: 1; }
-.cr-stat-lbl { font-size: 12px; color: #94a3b8; margin-top: 3px; }
-.cr-stat-sep { width: 1px; height: 36px; background: rgba(255,255,255,.12); }
+.cr-breadcrumb-link {
+  color: #93c5fd;
+  text-decoration: none;
+}
+.cr-breadcrumb-link:hover { text-decoration: underline; }
+.cr-breadcrumb-sep { color: rgba(255,255,255,.35); }
+.cr-breadcrumb-cur { color: rgba(255,255,255,.6); }
+
+.cr-hero-title {
+  font-size: clamp(22px, 4vw, 36px);
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -.5px;
+  margin: 0;
+}
 
 /* ── Section ────────────────────────────────────────────────────── */
 .cr-section { padding: 56px 0; }
@@ -91,31 +73,6 @@ require_once 'header.php';
   margin-bottom: 10px;
 }
 .cr-section-sub { font-size: 15px; color: #64748b; }
-
-/* ── Values ─────────────────────────────────────────────────────── */
-.cr-values {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 20px;
-  margin-bottom: 56px;
-}
-.cr-val-card {
-  background: #fff;
-  border: 1.5px solid #e8edf4;
-  border-radius: 16px;
-  padding: 24px 20px;
-  text-align: center;
-  transition: box-shadow .2s, transform .2s;
-}
-.cr-val-card:hover { box-shadow: 0 8px 28px rgba(0,0,0,.07); transform: translateY(-3px); }
-.cr-val-icon {
-  width: 48px; height: 48px;
-  border-radius: 14px;
-  display: grid; place-items: center;
-  margin: 0 auto 14px;
-}
-.cr-val-title { font-size: 14px; font-weight: 700; color: #0f172a; margin-bottom: 6px; }
-.cr-val-desc  { font-size: 13px; color: #64748b; line-height: 1.55; }
 
 /* ── Job listing ────────────────────────────────────────────────── */
 .cr-jobs { display: flex; flex-direction: column; gap: 16px; }
@@ -308,71 +265,19 @@ require_once 'header.php';
 
 <!-- ── Hero ─────────────────────────────────────────────────────── -->
 <section class="cr-hero">
-  <div class="wrap">
-    <div class="cr-hero-badge">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
-      We're Hiring
-    </div>
-    <h1 class="cr-hero-title">Build the Future of<br><span>Electronics with Us</span></h1>
-    <p class="cr-hero-sub">Join a team that powers electronics manufacturing across India. Work on real engineering challenges, grow fast, and make an impact.</p>
-    <div class="cr-hero-stats">
-      <div class="cr-stat">
-        <div class="cr-stat-val"><?= count($jobs) ?></div>
-        <div class="cr-stat-lbl">Open Positions</div>
-      </div>
-      <div class="cr-stat-sep"></div>
-      <div class="cr-stat">
-        <div class="cr-stat-val">10+</div>
-        <div class="cr-stat-lbl">Years in Industry</div>
-      </div>
-      <div class="cr-stat-sep"></div>
-      <div class="cr-stat">
-        <div class="cr-stat-val">50+</div>
-        <div class="cr-stat-lbl">Team Members</div>
-      </div>
-    </div>
+  <div class="wrap" style="position:relative;">
+    <nav class="cr-breadcrumb">
+      <a href="index" class="cr-breadcrumb-link">Home</a>
+      <span class="cr-breadcrumb-sep">›</span>
+      <span class="cr-breadcrumb-cur">Careers</span>
+    </nav>
+    <h1 class="cr-hero-title">Build the Future with Us</h1>
   </div>
 </section>
 
 <!-- ── Main Content ──────────────────────────────────────────────── -->
 <div class="wrap">
   <section class="cr-section">
-
-    <!-- Values -->
-    <div class="cr-section-hd">
-      <div class="cr-section-label">Why Sinelec</div>
-      <div class="cr-section-title">Why you'll love working here</div>
-    </div>
-    <div class="cr-values">
-      <div class="cr-val-card">
-        <div class="cr-val-icon" style="background:#eff6ff;">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-        </div>
-        <div class="cr-val-title">Real Engineering Work</div>
-        <div class="cr-val-desc">Work on production-grade electronics, not toy projects. Your code and designs ship to real customers.</div>
-      </div>
-      <div class="cr-val-card">
-        <div class="cr-val-icon" style="background:#f0fdf4;">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-        </div>
-        <div class="cr-val-title">Growth & Learning</div>
-        <div class="cr-val-desc">Structured mentorship, certifications, and fast career progression for high performers.</div>
-      </div>
-      <div class="cr-val-card">
-        <div class="cr-val-icon" style="background:#fdf4ff;">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#9333ea" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-        </div>
-        <div class="cr-val-title">Collaborative Culture</div>
-        <div class="cr-val-desc">Small teams, high ownership. No bureaucracy — just smart people solving hard problems together.</div>
-      </div>
-      <div class="cr-val-card">
-        <div class="cr-val-icon" style="background:#fff7ed;">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ea580c" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-        </div>
-        <div class="cr-val-title">Flexible & Hybrid</div>
-        <div class="cr-val-desc">Work-life balance matters. Flexible hours, hybrid arrangements, and generous leave policies.</div>
-      </div>
-    </div>
 
     <!-- Job Listings -->
     <div class="cr-section-hd">
@@ -431,16 +336,6 @@ require_once 'header.php';
       <?php endforeach; ?>
     </div>
     <?php endif; ?>
-
-    <!-- General application CTA -->
-    <div style="text-align:center;margin-top:40px;padding:32px;background:linear-gradient(135deg,#eff6ff,#f0fdf4);border-radius:20px;border:1.5px solid #e0f2fe;">
-      <div style="font-size:22px;font-weight:800;color:#0f172a;margin-bottom:8px;">Don't see your role?</div>
-      <div style="font-size:14px;color:#64748b;margin-bottom:20px;max-width:420px;margin-left:auto;margin-right:auto;">We're always looking for talented people. Send us your resume and we'll reach out when a match opens up.</div>
-      <a href="mailto:careers@sinelec-tech.com" class="btn btn-blue">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,12 2,6"/></svg>
-        Email Us Your Resume
-      </a>
-    </div>
 
   </section>
 </div>

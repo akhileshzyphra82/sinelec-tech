@@ -6,8 +6,10 @@ $currentPage = 'my-orders';
 $pageTitle = 'My Orders | Sinelec Technologies';
 require_once __DIR__ . '/header.php';
 
-$pendingOrders = sinelec_orders_by_status('pending');
+$pendingOrders   = sinelec_orders_by_status('pending');
 $deliveredOrders = sinelec_orders_by_status('delivered');
+$returns         = sinelec_returns_data();
+$initialTab      = in_array($_GET['tab'] ?? '', ['pending','delivered','returns'], true) ? $_GET['tab'] : 'pending';
 ?>
 
 <main class="account-page">
@@ -25,11 +27,12 @@ $deliveredOrders = sinelec_orders_by_status('delivered');
           </div>
 
           <div class="orders-tab-row" role="tablist" aria-label="My orders tabs">
-            <button type="button" class="orders-tab-btn is-active" data-tab="pending" role="tab" aria-selected="true">Order Pending (<?= count($pendingOrders) ?>)</button>
-            <button type="button" class="orders-tab-btn" data-tab="delivered" role="tab" aria-selected="false">Order Delivered (<?= count($deliveredOrders) ?>)</button>
+            <button type="button" class="orders-tab-btn<?= $initialTab === 'pending'   ? ' is-active' : '' ?>" data-tab="pending"   role="tab" aria-selected="<?= $initialTab === 'pending'   ? 'true' : 'false' ?>">Order Pending (<?= count($pendingOrders) ?>)</button>
+            <button type="button" class="orders-tab-btn<?= $initialTab === 'delivered' ? ' is-active' : '' ?>" data-tab="delivered" role="tab" aria-selected="<?= $initialTab === 'delivered' ? 'true' : 'false' ?>">Order Delivered (<?= count($deliveredOrders) ?>)</button>
+            <button type="button" class="orders-tab-btn<?= $initialTab === 'returns'   ? ' is-active' : '' ?>" data-tab="returns"   role="tab" aria-selected="<?= $initialTab === 'returns'   ? 'true' : 'false' ?>">RMA Returns (<?= count($returns) ?>)</button>
           </div>
 
-          <div class="orders-tab-panel is-active" data-panel="pending">
+          <div class="orders-tab-panel<?= $initialTab === 'pending' ? ' is-active' : '' ?>" data-panel="pending">
             <?php foreach ($pendingOrders as $order): ?>
               <?php
                 $statusLabel = trim((string)($order['status_label'] ?? ''));
@@ -63,7 +66,7 @@ $deliveredOrders = sinelec_orders_by_status('delivered');
             <?php endforeach; ?>
           </div>
 
-          <div class="orders-tab-panel" data-panel="delivered">
+          <div class="orders-tab-panel<?= $initialTab === 'delivered' ? ' is-active' : '' ?>" data-panel="delivered">
             <?php foreach ($deliveredOrders as $order): ?>
               <article class="order-list-card">
                 <div class="order-list-image-wrap">
@@ -91,6 +94,50 @@ $deliveredOrders = sinelec_orders_by_status('delivered');
               </article>
             <?php endforeach; ?>
           </div>
+
+          <!-- ── Returns Tab Panel ──────────────────────────── -->
+          <div class="orders-tab-panel<?= $initialTab === 'returns' ? ' is-active' : '' ?>" data-panel="returns">
+            <?php if (empty($returns)): ?>
+            <div class="orders-empty-state">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".3"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4a2 2 0 0 0 1-1.73z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+              <p>No return requests found.</p>
+            </div>
+            <?php else: ?>
+            <?php foreach ($returns as $rma): ?>
+            <?php
+              $rmaStatus = (string)($rma['status'] ?? '');
+              $rmaLabel  = htmlspecialchars((string)($rma['status_label'] ?? ''));
+              $dotClass  = $rmaStatus === 'completed' ? ' is-delivered' : ($rmaStatus === 'approved' ? ' is-approved' : '');
+            ?>
+            <article class="order-list-card">
+              <div class="order-list-image-wrap">
+                <img src="<?= htmlspecialchars((string)$rma['image']) ?>" alt="<?= htmlspecialchars((string)$rma['product']) ?>" class="order-list-image">
+              </div>
+
+              <div class="order-list-product">
+                <h2><?= htmlspecialchars((string)$rma['product']) ?></h2>
+                <p class="order-list-muted">RMA: <?= htmlspecialchars((string)$rma['rma_no']) ?> | Order: <?= htmlspecialchars((string)$rma['order_no']) ?></p>
+                <p class="order-list-muted">SKU: <?= htmlspecialchars((string)$rma['sku']) ?> | Qty: <?= (int)$rma['qty'] ?> | Date: <?= htmlspecialchars((string)$rma['date']) ?></p>
+                <p class="order-list-muted rma-reason-label">Reason: <?= htmlspecialchars((string)$rma['reason']) ?></p>
+              </div>
+
+              <div class="order-list-price">
+                <strong>€<?= number_format((float)$rma['refund'], 2) ?></strong>
+                <div style="font-size:10px;color:#64748b;margin-top:2px;">Est. Refund</div>
+              </div>
+
+              <div class="order-list-status">
+                <h3 class="<?= $dotClass ?>">
+                  <span class="status-dot rma-status-dot rma-status-dot--<?= htmlspecialchars($rmaStatus) ?>"></span>
+                  <?= $rmaLabel ?>
+                </h3>
+                <p><?= htmlspecialchars((string)($rma['note'] ?? '')) ?></p>
+              </div>
+            </article>
+            <?php endforeach; ?>
+            <?php endif; ?>
+          </div>
+
         </article>
       </section>
     </div>
@@ -270,11 +317,29 @@ $deliveredOrders = sinelec_orders_by_status('delivered');
   .order-list-status h3 { font-size: 17px; }
   .order-list-status p { font-size: 13px; }
 }
+/* ── RMA-specific styles ─────────────────────────────── */
+.rma-reason-label { color: #b45309 !important; }
+
+.rma-status-dot--approved  { border-color: #2563eb; background: #fff; }
+.rma-status-dot--processing { border-color: #d97706; background: #fff; }
+.rma-status-dot--completed { background: #16a34a; border-color: #16a34a; }
+
+.order-list-status h3.is-approved .status-dot { border-color: #2563eb; background: #fff; }
+
+/* ── Empty state ─────────────────────────────────────── */
+.orders-empty-state {
+  text-align: center;
+  padding: 56px 20px;
+  color: #94a3b8;
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+}
+.orders-empty-state p { font-size: 14px; }
+
 @media (max-width: 900px) {
   .orders-tab-row {
     width: 100%;
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr 1fr 1fr;
   }
   .orders-tab-btn { width: 100%; }
   .order-list-card {
@@ -376,20 +441,23 @@ $deliveredOrders = sinelec_orders_by_status('delivered');
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-  const tabButtons = Array.from(document.querySelectorAll('.orders-tab-btn'));
-  const panels = Array.from(document.querySelectorAll('.orders-tab-panel'));
+  var tabButtons = Array.from(document.querySelectorAll('.orders-tab-btn'));
+  var panels     = Array.from(document.querySelectorAll('.orders-tab-panel'));
+
+  function activateTab(tabId) {
+    tabButtons.forEach(function (item) {
+      var isActive = item.getAttribute('data-tab') === tabId;
+      item.classList.toggle('is-active', isActive);
+      item.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    });
+    panels.forEach(function (panel) {
+      panel.classList.toggle('is-active', panel.getAttribute('data-panel') === tabId);
+    });
+  }
 
   tabButtons.forEach(function (btn) {
     btn.addEventListener('click', function () {
-      const tabId = btn.getAttribute('data-tab');
-      tabButtons.forEach(function (item) {
-        const isActive = item === btn;
-        item.classList.toggle('is-active', isActive);
-        item.setAttribute('aria-selected', isActive ? 'true' : 'false');
-      });
-      panels.forEach(function (panel) {
-        panel.classList.toggle('is-active', panel.getAttribute('data-panel') === tabId);
-      });
+      activateTab(btn.getAttribute('data-tab'));
     });
   });
 });

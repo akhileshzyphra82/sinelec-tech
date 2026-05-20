@@ -143,3 +143,54 @@ function sinelec_find_order(string $orderNo): ?array
 
     return null;
 }
+
+function sinelec_returns_data(): array
+{
+    return [
+        [
+            'rma_no'       => 'RMA-2026-0041',
+            'order_no'     => 'SL-2026-0974',
+            'date'         => 'Apr 24, 2026',
+            'product'      => 'ESP32-WROOM-32 WiFi + BT Module',
+            'sku'          => 'ESP32-WROOM-32',
+            'qty'          => 3,
+            'reason'       => 'Defective / Not Working',
+            'status'       => 'approved',
+            'status_label' => 'Return Approved',
+            'refund'       => 16.80,
+            'currency'     => 'EUR',
+            'image'        => 'https://images.unsplash.com/photo-1553406830-ef2513450d76?w=400&h=320&fit=crop',
+            'note'         => 'Refund will be processed within 3–5 business days.',
+        ],
+        [
+            'rma_no'       => 'RMA-2026-0038',
+            'order_no'     => 'SL-2026-0921',
+            'date'         => 'Apr 16, 2026',
+            'product'      => 'LM2596 Buck Converter Module',
+            'sku'          => 'LM2596-DC',
+            'qty'          => 5,
+            'reason'       => 'Wrong Item Received',
+            'status'       => 'processing',
+            'status_label' => 'Under Review',
+            'refund'       => 9.75,
+            'currency'     => 'EUR',
+            'image'        => 'https://images.unsplash.com/photo-1593642634443-44adaa06623a?w=400&h=320&fit=crop',
+            'note'         => 'Our team is reviewing your return request.',
+        ],
+        [
+            'rma_no'       => 'RMA-2026-0029',
+            'order_no'     => 'SL-2026-0921',
+            'date'         => 'Apr 10, 2026',
+            'product'      => 'LM2596 Buck Converter Module',
+            'sku'          => 'LM2596-DC',
+            'qty'          => 2,
+            'reason'       => 'Arrived Damaged',
+            'status'       => 'completed',
+            'status_label' => 'Refund Issued',
+            'refund'       => 3.90,
+            'currency'     => 'EUR',
+            'image'        => 'https://images.unsplash.com/photo-1593642634443-44adaa06623a?w=400&h=320&fit=crop',
+            'note'         => 'Refund of €3.90 was issued on Apr 17, 2026.',
+        ],
+    ];
+}

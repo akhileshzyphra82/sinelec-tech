@@ -19,6 +19,7 @@ if (!$canView) {
 
 $jobs       = $controller->getAllJobs();
 $applicants = $controller->getAllApplicants();
+$pubBase    = rtrim(sinelec_env('PUBLIC_BASE_URL'), '/');
 
 $totalJobs    = count($jobs);
 $activeJobs   = count(array_filter($jobs, fn($j) => ($j->JOB_STATUS ?? '') === 'Active'));
@@ -578,12 +579,12 @@ ob_start();
                         $email   = htmlspecialchars($a->CANDIDATE_EMAIL       ?? '');
                         $phone   = (string)($a->CANDIDATE_PHONE              ?? '');
                         $exp     = (int)($a->CANDIDATE_EXPERIENCE            ?? 0);
-                        $resExt  = (string)($a->RESUME_FILE_EXT              ?? '');
+                        $resKey  = (string)($a->RESUME_FILE_EXT              ?? '');
                         $appDate = $a->APPLIED_DATE ?? '';
                         $jobPos  = htmlspecialchars($a->JOB_POSITION          ?? '—');
                         $initial = strtoupper(substr(trim($a->CANDIDATE_NAME ?? ''), 0, 1)) ?: 'C';
                         $avatarBg = $avatarColors[$appId % count($avatarColors)];
-                        $resSrc  = $resExt !== '' ? '../assets/uploads/resumes/'.$appId.'.'.$resExt : '';
+                        $resSrc  = ($resKey !== '' && strpos($resKey, '/') !== false) ? $pubBase.'/'.$resKey : '';
                         $dateDisp = $appDate ? date('d M Y', strtotime($appDate)) : '—';
                         $expDisp  = $exp === 1 ? '1 yr' : ($exp > 1 ? $exp.' yrs' : 'Fresher');
                         $searchStr = strtolower(($a->CANDIDATE_NAME ?? '').' '.($a->CANDIDATE_EMAIL ?? ''));
