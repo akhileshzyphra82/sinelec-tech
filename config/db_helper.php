@@ -50,12 +50,8 @@ class MySQLDB {
        Centralized error handler
     ---------------------------------------- */
     private function handleError($message, $sql = null) {
-
-        if ($sql) {
-            $message .= "<br><b>Query:</b> " . $sql;
-        }
-
-        die("<b>Database Error:</b> " . $message);
+        $full = $sql ? $message . ' | SQL: ' . $sql : $message;
+        throw new RuntimeException('Database Error: ' . $full);
     }
 
     /* ----------------------------------------

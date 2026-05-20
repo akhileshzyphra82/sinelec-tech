@@ -133,6 +133,7 @@
     appendMessage('bot', {
       text: assistant.greeting || "Hi, I'm Sinela AI 👋 How can I help you today?",
     });
+    renderSuggestionsInline();
   }
 
   function renderSuggestionsInline() {
@@ -316,23 +317,32 @@
     }
   });
 
-  /* Prevent wheel/touch scroll inside the chatbot window from bubbling to page */
-  windowEl.addEventListener('wheel', function (event) {
-    var el = messagesEl;
-    var atTop    = el.scrollTop === 0;
-    var atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
+  /* Prevent wheel scroll inside the window from bubbling to the page.
+     Only call preventDefault when the messages list is already at its
+     scroll boundary so normal in-list scrolling still works.          */
+  messagesEl.addEventListener('wheel', function (event) {
+    var atTop    = messagesEl.scrollTop <= 0;
+    var atBottom = messagesEl.scrollTop + messagesEl.clientHeight >= messagesEl.scrollHeight - 1;
     if ((event.deltaY < 0 && atTop) || (event.deltaY > 0 && atBottom)) {
       event.preventDefault();
     }
     event.stopPropagation();
   }, { passive: false });
 
-  windowEl.addEventListener('touchmove', function (event) {
+  /* Touch: let messages scroll freely; stop bubbling so the page doesn't move */
+  messagesEl.addEventListener('touchmove', function (event) {
+    var atTop    = messagesEl.scrollTop <= 0;
+    var atBottom = messagesEl.scrollTop + messagesEl.clientHeight >= messagesEl.scrollHeight - 1;
+    if (atTop || atBottom) event.preventDefault();
     event.stopPropagation();
-  }, { passive: true });
+  }, { passive: false });
+
+  /* Stop any other touch/wheel on the window chrome (header, inputbar, chips) */
+  windowEl.addEventListener('touchmove', function (event) {
+    if (!messagesEl.contains(event.target)) event.preventDefault();
+  }, { passive: false });
 
   addGreeting();
-  renderSuggestionsInline();
 
   let shouldAutoOpen = root.dataset.autoOpen === 'true';
   try {

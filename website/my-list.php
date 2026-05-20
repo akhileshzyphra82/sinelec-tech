@@ -5,67 +5,20 @@ $currentPage = 'my-list';
 $pageTitle = 'My List | Sinelec Technologies';
 require_once __DIR__ . '/header.php';
 
-/* ── Dummy quotes data ── */
-$quotes = [
-  [
-    'id'       => 'QT-2024-00183',
-    'date'     => '12 May 2025',
-    'product'  => 'STM32F407VGT6 — ARM Cortex-M4 Microcontroller',
-    'part_no'  => 'STM32F407VGT6',
-    'qty'      => 500,
-    'status'   => 'responded',
-    'history'  => [
-      ['date' => '12 May 2025, 09:14', 'event' => 'Quote requested',           'note' => '500 units of STM32F407VGT6'],
-      ['date' => '12 May 2025, 11:30', 'event' => 'Under review by sales team', 'note' => ''],
-      ['date' => '13 May 2025, 14:22', 'event' => 'Quote sent to your email',  'note' => 'Unit price: €4.85 | Lead time: 4–6 weeks'],
-    ],
-  ],
-  [
-    'id'       => 'QT-2024-00179',
-    'date'     => '08 May 2025',
-    'product'  => 'ATMEGA328P-PU — 8-bit AVR Microcontroller, DIP-28',
-    'part_no'  => 'ATMEGA328P-PU',
-    'qty'      => 1000,
-    'status'   => 'pending',
-    'history'  => [
-      ['date' => '08 May 2025, 16:45', 'event' => 'Quote requested', 'note' => '1000 units of ATMEGA328P-PU'],
-    ],
-  ],
-  [
-    'id'       => 'QT-2024-00162',
-    'date'     => '01 Apr 2025',
-    'product'  => 'LM358DR — Dual Op-Amp, SOIC-8',
-    'part_no'  => 'LM358DR',
-    'qty'      => 2000,
-    'status'   => 'closed',
-    'history'  => [
-      ['date' => '01 Apr 2025, 10:00', 'event' => 'Quote requested',           'note' => '2000 units'],
-      ['date' => '02 Apr 2025, 09:15', 'event' => 'Under review by sales team', 'note' => ''],
-      ['date' => '03 Apr 2025, 13:00', 'event' => 'Quote sent to your email',  'note' => 'Unit price: €0.28 | Lead time: 1–2 weeks'],
-      ['date' => '05 Apr 2025, 11:22', 'event' => 'Order placed by customer',  'note' => 'Order #ORD-2025-00441 created'],
-      ['date' => '06 Apr 2025, 08:50', 'event' => 'Quote closed',              'note' => 'Converted to order'],
-    ],
-  ],
-  [
-    'id'       => 'QT-2024-00155',
-    'date'     => '18 Mar 2025',
-    'product'  => 'IRF540NPBF — N-Channel Power MOSFET, TO-220',
-    'part_no'  => 'IRF540NPBF',
-    'qty'      => 300,
-    'status'   => 'in_review',
-    'history'  => [
-      ['date' => '18 Mar 2025, 14:30', 'event' => 'Quote requested',           'note' => '300 units of IRF540NPBF'],
-      ['date' => '19 Mar 2025, 10:05', 'event' => 'Under review by sales team', 'note' => 'Checking stock availability'],
-    ],
-  ],
-];
+/* ── Real quotes from DB ── */
+require_once __DIR__ . '/../controller/website_controller.php';
+$_wc    = new WebsiteController();
+$userId = (int)($user['USER_ID'] ?? 0);
+$quotes = $_wc->getCustomerQuotes($userId);
 
+/* Status display map (DB value → display meta) */
 $statusMeta = [
-  'pending'   => ['label' => 'Pending',    'color' => '#d97706', 'bg' => '#fffbeb', 'border' => '#fcd34d'],
-  'in_review' => ['label' => 'In Review',  'color' => '#2563eb', 'bg' => '#eff6ff', 'border' => '#bfdbfe'],
-  'responded' => ['label' => 'Responded',  'color' => '#16a34a', 'bg' => '#f0fdf4', 'border' => '#86efac'],
-  'closed'    => ['label' => 'Closed',     'color' => '#6b7280', 'bg' => '#f9fafb', 'border' => '#d1d5db'],
+  'Quotation Pending' => ['key' => 'pending',   'label' => 'Pending',    'color' => '#d97706', 'bg' => '#fffbeb', 'border' => '#fcd34d'],
+  'Quotation Sent'    => ['key' => 'sent',       'label' => 'Quote Sent', 'color' => '#16a34a', 'bg' => '#f0fdf4', 'border' => '#86efac'],
+  'Order Completed'   => ['key' => 'completed',  'label' => 'Completed',  'color' => '#0369a1', 'bg' => '#f0f9ff', 'border' => '#7dd3fc'],
+  'Quotation Cancel'  => ['key' => 'cancelled',  'label' => 'Cancelled',  'color' => '#dc2626', 'bg' => '#fef2f2', 'border' => '#fca5a5'],
 ];
+$statusDefault = ['key' => 'pending', 'label' => 'In Review', 'color' => '#2563eb', 'bg' => '#eff6ff', 'border' => '#bfdbfe'];
 ?>
 
 <main class="account-page">
@@ -95,6 +48,7 @@ $statusMeta = [
               Quotes
               <span class="ml-tab-count"><?= count($quotes) ?></span>
             </button>
+
           </div>
 
           <!-- ── Wishlist Panel ── -->
@@ -109,65 +63,110 @@ $statusMeta = [
 
           <!-- ── Quotes Panel ── -->
           <div class="ml-panel" id="mlQuotesPanel" data-ml-panel="quotes" hidden>
+            <?php if (empty($quotes)): ?>
+            <div class="ml-empty">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+              <p>You haven't submitted any quote requests yet.</p>
+              <a href="request-a-quote" class="ml-empty-btn">Request a Quote</a>
+            </div>
+            <?php else: ?>
             <div class="ml-qt-grid">
               <?php foreach ($quotes as $qt):
-                $sm = $statusMeta[$qt['status']] ?? $statusMeta['pending'];
+                $qid       = (int)(float)($qt->ENQUIRY_QUOTE_ID  ?? 0);
+                $dbStatus  = (string)($qt->ENQUIRY_STATUS        ?? 'Quotation Pending');
+                $rawDate   = (string)($qt->ENQUIRY_DATE          ?? '');
+                $total     = (float)($qt->ENQUIRY_TOTAL_AMT      ?? 0);
+                $vatNum    = trim((string)($qt->VAT_NUMBER        ?? ''));
+                $remark    = trim((string)($qt->REMARK           ?? ''));
+                $sm        = $statusMeta[$dbStatus] ?? $statusDefault;
+                $fmtDate   = $rawDate ? date('d M Y', strtotime($rawDate)) : '—';
+                $products  = $qt->products ?? [];
+                $itemCount = count($products);
               ?>
               <article class="ml-qt-card">
 
                 <!-- Quote header -->
                 <div class="ml-qt-head">
                   <div class="ml-qt-head-left">
-                    <span class="ml-qt-id"><?= htmlspecialchars($qt['id']) ?></span>
+                    <span class="ml-qt-id">Quote #<?= $qid ?></span>
                     <span class="ml-qt-date">
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                      <?= htmlspecialchars($qt['date']) ?>
+                      <?= htmlspecialchars($fmtDate) ?>
                     </span>
+                    <span class="ml-qt-items"><?= $itemCount ?> item<?= $itemCount !== 1 ? 's' : '' ?></span>
                   </div>
-                  <span class="ml-qt-badge" style="color:<?= $sm['color'] ?>;background:<?= $sm['bg'] ?>;border-color:<?= $sm['border'] ?>">
-                    <?php if ($qt['status'] === 'pending'):   ?><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><?php endif; ?>
-                    <?php if ($qt['status'] === 'in_review'): ?><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><?php endif; ?>
-                    <?php if ($qt['status'] === 'responded'): ?><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg><?php endif; ?>
-                    <?php if ($qt['status'] === 'closed'):    ?><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg><?php endif; ?>
-                    <?= $sm['label'] ?>
-                  </span>
+                  <div class="ml-qt-head-right">
+                    <span class="ml-qt-badge" style="color:<?= $sm['color'] ?>;background:<?= $sm['bg'] ?>;border-color:<?= $sm['border'] ?>">
+                      <?php if ($sm['key'] === 'pending'):   ?><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><?php endif; ?>
+                      <?php if ($sm['key'] === 'sent'):      ?><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg><?php endif; ?>
+                      <?php if ($sm['key'] === 'completed'): ?><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg><?php endif; ?>
+                      <?php if ($sm['key'] === 'cancelled'): ?><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg><?php endif; ?>
+                      <?php if (!in_array($sm['key'],['pending','sent','completed','cancelled'])): ?><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><?php endif; ?>
+                      <?= htmlspecialchars($sm['label']) ?>
+                    </span>
+                    <a href="../admin/quotation-pdf?id=<?= $qid ?>&uid=<?= $userId ?>"
+                       target="_blank" rel="noopener"
+                       class="ml-qt-pdf-btn"
+                       title="View PDF Quotation">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                      PDF
+                    </a>
+                  </div>
                 </div>
 
-                <!-- Product info -->
-                <div class="ml-qt-product">
-                  <div class="ml-qt-product-name"><?= htmlspecialchars($qt['product']) ?></div>
-                  <div class="ml-qt-product-meta">
-                    <span>Part No: <strong><?= htmlspecialchars($qt['part_no']) ?></strong></span>
-                    <span>Qty Requested: <strong><?= number_format($qt['qty']) ?></strong></span>
+                <!-- Products list -->
+                <div class="ml-qt-products">
+                  <?php foreach ($products as $pi => $p):
+                    $pName  = trim((string)($p->PRODUCT_NAME ?? ''));
+                    $pCode  = trim((string)($p->PRODUCT_CODE ?? ''));
+                    $pQty   = (int)(float)($p->PRODUCT_QUANTITY ?? 0);
+                    $pPrice = (float)($p->PRODUCT_AMT ?? 0);
+                    $pLine  = round($pPrice * $pQty, 2);
+                    if ($pi >= 3 && $itemCount > 3): ?>
+                  <div class="ml-qt-prod-more">+<?= $itemCount - 3 ?> more item<?= ($itemCount - 3) !== 1 ? 's' : '' ?></div>
+                    <?php break; endif; ?>
+                  <div class="ml-qt-prod-row">
+                    <div class="ml-qt-prod-info">
+                      <span class="ml-qt-prod-name"><?= htmlspecialchars($pName ?: 'Product #' . (int)(float)($p->PRODUCT_ID ?? 0)) ?></span>
+                      <?php if ($pCode !== ''): ?>
+                      <span class="ml-qt-prod-code"><?= htmlspecialchars($pCode) ?></span>
+                      <?php endif; ?>
+                    </div>
+                    <div class="ml-qt-prod-right">
+                      <span class="ml-qt-prod-qty">×<?= $pQty ?></span>
+                      <?php if ($pPrice > 0): ?>
+                      <span class="ml-qt-prod-price">€<?= number_format($pLine, 2) ?></span>
+                      <?php endif; ?>
+                    </div>
                   </div>
+                  <?php endforeach; ?>
                 </div>
 
-                <!-- History timeline -->
-                <div class="ml-qt-history">
-                  <div class="ml-qt-history-toggle" data-qt-toggle="<?= htmlspecialchars($qt['id']) ?>">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-                    Quote History
-                    <svg class="ml-qt-chevron" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                <!-- Footer row: total + notes -->
+                <div class="ml-qt-foot">
+                  <div class="ml-qt-foot-left">
+                    <?php if ($vatNum !== ''): ?>
+                    <span class="ml-qt-vat">VAT No: <?= htmlspecialchars($vatNum) ?></span>
+                    <?php endif; ?>
+                    <?php if ($remark !== ''): ?>
+                    <span class="ml-qt-note" title="<?= htmlspecialchars($remark) ?>">
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                      <?= htmlspecialchars(mb_strimwidth($remark, 0, 60, '…')) ?>
+                    </span>
+                    <?php endif; ?>
                   </div>
-                  <ul class="ml-qt-timeline" id="qt-history-<?= htmlspecialchars($qt['id']) ?>" hidden>
-                    <?php foreach ($qt['history'] as $i => $h): ?>
-                    <li class="ml-qt-tl-item<?= $i === count($qt['history']) - 1 ? ' is-last' : '' ?>">
-                      <span class="ml-qt-tl-dot"></span>
-                      <div class="ml-qt-tl-body">
-                        <span class="ml-qt-tl-event"><?= htmlspecialchars($h['event']) ?></span>
-                        <span class="ml-qt-tl-date"><?= htmlspecialchars($h['date']) ?></span>
-                        <?php if ($h['note']): ?>
-                        <span class="ml-qt-tl-note"><?= htmlspecialchars($h['note']) ?></span>
-                        <?php endif; ?>
-                      </div>
-                    </li>
-                    <?php endforeach; ?>
-                  </ul>
+                  <?php if ($total > 0): ?>
+                  <div class="ml-qt-total">
+                    <span class="ml-qt-total-label">Est. Total</span>
+                    <span class="ml-qt-total-val">€<?= number_format($total, 2) ?></span>
+                  </div>
+                  <?php endif; ?>
                 </div>
 
               </article>
               <?php endforeach; ?>
             </div>
+            <?php endif; ?>
           </div>
 
         </article>
@@ -362,7 +361,11 @@ $statusMeta = [
   border: 1px solid #d3d9e0;
   border-radius: 10px;
   overflow: hidden;
+  transition: box-shadow .15s;
 }
+.ml-qt-card:hover { box-shadow: 0 4px 18px rgba(15,30,55,.08); }
+
+/* Header */
 .ml-qt-head {
   display: flex;
   align-items: center;
@@ -376,8 +379,14 @@ $statusMeta = [
 .ml-qt-head-left {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   flex-wrap: wrap;
+}
+.ml-qt-head-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 .ml-qt-id {
   font-size: 13px;
@@ -392,6 +401,14 @@ $statusMeta = [
   font-size: 11.5px;
   color: #6b82a0;
 }
+.ml-qt-items {
+  font-size: 11px;
+  color: #94a3b8;
+  background: #f1f5f9;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-weight: 600;
+}
 .ml-qt-badge {
   display: inline-flex;
   align-items: center;
@@ -405,80 +422,122 @@ $statusMeta = [
   letter-spacing: .02em;
   white-space: nowrap;
 }
-.ml-qt-product { padding: 13px 16px 0; }
-.ml-qt-product-name {
-  font-size: 14px;
-  font-weight: 700;
-  color: #1a2d42;
-  line-height: 1.35;
-  margin-bottom: 6px;
-}
-.ml-qt-product-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 18px;
-  font-size: 12px;
-  color: #5f728b;
-}
-.ml-qt-product-meta strong { color: #1a2d42; }
-
-/* Quote history timeline */
-.ml-qt-history { padding: 10px 16px 14px; margin-top: 6px; }
-.ml-qt-history-toggle {
+.ml-qt-pdf-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 11.5px;
+  gap: 5px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 6px;
+  background: #1e293b;
+  color: #fff;
+  font-size: 11px;
   font-weight: 700;
-  color: #2563eb;
-  cursor: pointer;
-  user-select: none;
-  padding: 4px 0;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background .15s;
 }
-.ml-qt-history-toggle:hover { color: #1d4ed8; }
-.ml-qt-chevron { transition: transform .2s; flex-shrink: 0; }
-.ml-qt-history-toggle.is-open .ml-qt-chevron { transform: rotate(180deg); }
-.ml-qt-timeline {
-  margin-top: 12px;
-  padding-left: 0;
-  list-style: none;
+.ml-qt-pdf-btn:hover { background: #0f172a; }
+
+/* Products list */
+.ml-qt-products {
+  padding: 12px 16px 0;
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: 6px;
 }
-.ml-qt-tl-item {
+.ml-qt-prod-row {
   display: flex;
-  gap: 12px;
-  position: relative;
-  padding-bottom: 14px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px;
+  background: #f8fafc;
+  border-radius: 6px;
+  border: 1px solid #edf0f5;
 }
-.ml-qt-tl-item:last-child { padding-bottom: 0; }
-.ml-qt-tl-dot {
+.ml-qt-prod-info { min-width: 0; flex: 1; }
+.ml-qt-prod-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #1a2d42;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ml-qt-prod-code {
+  font-size: 10.5px;
+  color: #94a3b8;
+  font-family: monospace;
+  display: block;
+  margin-top: 1px;
+}
+.ml-qt-prod-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   flex-shrink: 0;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #fff;
-  border: 3px solid #2563eb;
-  margin-top: 3px;
-  position: relative;
-  z-index: 1;
 }
-.ml-qt-tl-item.is-last .ml-qt-tl-dot { background: #2563eb; }
-.ml-qt-tl-item::before {
-  content: '';
-  position: absolute;
-  left: 5px;
-  top: 14px;
-  bottom: 0;
-  width: 2px;
-  background: #dde4ef;
+.ml-qt-prod-qty {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 600;
+  min-width: 28px;
+  text-align: center;
 }
-.ml-qt-tl-item.is-last::before { display: none; }
-.ml-qt-tl-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.ml-qt-tl-event { font-size: 12.5px; font-weight: 700; color: #1a2d42; line-height: 1.3; }
-.ml-qt-tl-date  { font-size: 11px;   color: #7a92ab; }
-.ml-qt-tl-note  { font-size: 11.5px; color: #3a5168; margin-top: 2px; background: #f0f4f8; padding: 4px 8px; border-radius: 5px; }
+.ml-qt-prod-price {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #1d4ed8;
+  min-width: 64px;
+  text-align: right;
+}
+.ml-qt-prod-more {
+  font-size: 11.5px;
+  color: #94a3b8;
+  padding: 4px 10px;
+  font-style: italic;
+}
+
+/* Footer row */
+.ml-qt-foot {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 16px 14px;
+  flex-wrap: wrap;
+}
+.ml-qt-foot-left {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+.ml-qt-vat {
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 600;
+}
+.ml-qt-note {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 5px;
+  font-size: 11.5px;
+  color: #64748b;
+  line-height: 1.45;
+}
+.ml-qt-total {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  flex-shrink: 0;
+}
+.ml-qt-total-label { font-size: 10.5px; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.ml-qt-total-val   { font-size: 16px; font-weight: 800; color: #1d4ed8; }
 
 /* ── Responsive ─────────────────────────────────────── */
 @media (max-width: 900px) {
@@ -514,31 +573,33 @@ document.addEventListener('DOMContentLoaded', function () {
   /* ── Tab switching ── */
   var tabBtns  = document.querySelectorAll('.ml-tab-btn');
   var panels   = document.querySelectorAll('.ml-panel');
+
+  function mlActivateTab(target) {
+    tabBtns.forEach(function (b) {
+      var match = b.dataset.mlTab === target;
+      b.classList.toggle('is-active', match);
+      b.setAttribute('aria-selected', match ? 'true' : 'false');
+    });
+    panels.forEach(function (p) {
+      var active = p.dataset.mlPanel === target;
+      p.classList.toggle('is-active', active);
+      p.hidden = !active;
+    });
+  }
+
   tabBtns.forEach(function (btn) {
     btn.addEventListener('click', function () {
-      var target = btn.dataset.mlTab;
-      tabBtns.forEach(function (b) {
-        b.classList.toggle('is-active', b === btn);
-        b.setAttribute('aria-selected', b === btn ? 'true' : 'false');
-      });
-      panels.forEach(function (p) {
-        var active = p.dataset.mlPanel === target;
-        p.classList.toggle('is-active', active);
-        p.hidden = !active;
-      });
+      mlActivateTab(btn.dataset.mlTab);
+      history.replaceState(null, '', '#' + btn.dataset.mlTab);
     });
   });
 
-  /* ── Quote history toggles ── */
-  document.querySelectorAll('[data-qt-toggle]').forEach(function (tog) {
-    tog.addEventListener('click', function () {
-      var id      = tog.dataset.qtToggle;
-      var ul      = document.getElementById('qt-history-' + id);
-      var isOpen  = !ul.hidden;
-      ul.hidden   = isOpen;
-      tog.classList.toggle('is-open', !isOpen);
-    });
-  });
+  /* Activate tab from URL hash on load */
+  var hashTab = (location.hash || '').replace('#', '').toLowerCase();
+  if (hashTab && document.querySelector('[data-ml-tab="' + hashTab + '"]')) {
+    mlActivateTab(hashTab);
+  }
+
 
   /* ── Wishlist (localStorage) ── */
   var WISHLIST_KEY  = 'sinelec_wishlist';

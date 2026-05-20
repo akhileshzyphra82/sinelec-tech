@@ -11,9 +11,11 @@ if (session_status() !== PHP_SESSION_ACTIVE) session_start();
 require_once __DIR__ . '/../common/functions.php';
 require_once __DIR__ . '/../controller/admin_controller.php';
 
-/* ── 1. Session auth ── */
-if (empty($_SESSION['sinelec_admin']['USER_ID'])) {
-    header('location:index'); exit();
+/* ── 1. Session auth — admin OR logged-in website user ── */
+$isAdmin      = !empty($_SESSION['sinelec_admin']['USER_ID']);
+$sessionUserId = (int)($_SESSION['sinelec_user']['USER_ID'] ?? 0);
+if (!$isAdmin && $sessionUserId <= 0) {
+    header('location:../website/login'); exit();
 }
 
 /* ── 2. Param validation ── */
@@ -33,13 +35,16 @@ if (!$q) {
     echo '<p style="font-family:sans-serif;padding:40px;">Quotation not found.</p>'; exit();
 }
 
-/* ── 3. Cross-check uid param against stored user_id ──
- *  - If uid > 0 was passed AND the quotation has a user_id > 0,
- *    they must match. This prevents ID-enumeration (changing ?id=).
- *  - If the quotation was created without a linked user (user_id = 0)
- *    we skip this check (guest / walk-in quotation).               */
+/* ── 3. Ownership check ──────────────────────────────────
+ *  Admins: optionally cross-check uid param to prevent guessing.
+ *  Website users: session user_id MUST match stored user_id.     */
 $storedUid = (int)(float)($q->USER_ID ?? 0);
-if ($uidParam > 0 && $storedUid > 0 && $uidParam !== $storedUid) {
+if (!$isAdmin) {
+    if ($storedUid <= 0 || $storedUid !== $sessionUserId) {
+        http_response_code(403);
+        echo '<p style="font-family:sans-serif;padding:40px;">Access denied — this quotation does not belong to your account.</p>'; exit();
+    }
+} elseif ($uidParam > 0 && $storedUid > 0 && $uidParam !== $storedUid) {
     http_response_code(403);
     echo '<p style="font-family:sans-serif;padding:40px;">Access denied — quotation does not match the provided user.</p>'; exit();
 }
@@ -57,53 +62,48 @@ $custEmail = (string)($q->USER_EMAIL_RESOLVED   ?? $q->USER_EMAIL   ?? '');
 $custPhone = (string)($q->USER_PHONE_RESOLVED   ?? $q->USER_PHONE   ?? '');
 $custCo    = (string)($q->COMPANY_NAME_RESOLVED ?? $q->COMPANY_NAME ?? '');
 
-// Resolve delivery address
-$delAddr   = '';
-$delName   = $custName;
-$delCo     = $custCo;
+/* ── Address helper: extract a full address object from a DB row ── */
+function pdf_addr_obj(?object $row): array {
+    if (!$row) return [];
+    /* prefer address_line_one/two; fall back to combined `address` field */
+    $line1 = trim((string)($row->ADDRESS_LINE_ONE ?? ''));
+    $line2 = trim((string)($row->ADDRESS_LINE_TWO ?? ''));
+    if ($line1 === '' && $line2 === '') {
+        $line1 = trim((string)($row->ADDRESS ?? ''));
+    }
+    $mcc   = (int)($row->MOBILE_COUNTRY_CODE ?? 0);
+    $phone = trim((string)($row->DELIVERY_PHONE_NO ?? ''));
+    return [
+        'label'    => trim((string)($row->LABEL           ?? 'Home')),
+        'company'  => trim((string)($row->COMPANY_NAME    ?? '')),
+        'contact'  => trim((string)($row->USER_NAME       ?? '')),
+        'line1'    => $line1,
+        'line2'    => $line2,
+        'landmark' => trim((string)($row->LANDMARK        ?? '')),
+        'city'     => trim((string)($row->CITY            ?? '')),
+        'state'    => trim((string)($row->STATE           ?? '')),
+        'zip'      => trim((string)($row->ZIP             ?? '')),
+        'country'  => trim((string)($row->COUNTRY         ?? '')),
+        'phone'    => $phone !== '' ? ($mcc > 0 ? '+' . $mcc . ' ' . $phone : $phone) : '',
+        'rcpt_name'  => trim((string)($row->RECIPIENT_NAME    ?? '')),
+        'rcpt_email' => trim((string)($row->RECIPIENT_EMAIL   ?? '')),
+        'rcpt_phone' => trim((string)($row->RECIPIENT_CONTACT ?? '')),
+    ];
+}
+
+// Resolve delivery + billing address rows
+$delRow = null; $bilRow = null;
 if ($addrId > 0) {
-    $addrs  = $controller->getUserAddressesForQuote($userId);
-    $delRow = null; $bilRow = null;
+    $addrs = $controller->getUserAddressesForQuote($userId);
     foreach ($addrs as $a) {
         $aid = (int)(float)($a->USER_ADDRESS_ID ?? 0);
         if ($aid === $addrId)    $delRow = $a;
         if ($aid === $bilAddrId) $bilRow = $a;
     }
-    if ($delRow) {
-        $delName = (string)($delRow->USER_NAME   ?? $custName);
-        $delCo   = (string)($delRow->COMPANY_NAME?? $custCo);
-        $delAddr = implode(', ', array_filter([
-            (string)($delRow->ADDRESS ?? ''),
-            (string)($delRow->CITY   ?? ''),
-            (string)($delRow->STATE  ?? ''),
-            (string)($delRow->COUNTRY?? ''),
-            (string)($delRow->ZIP    ?? ''),
-        ]));
-    }
     if (!$bilRow) $bilRow = $delRow;
-    $bilName = $bilRow ? (string)($bilRow->USER_NAME    ?? $delName) : $delName;
-    $bilCo   = $bilRow ? (string)($bilRow->COMPANY_NAME ?? $delCo)   : $delCo;
-    $bilAddr = $bilRow ? implode(', ', array_filter([
-        (string)($bilRow->ADDRESS ?? ''),
-        (string)($bilRow->CITY   ?? ''),
-        (string)($bilRow->STATE  ?? ''),
-        (string)($bilRow->COUNTRY?? ''),
-        (string)($bilRow->ZIP    ?? ''),
-    ])) : $delAddr;
-} else {
-    // Fallback for legacy quotations that stored address inline
-    $bilName = $custName; $bilCo = $custCo;
-    $delAddr = implode(', ', array_filter([
-        (string)($q->DELIVERY_ADDRESS ?? ''), (string)($q->DELIVERY_CITY  ?? ''),
-        (string)($q->DELIVERY_STATE   ?? ''), (string)($q->DELIVERY_COUNTRY?? ''),
-        (string)($q->DELIVERY_ZIP     ?? ''),
-    ]));
-    $bilAddr = implode(', ', array_filter([
-        (string)($q->BILLING_ADDRESS ?? ''), (string)($q->BILLING_CITY   ?? ''),
-        (string)($q->BILLING_STATE   ?? ''), (string)($q->BILLING_COUNTRY ?? ''),
-        (string)($q->BILLING_ZIP     ?? ''),
-    ]));
 }
+$delAddrObj = pdf_addr_obj($delRow);
+$bilAddrObj = pdf_addr_obj($bilRow);
 
 /* ── Company details ── */
 $co = $controller->getCompanyDetails();
@@ -118,7 +118,7 @@ $coLogoUrl = $coLogo;
 
 
 /* ── Helpers ── */
-$ref      = 'QT-' . str_pad((string)$qid, 6, '0', STR_PAD_LEFT);
+$ref      = 'Quote #' . $qid;
 $date     = date('d M Y', strtotime((string)($q->ENQUIRY_DATE ?? 'now')));
 $status   = (string)($q->ENQUIRY_STATUS ?? '');
 $subTotal = 0;
@@ -436,7 +436,6 @@ $stColor = match($status) {
       <?php endif; ?>
     </div>
     <div class="pdf-ref-block">
-      <div class="pdf-ref-title">Quotation</div>
       <div class="pdf-ref-num"><?= htmlspecialchars($ref) ?></div>
       <div class="pdf-ref-date">Date: <?= htmlspecialchars($date) ?></div>
       <div><span class="pdf-status-badge" style="background:<?= $stColor ?>33;"><?= htmlspecialchars($status) ?></span></div>
@@ -482,24 +481,69 @@ $stColor = match($status) {
   </div>
 
   <!-- ── ADDRESSES ── -->
-  <?php if ($delAddr || $bilAddr): ?>
+  <?php
+    /* Helper macro: render one address block */
+    function pdf_render_addr(array $a, string $heading, bool $showRecipient = false): void {
+        $hasAny = array_filter(array_diff_key($a, array_flip(['label'])));
+        if (!$hasAny) return;
+        $h = 'htmlspecialchars';
+        echo '<div class="pdf-addr-block">';
+        echo '<div class="pdf-info-label">' . $heading . '</div>';
+        /* Label chip */
+        if (!empty($a['label'])) {
+            echo '<div style="display:inline-block;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;background:#e2e8f0;color:#475569;padding:2px 7px;border-radius:3px;margin-bottom:6px;">' . $h($a['label']) . '</div>';
+        }
+        /* Company */
+        if (!empty($a['company'])) {
+            echo '<div style="font-size:13px;font-weight:700;color:#0f172a;margin-bottom:2px;">' . $h($a['company']) . '</div>';
+        }
+        /* Contact name */
+        if (!empty($a['contact'])) {
+            echo '<div style="font-size:12px;font-weight:600;color:#1e293b;margin-bottom:4px;">' . $h($a['contact']) . '</div>';
+        }
+        /* Street lines */
+        if (!empty($a['line1'])) {
+            echo '<div class="pdf-info-line">' . $h($a['line1']) . '</div>';
+        }
+        if (!empty($a['line2'])) {
+            echo '<div class="pdf-info-line">' . $h($a['line2']) . '</div>';
+        }
+        /* Landmark */
+        if (!empty($a['landmark'])) {
+            echo '<div class="pdf-info-line" style="color:#64748b;font-style:italic;">Near: ' . $h($a['landmark']) . '</div>';
+        }
+        /* City, State ZIP */
+        $csz = array_filter([$a['city'] ?? '', $a['state'] ?? '', $a['zip'] ?? '']);
+        if ($csz) {
+            echo '<div class="pdf-info-line">' . $h(implode(', ', $csz)) . '</div>';
+        }
+        /* Country */
+        if (!empty($a['country'])) {
+            echo '<div class="pdf-info-line" style="font-weight:600;color:#1e293b;">' . $h($a['country']) . '</div>';
+        }
+        /* Phone */
+        if (!empty($a['phone'])) {
+            echo '<div class="pdf-info-line" style="margin-top:5px;">&#128222; ' . $h($a['phone']) . '</div>';
+        }
+        /* Recipient section (delivery only) */
+        if ($showRecipient && (!empty($a['rcpt_name']) || !empty($a['rcpt_email']) || !empty($a['rcpt_phone']))) {
+            echo '<div style="margin-top:8px;padding-top:8px;border-top:1px dashed #e2e8f0;">';
+            echo '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#94a3b8;margin-bottom:4px;">Recipient</div>';
+            if (!empty($a['rcpt_name']))  echo '<div class="pdf-info-line" style="font-weight:600;">' . $h($a['rcpt_name']) . '</div>';
+            if (!empty($a['rcpt_email'])) echo '<div class="pdf-info-line">&#9993; ' . $h($a['rcpt_email']) . '</div>';
+            if (!empty($a['rcpt_phone'])) echo '<div class="pdf-info-line">&#128222; ' . $h($a['rcpt_phone']) . '</div>';
+            echo '</div>';
+        }
+        echo '</div>';
+    }
+
+    $hasDeliv = !empty(array_filter($delAddrObj));
+    $hasBil   = !empty(array_filter($bilAddrObj));
+  ?>
+  <?php if ($hasDeliv || $hasBil): ?>
   <div class="pdf-addr-row">
-    <?php if ($delAddr): ?>
-    <div class="pdf-addr-block">
-      <div class="pdf-info-label">Delivery Address</div>
-      <?php if (!empty($delName)): ?><div style="font-weight:600;font-size:12px;margin-bottom:2px;"><?= htmlspecialchars($delName) ?></div><?php endif; ?>
-      <?php if (!empty($delCo) && $delCo !== $delName): ?><div style="font-size:11px;color:#64748b;margin-bottom:2px;"><?= htmlspecialchars($delCo) ?></div><?php endif; ?>
-      <div class="pdf-info-line"><?= nl2br(htmlspecialchars($delAddr)) ?></div>
-    </div>
-    <?php endif; ?>
-    <?php if ($bilAddr): ?>
-    <div class="pdf-addr-block">
-      <div class="pdf-info-label">Billing Address</div>
-      <?php if (!empty($bilName)): ?><div style="font-weight:600;font-size:12px;margin-bottom:2px;"><?= htmlspecialchars($bilName) ?></div><?php endif; ?>
-      <?php if (!empty($bilCo) && $bilCo !== $bilName): ?><div style="font-size:11px;color:#64748b;margin-bottom:2px;"><?= htmlspecialchars($bilCo) ?></div><?php endif; ?>
-      <div class="pdf-info-line"><?= nl2br(htmlspecialchars($bilAddr)) ?></div>
-    </div>
-    <?php endif; ?>
+    <?php pdf_render_addr($delAddrObj, 'Delivery Address', true); ?>
+    <?php pdf_render_addr($bilAddrObj, 'Billing Address', false); ?>
   </div>
   <?php endif; ?>
 

@@ -2284,18 +2284,15 @@ class AdminController
     {
         try {
             return $this->db->select(
-                "SELECT ua.user_address_id, ua.user_id, ua.label,
-                        ua.user_name, ua.company_name,
-                        ua.address, ua.address_line_one, ua.address_line_two, ua.landmark,
-                        ua.city, ua.state, ua.zip,
-                        ua.country_id, ua.country, ua.eu_vat,
-                        ua.delivery_phone_no, ua.mobile_country_code,
-                        ua.recipient_name, ua.recipient_email, ua.recipient_contact,
-                        c.country AS country_name
-                 FROM tbl_user_address ua
-                 LEFT JOIN tbl_country c ON c.country_id = ua.country_id
-                 WHERE ua.user_id = ".$userId."
-                 ORDER BY ua.user_address_id ASC"
+                "SELECT user_address_id, user_id, label,
+                        user_name, company_name,
+                        address, address_line_one, address_line_two, landmark,
+                        city, state, zip, country,
+                        delivery_phone_no, mobile_country_code,
+                        recipient_name, recipient_email, recipient_contact
+                 FROM tbl_user_address
+                 WHERE user_id = ".$userId."
+                 ORDER BY user_address_id ASC"
             );
         } catch (Exception $e) { error_log('getUserAddressesForQuote: '.$e->getMessage()); return []; }
     }

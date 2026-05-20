@@ -618,14 +618,30 @@ class WebsiteController
         } catch (Exception $e) { error_log('getCompanyInfo: ' . $e->getMessage()); return null; }
     }
 
-    /* ── Quote: categories ──────────────────────────────────── */
+    /* ── Quote: categories (grouped by parent for optgroups) ── */
+    public function getCountries(): array
+    {
+        try {
+            return $this->dbHelper->select(
+                "SELECT country_id, country FROM tbl_country ORDER BY country ASC"
+            );
+        } catch (Exception $e) { return []; }
+    }
+
     public function getQuoteCategories(): array
     {
         try {
             return $this->dbHelper->select(
-                "SELECT product_category_id, product_category_name
-                 FROM tbl_product_category
-                 ORDER BY product_category_name ASC"
+                "SELECT c.product_category_id, c.product_category_name, c.parent_category_id,
+                        COALESCE(p.product_category_name, c.product_category_name) AS group_label
+                 FROM tbl_product_category c
+                 LEFT JOIN tbl_product_category p ON c.parent_category_id = p.product_category_id
+                 WHERE EXISTS (
+                     SELECT 1 FROM tbl_product tp
+                     WHERE tp.product_category_id = c.product_category_id
+                       AND tp.product_status = 'Active'
+                 )
+                 ORDER BY group_label ASC, c.product_category_name ASC"
             );
         } catch (Exception $e) { return []; }
     }
@@ -639,7 +655,7 @@ class WebsiteController
                 "SELECT p.product_id, p.product_name, p.product_code, p.product_amt,
                         p.total_product AS stock
                  FROM tbl_product p
-                 WHERE p.product_id > 0$w
+                 WHERE p.product_id > 0 AND p.product_status = 'Active'$w
                  ORDER BY p.product_name ASC"
             );
         } catch (Exception $e) { return []; }
@@ -651,130 +667,147 @@ class WebsiteController
         try {
             return $this->dbHelper->select(
                 "SELECT user_address_id, label, user_name, company_name,
+                        address AS address_extra,
                         address_line_one, address_line_two, landmark,
-                        city, state, zip, country, delivery_phone_no
+                        city, state, zip, country, country_id,
+                        delivery_phone_no, mobile_country_code,
+                        recipient_name, recipient_email, recipient_contact
                  FROM tbl_user_address
                  WHERE user_id = $userId
-                 ORDER BY user_address_id ASC"
+                 ORDER BY user_address_id DESC"
             );
         } catch (Exception $e) { return []; }
     }
 
-    /* ── Quote: save address ────────────────────────────────── */
-    public function saveDeliveryAddress(array $d): int
+    /* ── Address: save (insert) ─────────────────────────────── */
+    public function saveDeliveryAddress(array $d, int $userId): int
     {
         try {
-            $uid   = (int)($d['user_id']          ?? 0);
-            if ($uid <= 0) return 0;
-            $label = in_array($d['label'] ?? 'Home', ['Home','Office','Other']) ? $d['label'] : 'Home';
-            $uname = addslashes(trim($d['addr_name']    ?? ''));
-            $comp  = addslashes(trim($d['company_name'] ?? ''));
-            $phone = addslashes(trim($d['phone']        ?? ''));
-            $mcc   = (int)($d['phone_code'] ?? 49);
-            $line1 = addslashes(trim($d['address_line_one'] ?? ''));
-            $line2 = addslashes(trim($d['address_line_two'] ?? ''));
-            $lmk   = addslashes(trim($d['landmark']    ?? ''));
-            $city  = addslashes(trim($d['city']        ?? ''));
-            $state = addslashes(trim($d['state']       ?? ''));
-            $zip   = addslashes(trim($d['zip']         ?? ''));
-            $cntry = addslashes(trim($d['country']     ?? ''));
-            $cntId = (int)($d['country_id'] ?? 0);
+            if ($userId <= 0) return 0;
+            $label        = in_array($d['label'] ?? 'Home', ['Home','Office','Other']) ? ($d['label'] ?? 'Home') : 'Other';
+            $userName     = addslashes(trim($d['user_name']          ?? ''));
+            $company      = addslashes(trim($d['company_name']       ?? ''));
+            $phone        = addslashes(trim($d['delivery_phone_no']  ?? ''));
+            $mcc          = (int)($d['mobile_country_code']          ?? 0);
+            $line1        = addslashes(trim($d['address_line_one']   ?? ''));
+            $line2        = addslashes(trim($d['address_line_two']   ?? ''));
+            $lmk          = addslashes(trim($d['landmark']           ?? ''));
+            $city         = addslashes(trim($d['city']               ?? ''));
+            $state        = addslashes(trim($d['state']              ?? ''));
+            $zip          = addslashes(trim($d['zip']                ?? ''));
+            $country      = addslashes(trim($d['country']            ?? ''));
+            $countryId    = (float)($d['country_id']                 ?? 0);
+            $addrExtra    = addslashes(trim($d['address']            ?? ''));
+            $recipName    = addslashes(trim($d['recipient_name']     ?? ''));
+            $recipEmail   = addslashes(trim($d['recipient_email']    ?? ''));
+            $recipContact = addslashes(trim($d['recipient_contact']  ?? ''));
             $sql = "INSERT INTO tbl_user_address
                  (user_id, label, user_name, company_name, delivery_phone_no, mobile_country_code,
-                  address_line_one, address_line_two, landmark, city, state, zip, country_id, country)
-                 VALUES($uid,'$label','$uname','$comp','$phone',$mcc,
-                        '$line1','$line2','$lmk','$city','$state','$zip',$cntId,'$cntry')";
-            $newId = (int)$this->dbHelper->insert($sql);
-            return $newId;
+                  address_line_one, address_line_two, landmark,
+                  city, state, zip, country, country_id, address,
+                  recipient_name, recipient_email, recipient_contact)
+                 VALUES($userId,'$label','$userName','$company','$phone',$mcc,
+                        '$line1','$line2','$lmk','$city','$state','$zip','$country',$countryId,'$addrExtra',
+                        '$recipName','$recipEmail','$recipContact')";
+            return (int)$this->dbHelper->insert($sql);
         } catch (Exception $e) { error_log('saveDeliveryAddress: '.$e->getMessage()); return 0; }
     }
 
-    /* ── Quote: register new customer ──────────────────────── */
-    public function registerQuoteCustomer(array $d): int|string
+    /* ── Address: update ────────────────────────────────────── */
+    public function updateDeliveryAddress(int $addrId, array $d, int $userId): bool
     {
         try {
-            $name  = addslashes(trim($d['name']     ?? ''));
-            $email = addslashes(strtolower(trim($d['email'] ?? '')));
-            $phone = addslashes(trim($d['phone']    ?? ''));
-            $mcc   = (int)($d['phone_code'] ?? 49);
-            $comp  = addslashes(trim($d['company_name'] ?? ''));
-            $pwd   = trim($d['password'] ?? '');
-            if ($name === '' || $email === '') return 'missing_fields';
-            $dup = $this->dbHelper->select(
-                "SELECT user_id FROM tbl_user WHERE communication_email_id='$email' LIMIT 1"
-            );
-            if (!empty($dup)) return 'email_exists';
-            if ($pwd === '') $pwd = bin2hex(random_bytes(8));
-            $hash = addslashes(password_hash($pwd, PASSWORD_DEFAULT));
-            $sql  = "INSERT INTO tbl_user
-                 (user_type_id, name, communication_email_id, erp_password,
-                  communication_mobile_num_isd, communication_mobile_num, company_name,
-                  account_activation_flag, random_activation_key, verified_flag, is_pwd_updated)
-                 VALUES(2,'$name','$email','$hash',$mcc,'$phone','$comp',
-                        '1','".bin2hex(random_bytes(8))."','Yes',0)";
-            $newId = (int)$this->dbHelper->insert($sql);
-            return $newId > 0 ? $newId : 'insert_failed';
-        } catch (Exception $e) { error_log('registerQuoteCustomer: '.$e->getMessage()); return 'error'; }
+            if ($addrId <= 0 || $userId <= 0) return false;
+            $label        = in_array($d['label'] ?? 'Home', ['Home','Office','Other']) ? ($d['label'] ?? 'Home') : 'Other';
+            $userName     = addslashes(trim($d['user_name']          ?? ''));
+            $company      = addslashes(trim($d['company_name']       ?? ''));
+            $phone        = addslashes(trim($d['delivery_phone_no']  ?? ''));
+            $mcc          = (int)($d['mobile_country_code']          ?? 0);
+            $line1        = addslashes(trim($d['address_line_one']   ?? ''));
+            $line2        = addslashes(trim($d['address_line_two']   ?? ''));
+            $lmk          = addslashes(trim($d['landmark']           ?? ''));
+            $city         = addslashes(trim($d['city']               ?? ''));
+            $state        = addslashes(trim($d['state']              ?? ''));
+            $zip          = addslashes(trim($d['zip']                ?? ''));
+            $country      = addslashes(trim($d['country']            ?? ''));
+            $countryId    = (float)($d['country_id']                 ?? 0);
+            $addrExtra    = addslashes(trim($d['address']            ?? ''));
+            $recipName    = addslashes(trim($d['recipient_name']     ?? ''));
+            $recipEmail   = addslashes(trim($d['recipient_email']    ?? ''));
+            $recipContact = addslashes(trim($d['recipient_contact']  ?? ''));
+            $sql = "UPDATE tbl_user_address SET
+                     label='$label', user_name='$userName', company_name='$company',
+                     delivery_phone_no='$phone', mobile_country_code=$mcc,
+                     address_line_one='$line1', address_line_two='$line2', landmark='$lmk',
+                     city='$city', state='$state', zip='$zip',
+                     country='$country', country_id=$countryId, address='$addrExtra',
+                     recipient_name='$recipName', recipient_email='$recipEmail', recipient_contact='$recipContact'
+                    WHERE user_address_id=$addrId AND user_id=$userId";
+            $this->dbHelper->update($sql);
+            return true;
+        } catch (Exception $e) { error_log('updateDeliveryAddress: '.$e->getMessage()); return false; }
     }
 
-    /* ── Quote: submit full quotation ───────────────────────── */
-    public function submitCustomerQuote(array $d, int $loggedInUserId = 0): array
+    /* ── Address: delete ────────────────────────────────────── */
+    public function deleteDeliveryAddress(int $addrId, int $userId): bool
     {
         try {
+            if ($addrId <= 0 || $userId <= 0) return false;
+            $this->dbHelper->update(
+                "DELETE FROM tbl_user_address WHERE user_address_id=$addrId AND user_id=$userId"
+            );
+            return true;
+        } catch (Exception $e) { error_log('deleteDeliveryAddress: '.$e->getMessage()); return false; }
+    }
+
+    /* ── Quote: submit (authenticated users only) ───────────── */
+    public function submitCustomerQuote(array $d, int $userId): array
+    {
+        try {
+            if ($userId <= 0) return ['ok' => false, 'msg' => 'Authentication required.'];
+
             $products = $d['products'] ?? [];
-            if (empty($products)) return ['ok' => false, 'error' => 'No products provided.'];
+            if (empty($products)) return ['ok' => false, 'msg' => 'Please add at least one product.'];
 
-            /* Determine user */
-            $userId = $loggedInUserId;
-            if ($userId <= 0) {
-                $result = $this->registerQuoteCustomer($d);
-                if ($result === 'email_exists') {
-                    return ['ok' => false, 'error' => 'email_exists', 'msg' => 'This email is already registered. Please sign in to submit your quote.'];
-                }
-                if (!is_int($result) || $result <= 0) {
-                    return ['ok' => false, 'error' => 'register_failed', 'msg' => 'Could not create account. Please try again.'];
-                }
-                $userId = $result;
-                /* Auto-sign-in the new user */
-                $newUser = $this->dbHelper->select("SELECT * FROM tbl_user WHERE user_id=$userId LIMIT 1");
-                if (!empty($newUser)) {
-                    if (session_status() !== PHP_SESSION_ACTIVE) session_start();
-                    $_SESSION['sinelec_user'] = $this->mapUserRow($newUser[0]);
+            /* Save / resolve delivery address */
+            $deliveryAddrId = 0;
+            if (!empty($d['delivery_address_id'])) {
+                $deliveryAddrId = (int)$d['delivery_address_id'];
+            } elseif (!empty($d['new_delivery_address']) && is_array($d['new_delivery_address'])) {
+                $deliveryAddrId = $this->saveDeliveryAddress($d['new_delivery_address'], $userId);
+            }
+            if ($deliveryAddrId <= 0) return ['ok' => false, 'msg' => 'Please select or enter a delivery address.'];
+
+            /* Save / resolve billing address */
+            $billingAddrId = $deliveryAddrId;
+            if (empty($d['billing_same_as_delivery'])) {
+                if (!empty($d['billing_address_id'])) {
+                    $billingAddrId = (int)$d['billing_address_id'];
+                } elseif (!empty($d['new_billing_address']) && is_array($d['new_billing_address'])) {
+                    $billingAddrId = $this->saveDeliveryAddress($d['new_billing_address'], $userId);
                 }
             }
 
-            /* Save delivery address or use existing */
-            if (!empty($d['_use_existing_addr']) && (int)$d['_use_existing_addr'] > 0) {
-                $addrId = (int)$d['_use_existing_addr'];
-            } else {
-                $addrData = array_merge($d, ['user_id' => $userId]);
-                $addrId   = $this->saveDeliveryAddress($addrData);
-            }
-
-            /* Calculate totals */
-            $subtotal = 0;
+            /* Calculate total */
+            $totalAmt = 0;
             foreach ($products as $p) {
-                $subtotal += (float)($p['price'] ?? 0) * (int)($p['qty'] ?? 0);
+                $totalAmt += (float)($p['price'] ?? 0) * (int)($p['qty'] ?? 0);
             }
-            $totalAmt = round($subtotal, 2);
+            $totalAmt = round($totalAmt, 2);
 
-            /* Insert quote header */
-            $uname = addslashes(trim($d['name']         ?? ''));
-            $uemail= addslashes(trim($d['email']        ?? ''));
-            $uphone= addslashes(trim($d['phone']        ?? ''));
-            $ucomp = addslashes(trim($d['company_name'] ?? ''));
-            $notes = addslashes(trim($d['notes']        ?? ''));
+            $vatNum = addslashes(trim($d['vat_number'] ?? ''));
+            $remark = addslashes(trim($d['notes']      ?? ''));
+
             $sql = "INSERT INTO tbl_enquiry_quote
-                 (user_id, user_address_id, billing_address_id, user_name, user_email, user_phone, company_name,
+                 (user_id, user_address_id, billing_address_id, vat_number,
                   enquiry_status, enquiry_vat_amt, enquiry_shipping_amt, enquiry_total_amt,
-                  discount_percentage, discount_amt, customer_order_no, customer_supplier_no,
-                  vat_number, order_id, remark)
-                 VALUES($userId, $addrId, $addrId, '$uname', '$uemail', '$uphone', '$ucomp',
-                  'Quotation Pending', 0, 0, $totalAmt, 0, 0, '', '', '', 0, '$notes')";
+                  discount_percentage, discount_amt, customer_order_no, customer_supplier_no, remark)
+                 VALUES($userId, $deliveryAddrId, $billingAddrId, '$vatNum',
+                  'Quotation Pending', 0, 0, $totalAmt, 0, 0, '', '', '$remark')";
             $qid = (int)$this->dbHelper->insert($sql);
-            if ($qid <= 0) return ['ok' => false, 'error' => 'quote_insert_failed', 'msg' => 'Failed to save quotation.'];
+            if ($qid <= 0) return ['ok' => false, 'msg' => 'Failed to save quotation. Please try again.'];
 
-            /* Insert quote products */
+            /* Insert products */
             foreach ($products as $p) {
                 $catId  = (int)($p['cat_id']  ?? 0);
                 $prodId = (int)($p['prod_id'] ?? 0);
@@ -788,124 +821,501 @@ class WebsiteController
                 );
             }
 
-            /* Send confirmation emails */
+            /* ── Send confirmation emails (non-fatal) ─────────── */
             try {
-                $company = $this->getCompanyInfo();
-                $supportEmail = trim((string)($company->SUPPORT_MAIL_ID ?? ''));
-                $companyName  = trim((string)($company->COMPANY_NAME    ?? 'Sinelec Tech'));
+                $co           = $this->getCompanyInfo();
+                $supportEmail = trim((string)($co->SUPPORT_MAIL_ID ?? ''));
+                $companyName  = trim((string)($co->COMPANY_NAME    ?? 'Sinelec Technologies'));
+                $coPhone      = trim((string)($co->CONTACT_NUMBER  ?? ''));
+                $coEmail      = trim((string)($co->EMAIL           ?? ''));
+                $coAddr       = trim((string)($co->ADDRESS         ?? ''));
 
-                /* Build product rows for email */
-                $prodRows = '';
+                /* Build absolute logo URL */
+                $siteProto  = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+                $siteHost   = $_SERVER['HTTP_HOST'] ?? 'sinelec-tech.com';
+                $siteBase   = $siteProto . '://' . $siteHost;
+                $rawLogo    = trim((string)($co->LOGO ?? ''));
+                $logoUrl    = ($rawLogo !== '')
+                    ? ((strpos($rawLogo, 'http') === 0) ? $rawLogo : $siteBase . '/' . ltrim($rawLogo, '/'))
+                    : $siteBase . '/assets/logo.png';
+
+                /* User info from DB */
+                $uRow   = $this->dbHelper->select(
+                    "SELECT name, communication_email_id, communication_mobile_num,
+                            communication_mobile_num_isd, company_name
+                     FROM tbl_user WHERE user_id=$userId LIMIT 1"
+                );
+                $uName  = !empty($uRow) ? trim((string)($uRow[0]->NAME                       ?? '')) : '';
+                $uEmail = !empty($uRow) ? trim((string)($uRow[0]->COMMUNICATION_EMAIL_ID      ?? '')) : '';
+                $uPhone = !empty($uRow) ? trim((string)($uRow[0]->COMMUNICATION_MOBILE_NUM    ?? '')) : '';
+                $uIsd   = !empty($uRow) ? trim((string)($uRow[0]->COMMUNICATION_MOBILE_NUM_ISD?? '')) : '';
+                $uComp  = !empty($uRow) ? trim((string)($uRow[0]->COMPANY_NAME               ?? '')) : '';
+                $uPhoneFull = ($uIsd !== '' && $uPhone !== '') ? '+' . ltrim($uIsd, '+') . ' ' . $uPhone : $uPhone;
+
+                /* Delivery address details */
+                $dAddr = $this->dbHelper->select(
+                    "SELECT label, user_name, company_name, delivery_phone_no, mobile_country_code,
+                            address_line_one, address_line_two, landmark,
+                            city, state, zip, country,
+                            recipient_name, recipient_email, recipient_contact
+                     FROM tbl_user_address WHERE user_address_id=$deliveryAddrId LIMIT 1"
+                );
+                $dA = !empty($dAddr) ? $dAddr[0] : null;
+                $recipEmail = $dA ? trim((string)($dA->RECIPIENT_EMAIL ?? '')) : '';
+
+                /* Product rows + pricing */
+                $prodItems  = [];
                 $grandTotal = 0;
                 foreach ($products as $p) {
-                    $lineTotal   = (float)($p['price'] ?? 0) * (int)($p['qty'] ?? 0);
-                    $grandTotal += $lineTotal;
-                    $prodRows   .= '<tr style="border-bottom:1px solid #e2e8f0;">'
-                                 . '<td style="padding:8px 12px;font-size:13px;color:#1e293b;">' . (int)($p['prod_id'] ?? 0) . '</td>'
-                                 . '<td style="padding:8px 12px;font-size:13px;color:#1e293b;">' . (int)($p['qty'] ?? 0) . '</td>'
-                                 . '<td style="padding:8px 12px;font-size:13px;color:#1e293b;">€' . number_format((float)($p['price'] ?? 0), 2) . '</td>'
-                                 . '<td style="padding:8px 12px;font-size:13px;font-weight:700;color:#1d4ed8;">€' . number_format($lineTotal, 2) . '</td>'
-                                 . '</tr>';
+                    $pid   = (int)($p['prod_id'] ?? 0);
+                    $pRow  = $this->dbHelper->select(
+                        "SELECT product_name, product_code FROM tbl_product WHERE product_id=$pid LIMIT 1"
+                    );
+                    $pName = !empty($pRow) ? trim((string)($pRow[0]->PRODUCT_NAME ?? "Product #$pid")) : "Product #$pid";
+                    $pCode = !empty($pRow) ? trim((string)($pRow[0]->PRODUCT_CODE ?? '')) : '';
+                    $qty   = (int)($p['qty']   ?? 0);
+                    $price = (float)($p['price'] ?? 0);
+                    $lt    = round($price * $qty, 2);
+                    $grandTotal += $lt;
+                    $prodItems[] = compact('pName', 'pCode', 'qty', 'price', 'lt');
+                }
+                $grandTotal   = round($grandTotal, 2);
+                $vatAmt       = round($grandTotal * 0.18, 2);
+                $vatRebate    = (stripslashes($vatNum) !== '') ? $vatAmt : 0;
+                $estimatedTotal = round($grandTotal + $vatAmt - $vatRebate, 2);
+
+                /* Dispatch emails */
+                $mailBatch = [];
+
+                /* 1 ── Customer (logged-in user) */
+                if ($uEmail !== '' && filter_var($uEmail, FILTER_VALIDATE_EMAIL)) {
+                    $mailBatch[] = [
+                        'to_mail_id' => $uEmail,
+                        'subject'    => 'Quote Request #' . $qid . ' Received — ' . $companyName,
+                        'body'       => $this->buildQuoteEmailHtml([
+                            'type'           => 'customer',
+                            'qid'            => $qid,
+                            'greeting'       => 'Hi ' . ($uName ?: 'there') . ',',
+                            'intro'          => 'Thank you for submitting your quote request. Our sales team will review it and get back to you within <strong>24 business hours</strong> with a detailed, revised quotation.',
+                            'prod_items'     => $prodItems,
+                            'grand_total'    => $grandTotal,
+                            'vat_amt'        => $vatAmt,
+                            'vat_rebate'     => $vatRebate,
+                            'estimated_total'=> $estimatedTotal,
+                            'vat_number'     => stripslashes($vatNum),
+                            'notes'          => stripslashes($remark),
+                            'delivery_addr'  => $dA,
+                            'company_name'   => $companyName,
+                            'logo_url'       => $logoUrl,
+                            'co_phone'       => $coPhone,
+                            'co_email'       => $coEmail,
+                            'co_addr'        => $coAddr,
+                            'site_base'      => $siteBase,
+                        ]),
+                    ];
                 }
 
-                /* Fetch product names for better email body */
-                $prodNameRows = '';
-                foreach ($products as $p) {
-                    $pid = (int)($p['prod_id'] ?? 0);
-                    if ($pid <= 0) continue;
-                    $row = $this->dbHelper->select("SELECT product_name, product_code FROM tbl_product WHERE product_id=$pid LIMIT 1");
-                    $pname = !empty($row) ? (string)($row[0]->PRODUCT_NAME ?? "Product #$pid") : "Product #$pid";
-                    $pcode = !empty($row) ? (string)($row[0]->PRODUCT_CODE ?? '') : '';
-                    $lineTotal = (float)($p['price'] ?? 0) * (int)($p['qty'] ?? 0);
-                    $prodNameRows .= '<tr style="border-bottom:1px solid #e2e8f0;">'
-                                   . '<td style="padding:8px 12px;font-size:13px;color:#1e293b;">' . htmlspecialchars($pname) . ($pcode ? ' <span style="color:#64748b;">[' . htmlspecialchars($pcode) . ']</span>' : '') . '</td>'
-                                   . '<td style="padding:8px 12px;font-size:13px;color:#1e293b;text-align:center;">' . (int)($p['qty'] ?? 0) . '</td>'
-                                   . '<td style="padding:8px 12px;font-size:13px;color:#1e293b;text-align:right;">€' . number_format((float)($p['price'] ?? 0), 2) . '</td>'
-                                   . '<td style="padding:8px 12px;font-size:13px;font-weight:700;color:#1d4ed8;text-align:right;">€' . number_format($lineTotal, 2) . '</td>'
-                                   . '</tr>';
+                /* 2 ── Delivery recipient (only if valid and different from customer) */
+                if ($recipEmail !== ''
+                    && filter_var($recipEmail, FILTER_VALIDATE_EMAIL)
+                    && strtolower($recipEmail) !== strtolower($uEmail)
+                ) {
+                    $recipName = $dA ? trim((string)($dA->RECIPIENT_NAME ?? '')) : '';
+                    $mailBatch[] = [
+                        'to_mail_id' => $recipEmail,
+                        'subject'    => 'An Order Has Been Arranged for Your Delivery — Quote #' . $qid,
+                        'body'       => $this->buildQuoteEmailHtml([
+                            'type'           => 'recipient',
+                            'qid'            => $qid,
+                            'greeting'       => 'Dear ' . ($recipName ?: 'Recipient') . ',',
+                            'intro'          => 'Please be informed that a product order has been arranged and will be delivered to your address. Below is a summary of the items requested.',
+                            'prod_items'     => $prodItems,
+                            'grand_total'    => $grandTotal,
+                            'vat_amt'        => $vatAmt,
+                            'vat_rebate'     => $vatRebate,
+                            'estimated_total'=> $estimatedTotal,
+                            'vat_number'     => '',
+                            'notes'          => '',
+                            'delivery_addr'  => $dA,
+                            'company_name'   => $companyName,
+                            'logo_url'       => $logoUrl,
+                            'co_phone'       => $coPhone,
+                            'co_email'       => $coEmail,
+                            'co_addr'        => $coAddr,
+                            'site_base'      => $siteBase,
+                        ]),
+                    ];
                 }
 
-                $tableHeader = '<tr style="background:#f1f5f9;">'
-                             . '<th style="padding:8px 12px;font-size:11px;text-align:left;color:#64748b;text-transform:uppercase;letter-spacing:.5px;">Product</th>'
-                             . '<th style="padding:8px 12px;font-size:11px;text-align:center;color:#64748b;text-transform:uppercase;letter-spacing:.5px;">Qty</th>'
-                             . '<th style="padding:8px 12px;font-size:11px;text-align:right;color:#64748b;text-transform:uppercase;letter-spacing:.5px;">Unit Price</th>'
-                             . '<th style="padding:8px 12px;font-size:11px;text-align:right;color:#64748b;text-transform:uppercase;letter-spacing:.5px;">Total</th>'
-                             . '</tr>';
-
-                $prodTable = '<table style="width:100%;border-collapse:collapse;margin:16px 0;">'
-                           . $tableHeader . $prodNameRows
-                           . '<tr><td colspan="3" style="padding:8px 12px;font-size:13px;font-weight:700;text-align:right;color:#0f172a;">Subtotal</td>'
-                           . '<td style="padding:8px 12px;font-size:14px;font-weight:800;color:#1d4ed8;text-align:right;">€' . number_format($grandTotal, 2) . '</td></tr>'
-                           . '</table>';
-
-                $notesHtml = $d['notes'] ?? '' ? '<p style="margin:12px 0 0;font-size:13px;color:#374151;"><strong>Notes:</strong> ' . htmlspecialchars($d['notes'] ?? '') . '</p>' : '';
-
-                /* ── Customer confirmation email ── */
-                $custEmail = trim($d['email'] ?? '');
-                $custName  = trim($d['name']  ?? '');
-                if ($custEmail && filter_var($custEmail, FILTER_VALIDATE_EMAIL)) {
-                    $custBody = '<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f0f4f8;font-family:Arial,sans-serif;">'
-                              . '<div style="max-width:600px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.08);">'
-                              . '<div style="background:linear-gradient(135deg,#0f172a,#1e3a5f);padding:28px 32px;">'
-                              . '<h2 style="margin:0;color:#fff;font-size:20px;">Quote Request Received</h2>'
-                              . '<p style="margin:6px 0 0;color:rgba(255,255,255,.7);font-size:13px;">Reference: <strong>#' . $qid . '</strong></p>'
-                              . '</div>'
-                              . '<div style="padding:28px 32px;">'
-                              . '<p style="margin:0 0 16px;font-size:14px;color:#374151;">Hi <strong>' . htmlspecialchars($custName ?: 'there') . '</strong>,</p>'
-                              . '<p style="margin:0 0 16px;font-size:14px;color:#374151;">Thank you for your quote request. We have received the following items and our team will respond within <strong>24 hours</strong>.</p>'
-                              . $prodTable
-                              . $notesHtml
-                              . '<p style="margin:24px 0 0;font-size:13px;color:#64748b;">If you have any urgent requirements, feel free to reach out to us directly.</p>'
-                              . '</div>'
-                              . '<div style="padding:16px 32px;background:#f8fafc;border-top:1px solid #e2e8f0;">'
-                              . '<p style="margin:0;font-size:12px;color:#94a3b8;">© ' . date('Y') . ' ' . htmlspecialchars($companyName) . '. All rights reserved.</p>'
-                              . '</div></div></body></html>';
-
-                    sinelec_send_mail([[
-                        'to_mail_id' => $custEmail,
-                        'subject'    => 'Quote Request Received — Reference #' . $qid . ' | ' . $companyName,
-                        'body'       => $custBody,
-                    ]]);
-                }
-
-                /* ── Support / admin notification email ── */
-                if ($supportEmail && filter_var($supportEmail, FILTER_VALIDATE_EMAIL)) {
-                    $adminBody = '<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f0f4f8;font-family:Arial,sans-serif;">'
-                               . '<div style="max-width:600px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.08);">'
-                               . '<div style="background:linear-gradient(135deg,#1d4ed8,#2563eb);padding:28px 32px;">'
-                               . '<h2 style="margin:0;color:#fff;font-size:20px;">New Quote Request</h2>'
-                               . '<p style="margin:6px 0 0;color:rgba(255,255,255,.8);font-size:13px;">Reference: <strong>#' . $qid . '</strong></p>'
-                               . '</div>'
-                               . '<div style="padding:28px 32px;">'
-                               . '<table style="width:100%;border-collapse:collapse;margin-bottom:20px;">'
-                               . '<tr><td style="padding:6px 0;font-size:13px;color:#64748b;width:120px;">Customer</td><td style="padding:6px 0;font-size:13px;font-weight:600;color:#0f172a;">' . htmlspecialchars($uname ?: 'N/A') . '</td></tr>'
-                               . '<tr><td style="padding:6px 0;font-size:13px;color:#64748b;">Email</td><td style="padding:6px 0;font-size:13px;color:#2563eb;">' . htmlspecialchars($uemail ?: 'N/A') . '</td></tr>'
-                               . '<tr><td style="padding:6px 0;font-size:13px;color:#64748b;">Phone</td><td style="padding:6px 0;font-size:13px;color:#0f172a;">' . htmlspecialchars($uphone ?: 'N/A') . '</td></tr>'
-                               . ($ucomp ? '<tr><td style="padding:6px 0;font-size:13px;color:#64748b;">Company</td><td style="padding:6px 0;font-size:13px;color:#0f172a;">' . htmlspecialchars($ucomp) . '</td></tr>' : '')
-                               . '</table>'
-                               . $prodTable
-                               . $notesHtml
-                               . '</div>'
-                               . '<div style="padding:16px 32px;background:#f8fafc;border-top:1px solid #e2e8f0;">'
-                               . '<p style="margin:0;font-size:12px;color:#94a3b8;">Submitted on ' . date('d M Y, H:i') . '</p>'
-                               . '</div></div></body></html>';
-
-                    sinelec_send_mail([[
+                /* 3 ── Sales team */
+                if ($supportEmail !== '' && filter_var($supportEmail, FILTER_VALIDATE_EMAIL)) {
+                    $mailBatch[] = [
                         'to_mail_id' => $supportEmail,
-                        'subject'    => 'New Quote Request #' . $qid . ' from ' . ($uname ?: $uemail),
-                        'body'       => $adminBody,
-                    ]]);
+                        'subject'    => '[New Quote #' . $qid . '] ' . ($uName ?: $uEmail) . ' — ' . count($prodItems) . ' item(s) — €' . number_format($estimatedTotal, 2),
+                        'body'       => $this->buildQuoteEmailHtml([
+                            'type'           => 'admin',
+                            'qid'            => $qid,
+                            'greeting'       => 'New Quote Request — #' . $qid,
+                            'intro'          => 'A new quotation has been submitted via the website. Full details are below.',
+                            'prod_items'     => $prodItems,
+                            'grand_total'    => $grandTotal,
+                            'vat_amt'        => $vatAmt,
+                            'vat_rebate'     => $vatRebate,
+                            'estimated_total'=> $estimatedTotal,
+                            'vat_number'     => stripslashes($vatNum),
+                            'notes'          => stripslashes($remark),
+                            'delivery_addr'  => $dA,
+                            'customer'       => [
+                                'name'    => $uName,
+                                'email'   => $uEmail,
+                                'phone'   => $uPhoneFull,
+                                'company' => $uComp,
+                            ],
+                            'company_name'   => $companyName,
+                            'logo_url'       => $logoUrl,
+                            'co_phone'       => $coPhone,
+                            'co_email'       => $coEmail,
+                            'co_addr'        => $coAddr,
+                            'site_base'      => $siteBase,
+                        ]),
+                    ];
                 }
+
+                if (!empty($mailBatch)) {
+                    sinelec_send_mail($mailBatch);
+                }
+
             } catch (\Throwable $mailErr) {
-                error_log('submitCustomerQuote mail error: ' . $mailErr->getMessage());
-                /* Don't fail the whole request if mail errors */
+                error_log('submitCustomerQuote mail: ' . $mailErr->getMessage());
             }
 
-            return ['ok' => true, 'quote_id' => $qid, 'user_id' => $userId];
+            return ['ok' => true, 'quote_id' => $qid];
         } catch (Exception $e) {
-            error_log('submitCustomerQuote: '.$e->getMessage());
-            return ['ok' => false, 'error' => 'exception', 'msg' => 'Something went wrong. Please try again.'];
+            error_log('submitCustomerQuote: ' . $e->getMessage());
+            return ['ok' => false, 'msg' => 'Something went wrong. Please try again.'];
         }
+    }
+
+    /* ── Update user profile details ────────────────────────── */
+    public function updateUserDetails(int $userId, string $name, string $phone, string $isd, string $company): void
+    {
+        try {
+            if ($userId <= 0) return;
+            $n = addslashes($name);
+            $p = addslashes($phone);
+            $i = addslashes($isd);
+            $c = addslashes($company);
+            $this->dbHelper->update(
+                "UPDATE tbl_user SET name='$n', communication_mobile_num='$p', communication_mobile_num_isd='$i', company_name='$c' WHERE user_id=$userId"
+            );
+        } catch (Exception $e) { error_log('updateUserDetails: ' . $e->getMessage()); }
+    }
+
+    /* ── Get all quotes for a customer (with products) ─────── */
+    public function getCustomerQuotes(int $userId): array
+    {
+        try {
+            if ($userId <= 0) return [];
+            $quotes = $this->dbHelper->select(
+                "SELECT enquiry_quote_id, enquiry_date, enquiry_status,
+                        enquiry_total_amt, enquiry_vat_amt, enquiry_shipping_amt,
+                        vat_number, remark
+                 FROM tbl_enquiry_quote
+                 WHERE user_id = $userId
+                 ORDER BY enquiry_quote_id DESC"
+            );
+            foreach ($quotes as $q) {
+                $qid = (int)(float)($q->ENQUIRY_QUOTE_ID ?? 0);
+                $q->products = $this->dbHelper->select(
+                    "SELECT eqp.product_quantity, eqp.product_amt, eqp.product_discount_pct,
+                            p.product_name, p.product_code
+                     FROM tbl_enquiry_quote_product eqp
+                     LEFT JOIN tbl_product p ON p.product_id = eqp.product_id
+                     WHERE eqp.enquiry_quote_id = $qid
+                     ORDER BY eqp.enquiry_quote_product_id ASC"
+                );
+            }
+            return $quotes;
+        } catch (Exception $e) { error_log('getCustomerQuotes: ' . $e->getMessage()); return []; }
+    }
+
+    /* ── Build responsive HTML email for quote notifications ─── */
+    private function buildQuoteEmailHtml(array $o): string
+    {
+        $e    = 'htmlspecialchars';   /* shorthand */
+        $type = $o['type'] ?? 'customer';   /* customer | recipient | admin */
+        $qid  = (int)($o['qid'] ?? 0);
+
+        /* Header gradient by audience */
+        $gradients = [
+            'customer'  => 'linear-gradient(135deg,#0f172a 0%,#1e3a5f 100%)',
+            'recipient' => 'linear-gradient(135deg,#064e3b 0%,#065f46 100%)',
+            'admin'     => 'linear-gradient(135deg,#1e40af 0%,#2563eb 100%)',
+        ];
+        $headerGrad = $gradients[$type] ?? $gradients['customer'];
+
+        $companyName = $e($o['company_name'] ?? 'Sinelec Technologies');
+        $logoUrl     = $o['logo_url']  ?? '';
+        $coPhone     = $e($o['co_phone']  ?? '');
+        $coEmail     = $e($o['co_email']  ?? '');
+        $coAddr      = $e($o['co_addr']   ?? '');
+        $siteBase    = rtrim($o['site_base'] ?? '', '/');
+
+        /* ── Product table ─────────────────────────────────── */
+        $prodRows = '';
+        foreach (($o['prod_items'] ?? []) as $idx => $p) {
+            $bg = ($idx % 2 === 0) ? '#ffffff' : '#f8fafc';
+            $prodRows .= '<tr style="background:' . $bg . ';">'
+                . '<td style="padding:10px 14px;font-size:13px;color:#1e293b;border-bottom:1px solid #e2e8f0;">'
+                    . $e($p['pName'])
+                    . ($p['pCode'] !== '' ? ' <span style="color:#94a3b8;font-size:11px;">[' . $e($p['pCode']) . ']</span>' : '')
+                . '</td>'
+                . '<td style="padding:10px 14px;font-size:13px;text-align:center;border-bottom:1px solid #e2e8f0;color:#475569;">' . (int)$p['qty'] . '</td>'
+                . '<td style="padding:10px 14px;font-size:13px;text-align:right;border-bottom:1px solid #e2e8f0;color:#475569;">€' . number_format((float)$p['price'], 2) . '</td>'
+                . '<td style="padding:10px 14px;font-size:13px;font-weight:700;text-align:right;border-bottom:1px solid #e2e8f0;color:#1d4ed8;">€' . number_format((float)$p['lt'], 2) . '</td>'
+                . '</tr>';
+        }
+        $grandTotal    = (float)($o['grand_total']     ?? 0);
+        $vatAmt        = (float)($o['vat_amt']         ?? 0);
+        $vatRebate     = (float)($o['vat_rebate']      ?? 0);
+        $estimatedTotal= (float)($o['estimated_total'] ?? $grandTotal);
+        $vatNumber     = trim($o['vat_number'] ?? '');
+        $hasRebate     = ($vatRebate > 0 && $vatNumber !== '');
+
+        $pricingRows = '<tr style="background:#f1f5f9;">'
+            . '<td colspan="3" style="padding:9px 14px;font-size:12px;font-weight:700;text-align:right;color:#64748b;text-transform:uppercase;letter-spacing:.5px;">Subtotal</td>'
+            . '<td style="padding:9px 14px;font-size:13px;font-weight:700;text-align:right;color:#374151;">€' . number_format($grandTotal, 2) . '</td>'
+            . '</tr>'
+            . '<tr style="background:#f1f5f9;">'
+            . '<td colspan="3" style="padding:9px 14px;font-size:12px;font-weight:700;text-align:right;color:#64748b;text-transform:uppercase;letter-spacing:.5px;">VAT (18%)</td>'
+            . '<td style="padding:9px 14px;font-size:13px;font-weight:700;text-align:right;color:#374151;">€' . number_format($vatAmt, 2) . '</td>'
+            . '</tr>';
+        if ($hasRebate) {
+            $pricingRows .= '<tr style="background:#f0fdf4;">'
+                . '<td colspan="3" style="padding:9px 14px;font-size:12px;font-weight:700;text-align:right;color:#15803d;text-transform:uppercase;letter-spacing:.5px;">VAT Rebate (−18%)</td>'
+                . '<td style="padding:9px 14px;font-size:13px;font-weight:700;text-align:right;color:#15803d;">−€' . number_format($vatRebate, 2) . '</td>'
+                . '</tr>';
+        }
+        $pricingRows .= '<tr style="background:#eff6ff;">'
+            . '<td colspan="3" style="padding:11px 14px;font-size:13px;font-weight:800;text-align:right;color:#1e40af;">ESTIMATED TOTAL</td>'
+            . '<td style="padding:11px 14px;font-size:15px;font-weight:800;text-align:right;color:#1d4ed8;">€' . number_format($estimatedTotal, 2) . '</td>'
+            . '</tr>';
+
+        $prodTable = '<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:0;border-radius:8px;overflow:hidden;border:1px solid #e2e8f0;">'
+            . '<tr style="background:#1e293b;">'
+            . '<th style="padding:10px 14px;font-size:11px;font-weight:700;text-align:left;color:#94a3b8;text-transform:uppercase;letter-spacing:.6px;">Product</th>'
+            . '<th style="padding:10px 14px;font-size:11px;font-weight:700;text-align:center;color:#94a3b8;text-transform:uppercase;letter-spacing:.6px;">Qty</th>'
+            . '<th style="padding:10px 14px;font-size:11px;font-weight:700;text-align:right;color:#94a3b8;text-transform:uppercase;letter-spacing:.6px;">Unit&nbsp;Price</th>'
+            . '<th style="padding:10px 14px;font-size:11px;font-weight:700;text-align:right;color:#94a3b8;text-transform:uppercase;letter-spacing:.6px;">Line&nbsp;Total</th>'
+            . '</tr>'
+            . $prodRows
+            . $pricingRows
+            . '</table>';
+
+        /* ── Delivery address block (all fields) ───────────── */
+        $dA       = $o['delivery_addr'] ?? null;
+        $addrHtml = '';
+        if ($dA) {
+            $dCompany  = trim((string)($dA->COMPANY_NAME    ?? ''));
+            $dContact  = trim((string)($dA->USER_NAME       ?? ''));
+            $dLine1    = trim((string)($dA->ADDRESS_LINE_ONE ?? ''));
+            $dLine2    = trim((string)($dA->ADDRESS_LINE_TWO ?? ''));
+            /* fall back to combined `address` field if line1 empty */
+            if ($dLine1 === '') $dLine1 = trim((string)($dA->ADDRESS ?? ''));
+            $dLandmark = trim((string)($dA->LANDMARK         ?? ''));
+            $dCity     = trim((string)($dA->CITY             ?? ''));
+            $dState    = trim((string)($dA->STATE            ?? ''));
+            $dZip      = trim((string)($dA->ZIP              ?? ''));
+            $dCountry  = trim((string)($dA->COUNTRY          ?? ''));
+            $dMcc      = (int)($dA->MOBILE_COUNTRY_CODE      ?? 0);
+            $dPhone    = trim((string)($dA->DELIVERY_PHONE_NO ?? ''));
+            $dPhoneFmt = $dPhone !== '' ? ($dMcc > 0 ? '+' . $dMcc . ' ' . $dPhone : $dPhone) : '';
+            $dRcptName = trim((string)($dA->RECIPIENT_NAME   ?? ''));
+            $dRcptEmail= trim((string)($dA->RECIPIENT_EMAIL  ?? ''));
+            $dRcptPhone= trim((string)($dA->RECIPIENT_CONTACT ?? ''));
+            $dLabel    = trim((string)($dA->LABEL            ?? ''));
+            $csz       = implode(', ', array_filter([$dCity, $dState, $dZip]));
+
+            $addrHtml = '<div style="margin-top:24px;">'
+                . '<h3 style="margin:0 0 12px;font-size:13px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid #e2e8f0;padding-bottom:8px;">Delivery Address</h3>'
+                . '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px 18px;">';
+            if ($dLabel !== '') {
+                $addrHtml .= '<div style="display:inline-block;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;background:#e2e8f0;color:#475569;padding:2px 8px;border-radius:3px;margin-bottom:8px;">' . $e($dLabel) . '</div>';
+            }
+            if ($dCompany !== '') $addrHtml .= '<div style="font-size:14px;font-weight:700;color:#0f172a;margin-bottom:2px;">' . $e($dCompany) . '</div>';
+            if ($dContact !== '') $addrHtml .= '<div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:6px;">' . $e($dContact) . '</div>';
+            if ($dLine1   !== '') $addrHtml .= '<div style="font-size:13px;color:#475569;">' . $e($dLine1) . '</div>';
+            if ($dLine2   !== '') $addrHtml .= '<div style="font-size:13px;color:#475569;">' . $e($dLine2) . '</div>';
+            if ($dLandmark!== '') $addrHtml .= '<div style="font-size:12px;color:#64748b;font-style:italic;">Near: ' . $e($dLandmark) . '</div>';
+            if ($csz      !== '') $addrHtml .= '<div style="font-size:13px;color:#475569;">' . $e($csz) . '</div>';
+            if ($dCountry !== '') $addrHtml .= '<div style="font-size:13px;font-weight:600;color:#1e293b;">' . $e($dCountry) . '</div>';
+            if ($dPhoneFmt!== '') $addrHtml .= '<div style="font-size:13px;color:#475569;margin-top:6px;">&#128222; ' . $e($dPhoneFmt) . '</div>';
+            /* Recipient details */
+            if ($dRcptName !== '' || $dRcptEmail !== '' || $dRcptPhone !== '') {
+                $addrHtml .= '<div style="margin-top:10px;padding-top:10px;border-top:1px dashed #e2e8f0;">'
+                    . '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#94a3b8;margin-bottom:4px;">Recipient</div>';
+                if ($dRcptName  !== '') $addrHtml .= '<div style="font-size:13px;font-weight:600;color:#1e293b;">'     . $e($dRcptName) . '</div>';
+                if ($dRcptEmail !== '') $addrHtml .= '<div style="font-size:12px;color:#475569;">&#9993; '              . $e($dRcptEmail) . '</div>';
+                if ($dRcptPhone !== '') $addrHtml .= '<div style="font-size:12px;color:#475569;">&#128222; '            . $e($dRcptPhone) . '</div>';
+                $addrHtml .= '</div>';
+            }
+            $addrHtml .= '</div></div>';
+        }
+
+        /* ── Notes ─────────────────────────────────────────── */
+        $notes    = trim($o['notes'] ?? '');
+        $notesHtml = $notes !== '' ? '<div style="margin-top:20px;padding:14px 16px;background:#fffbeb;border-left:3px solid #f59e0b;border-radius:0 6px 6px 0;">'
+            . '<p style="margin:0;font-size:13px;color:#92400e;"><strong>Additional Notes:</strong><br>' . $e($notes) . '</p>'
+            . '</div>' : '';
+
+        /* ── VAT number notice (customer / admin only) ──────── */
+        $vatHtml = ($vatNumber !== '' && $type !== 'recipient')
+            ? '<div style="margin-top:16px;padding:10px 14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;font-size:13px;color:#166534;">'
+              . '&#10003; VAT / Tax Number provided: <strong>' . $e($vatNumber) . '</strong> — VAT rebate applied.'
+              . '</div>'
+            : '';
+
+        /* ── Customer info panel (admin only) ──────────────── */
+        $customerPanel = '';
+        if ($type === 'admin' && !empty($o['customer'])) {
+            $c = $o['customer'];
+            $customerPanel = '<div style="margin-bottom:24px;">'
+                . '<h3 style="margin:0 0 12px;font-size:13px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid #e2e8f0;padding-bottom:8px;">Customer Details</h3>'
+                . '<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">';
+            $rows = [
+                ['Name',    $c['name']    ?? ''],
+                ['Email',   $c['email']   ?? ''],
+                ['Phone',   $c['phone']   ?? ''],
+                ['Company', $c['company'] ?? ''],
+            ];
+            foreach ($rows as $idx => [$label, $val]) {
+                if ($val === '') continue;
+                $bg = ($idx % 2 === 0) ? '#f8fafc' : '#ffffff';
+                $customerPanel .= '<tr style="background:' . $bg . ';">'
+                    . '<td style="padding:9px 14px;font-size:13px;color:#64748b;width:100px;border-bottom:1px solid #e2e8f0;">' . $label . '</td>'
+                    . '<td style="padding:9px 14px;font-size:13px;font-weight:600;color:#0f172a;border-bottom:1px solid #e2e8f0;">' . $e($val) . '</td>'
+                    . '</tr>';
+            }
+            $customerPanel .= '</table></div>';
+        }
+
+        /* ── Disclaimer (customer + recipient only) ─────────── */
+        $disclaimer = ($type !== 'admin')
+            ? '<p style="margin:20px 0 0;font-size:11px;color:#94a3b8;line-height:1.6;border-top:1px solid #e2e8f0;padding-top:16px;">'
+              . 'The pricing shown is indicative based on current listed rates. Final pricing, applicable taxes, '
+              . 'shipping charges, and any negotiated discounts will be confirmed in your official revised quotation '
+              . 'issued by our sales team.'
+              . '</p>'
+            : '';
+
+        /* ── Email shell ────────────────────────────────────── */
+        $html  = '<!DOCTYPE html>';
+        $html .= '<html lang="en">';
+        $html .= '<head>';
+        $html .= '<meta charset="UTF-8">';
+        $html .= '<meta name="viewport" content="width=device-width,initial-scale=1.0">';
+        $html .= '<meta http-equiv="X-UA-Compatible" content="IE=edge">';
+        $html .= '<title>Quote #' . $qid . '</title>';
+        $html .= '<style>';
+        $html .= 'body{margin:0;padding:0;background:#eef2f7;-webkit-text-size-adjust:100%;}';
+        $html .= 'table{border-spacing:0;}';
+        $html .= '.wrapper{width:100%;background:#eef2f7;}';
+        $html .= '.card{max-width:600px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08);}';
+        $html .= '@media only screen and (max-width:620px){';
+        $html .= '.card{border-radius:0!important;margin:0!important;}';
+        $html .= '.pad{padding:20px 16px!important;}';
+        $html .= '.hdr{padding:20px 16px!important;}';
+        $html .= '.hdr-title{font-size:18px!important;}';
+        $html .= '.prod-th,.prod-td{padding:8px 8px!important;font-size:12px!important;}';
+        $html .= '.hide-mobile{display:none!important;}';
+        $html .= '}';
+        $html .= '</style>';
+        $html .= '</head>';
+        $html .= '<body style="margin:0;padding:0;background:#eef2f7;">';
+
+        /* outer table */
+        $html .= '<table class="wrapper" width="100%" cellpadding="0" cellspacing="0">';
+        $html .= '<tr><td align="center" style="padding:32px 10px;">';
+        $html .= '<table class="card" width="600" cellpadding="0" cellspacing="0">';
+
+        /* — header — */
+        $html .= '<tr><td class="hdr" style="background:' . $headerGrad . ';padding:28px 32px;">';
+        $html .= '<table width="100%" cellpadding="0" cellspacing="0">';
+        $html .= '<tr>';
+        if ($logoUrl !== '') {
+            $html .= '<td style="vertical-align:middle;width:60px;">';
+            $html .= '<img src="' . $e($logoUrl) . '" alt="' . $companyName . '" width="52" height="52" style="display:block;border-radius:8px;object-fit:contain;background:#fff;padding:4px;">';
+            $html .= '</td>';
+            $html .= '<td style="vertical-align:middle;width:12px;"></td>';
+        }
+        $html .= '<td style="vertical-align:middle;">';
+        $html .= '<div class="hdr-title" style="font-size:20px;font-weight:800;color:#ffffff;margin:0;line-height:1.2;">';
+        $html .= ($type === 'admin') ? 'New Quote Request' : 'Quote Request Received';
+        $html .= '</div>';
+        $html .= '<div style="margin-top:5px;font-size:13px;color:rgba(255,255,255,.65);">';
+        $html .= 'Reference: <strong style="color:rgba(255,255,255,.9);">Quote #' . $qid . '</strong>';
+        $html .= ' &nbsp;&#183;&nbsp; ' . date('d M Y');
+        $html .= '</div>';
+        $html .= '</td>';
+        $html .= '<td style="vertical-align:middle;text-align:right;" class="hide-mobile">';
+        $html .= '<div style="display:inline-block;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);border-radius:20px;padding:5px 14px;">';
+        $html .= '<span style="font-size:12px;color:#fff;font-weight:700;letter-spacing:.5px;">QUOTE #' . $qid . '</span>';
+        $html .= '</div>';
+        $html .= '</td>';
+        $html .= '</tr></table>';
+        $html .= '</td></tr>';
+
+        /* — body — */
+        $html .= '<tr><td class="pad" style="padding:28px 32px;">';
+        $html .= '<p style="margin:0 0 6px;font-size:16px;font-weight:700;color:#0f172a;">' . $e($o['greeting'] ?? '') . '</p>';
+        $html .= '<p style="margin:0 0 24px;font-size:14px;color:#475569;line-height:1.65;">' . ($o['intro'] ?? '') . '</p>';
+
+        /* customer panel first (admin only) */
+        $html .= $customerPanel;
+
+        /* section label */
+        $html .= '<h3 style="margin:0 0 12px;font-size:13px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid #e2e8f0;padding-bottom:8px;">Order Summary</h3>';
+        $html .= $prodTable;
+        $html .= $vatHtml;
+        $html .= $addrHtml;
+        $html .= $notesHtml;
+        $html .= $disclaimer;
+        $html .= '</td></tr>';
+
+        /* — footer — */
+        $html .= '<tr><td style="background:#0f172a;padding:24px 32px;">';
+        $html .= '<table width="100%" cellpadding="0" cellspacing="0">';
+        $html .= '<tr>';
+        if ($logoUrl !== '') {
+            $html .= '<td style="vertical-align:top;width:50px;padding-right:14px;">';
+            $html .= '<img src="' . $e($logoUrl) . '" alt="' . $companyName . '" width="40" height="40" style="display:block;border-radius:6px;object-fit:contain;background:rgba(255,255,255,.1);padding:3px;">';
+            $html .= '</td>';
+        }
+        $html .= '<td style="vertical-align:top;">';
+        $html .= '<div style="font-size:13px;font-weight:700;color:#f1f5f9;margin-bottom:6px;">' . $companyName . '</div>';
+        if ($coAddr !== '') {
+            $html .= '<div style="font-size:11px;color:#64748b;margin-bottom:4px;">&#128205; ' . $coAddr . '</div>';
+        }
+        if ($coPhone !== '') {
+            $html .= '<div style="font-size:11px;color:#64748b;margin-bottom:4px;">&#128222; ' . $coPhone . '</div>';
+        }
+        if ($coEmail !== '') {
+            $html .= '<div style="font-size:11px;color:#64748b;margin-bottom:4px;">&#9993; ' . $coEmail . '</div>';
+        }
+        $html .= '</td>';
+        $html .= '<td style="vertical-align:top;text-align:right;white-space:nowrap;" class="hide-mobile">';
+        $html .= '<div style="font-size:11px;color:#475569;">&#169; ' . date('Y') . ' ' . $companyName . '</div>';
+        $html .= '<div style="margin-top:4px;font-size:11px;color:#334155;">All rights reserved.</div>';
+        $html .= '</td>';
+        $html .= '</tr></table>';
+        $html .= '</td></tr>';
+
+        /* close card + outer table */
+        $html .= '</table>';
+        $html .= '</td></tr></table>';
+        $html .= '</body></html>';
+
+        return $html;
     }
 }
 ?>
