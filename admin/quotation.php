@@ -470,8 +470,6 @@ ob_start();
               <select name="enquiry_status" id="qfStatus" class="form-control">
                 <option value="Quotation Pending">Quotation Pending</option>
                 <option value="Quotation Sent">Quotation Sent</option>
-                <option value="Order Generated">Order Generated</option>
-                <option value="Order Completed">Order Completed</option>
                 <option value="Quotation Cancel">Quotation Cancel</option>
               </select>
             </div>
