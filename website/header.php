@@ -88,6 +88,9 @@ $productMegaMenu = [
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="../css/style.css">
 <link rel="stylesheet" href="../assets/css/chatbot.css">
+<?php if (!empty($pageCSS)): foreach ((array)$pageCSS as $_css): ?>
+<link rel="stylesheet" href="<?= htmlspecialchars($_css) ?>">
+<?php endforeach; endif; ?>
 <?php if ($turnstileSiteKey !== ''): ?>
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 <?php endif; ?>
@@ -565,6 +568,7 @@ window.FLASH_TOAST  = {
 
     <div class="auth-panel auth-panel-signin is-active" id="authSignInPanel">
       <form id="authSignInForm" class="auth-form" method="POST" action="service?urlstring=<?= EncryptURL('action=Login') ?>" novalidate>
+        <input type="hidden" id="authRedirect" name="auth_redirect" value="">
         <label class="auth-field">
           <span>Email ID</span>
           <div class="auth-input-wrap">

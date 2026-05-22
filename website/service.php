@@ -283,7 +283,10 @@ switch($action)
         {
             startSinelecSessionForUser($user);
 
-            redirectWithFlash('index', 'ok', 'Signed in successfully.');
+            $allowedRedirects = ['request-a-quote', 'my-list', 'delivery-address', 'account'];
+            $postRedirect = trim((string)($_POST['auth_redirect'] ?? ''));
+            $loginTarget = in_array($postRedirect, $allowedRedirects) ? $postRedirect : 'index';
+            redirectWithFlash($loginTarget, 'ok', 'Signed in successfully.');
         }
 
         redirectWithFlash('index', 'err', 'Invalid email or password.');

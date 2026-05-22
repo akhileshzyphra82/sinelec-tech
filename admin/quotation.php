@@ -29,6 +29,9 @@ $categories  = $controller->getAllCategories();
 $allProducts = $controller->getAllProducts();
 $countries   = $controller->getAllCountries();
 
+/* ── Quotation IDs that already have an order (for Generate Order button) ── */
+$orderedQuotIds = $controller->getQuotationIdsWithOrders();
+
 /* ── Stats ── */
 $statTotal = 0; $statPending = 0; $statSent = 0; $statGen = 0; $statDone = 0;
 foreach ($quotations as $q) {
@@ -282,6 +285,12 @@ ob_start();
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
                     Update Status
                   </button>
+                  <?php if ($st !== 'Quotation Cancel' && !in_array($qid, $orderedQuotIds)): ?>
+                  <button class="kbm-item kbm-item--success" onclick="closeKbm(this);openGenerateOrderModal(<?= $qid ?>,<?= htmlspecialchars(json_encode((string)($q->USER_NAME??'')), ENT_QUOTES) ?>,<?= htmlspecialchars(json_encode(number_format((float)($q->ENQUIRY_TOTAL_AMT??0),2)), ENT_QUOTES) ?>)">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+                    Generate Order
+                  </button>
+                  <?php endif; ?>
                   <?php endif; ?>
                   <button class="kbm-item" onclick="closeKbm(this);resendQuotEmail(<?= $qid ?>,<?= htmlspecialchars(json_encode((string)($q->USER_EMAIL??'')), ENT_QUOTES) ?>)">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
@@ -660,8 +669,6 @@ ob_start();
           <select name="enquiry_status" id="sfStatus" class="form-control" onchange="onStatusChange(this.value)">
             <option value="Quotation Pending">Quotation Pending</option>
             <option value="Quotation Sent">Quotation Sent</option>
-            <option value="Order Generated">Order Generated</option>
-            <option value="Order Completed">Order Completed</option>
             <option value="Quotation Cancel" style="color:#dc2626;font-weight:600;">Quotation Cancel</option>
           </select>
         </div>
@@ -716,6 +723,108 @@ ob_start();
 <form id="resendForm" method="POST" action="service?urlstring=<?= EncryptURL('action=ResendQuotation') ?>" style="display:none;">
   <input type="hidden" name="enquiry_quote_id" id="resendQid" value="0">
 </form>
+
+<!-- ════════════════════════════════════════════════════
+     GENERATE ORDER MODAL
+════════════════════════════════════════════════════ -->
+<div id="generateOrderModal" class="modal-overlay" onclick="if(event.target===this)closeModal('generateOrderModal')">
+  <div class="modal" style="max-width:480px;">
+    <div class="modal-header" style="background:linear-gradient(135deg,#059669 0%,#10b981 100%);">
+      <span class="modal-title" style="color:#fff;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:middle;margin-right:6px;"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+        Generate Order
+      </span>
+      <button class="modal-close" onclick="closeModal('generateOrderModal')" style="color:#fff;opacity:.8;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+
+      <!-- Summary row -->
+      <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:14px 18px;margin-bottom:20px;display:flex;gap:16px;flex-wrap:wrap;align-items:center;">
+        <div>
+          <div style="font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.04em;">Customer</div>
+          <div style="font-size:13px;font-weight:700;color:#1e293b;" id="goModalCustName">—</div>
+        </div>
+        <div style="margin-left:auto;text-align:right;">
+          <div style="font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.04em;">Quotation Total</div>
+          <div style="font-size:16px;font-weight:800;color:#059669;">€<span id="goModalTotal">0.00</span></div>
+        </div>
+      </div>
+
+      <form id="generateOrderForm" method="POST" action="service?urlstring=<?= EncryptURL('action=GenerateOrder') ?>">
+        <input type="hidden" name="enquiry_quote_id" id="goQid" value="0">
+
+        <div class="fg" style="margin-bottom:20px;">
+          <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:8px;">
+            Payment Method <span class="req">*</span>
+          </label>
+
+          <!-- Payment method cards -->
+          <div style="display:flex;flex-direction:column;gap:8px;" id="goPayModeGroup">
+
+            <label class="go-pay-card" for="goMode-invoice">
+              <input type="radio" name="order_mode" id="goMode-invoice" value="Invoice" required>
+              <div class="go-pay-card-inner">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="11" y2="17"/></svg>
+                <div>
+                  <div style="font-size:13px;font-weight:700;color:#1e293b;">Invoice</div>
+                  <div style="font-size:11px;color:#6b7280;margin-top:1px;">Order confirmed immediately · Payment not required</div>
+                </div>
+              </div>
+            </label>
+
+            <label class="go-pay-card" for="goMode-bank">
+              <input type="radio" name="order_mode" id="goMode-bank" value="Bank Transfer" required>
+              <div class="go-pay-card-inner">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+                <div>
+                  <div style="font-size:13px;font-weight:700;color:#1e293b;">Bank Transfer</div>
+                  <div style="font-size:11px;color:#6b7280;margin-top:1px;">Order pending · Payment via bank transfer</div>
+                </div>
+              </div>
+            </label>
+
+            <label class="go-pay-card" for="goMode-gateway">
+              <input type="radio" name="order_mode" id="goMode-gateway" value="Payment Gateway" required>
+              <div class="go-pay-card-inner">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+                <div>
+                  <div style="font-size:13px;font-weight:700;color:#1e293b;">Payment Gateway</div>
+                  <div style="font-size:11px;color:#6b7280;margin-top:1px;">Order pending · Customer pays online</div>
+                </div>
+              </div>
+            </label>
+
+          </div>
+        </div>
+
+        <!-- Status preview -->
+        <div id="goStatusPreview" style="display:none;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px 16px;margin-bottom:20px;">
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px;">What will be set</div>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
+            <div>
+              <span style="font-size:10px;color:#94a3b8;">Order Status</span><br>
+              <span id="goPreviewOsLabel" style="font-size:12px;font-weight:700;padding:3px 10px;border-radius:12px;display:inline-block;margin-top:2px;"></span>
+            </div>
+            <div>
+              <span style="font-size:10px;color:#94a3b8;">Payment Status</span><br>
+              <span id="goPreviewPsLabel" style="font-size:12px;font-weight:700;padding:3px 10px;border-radius:12px;display:inline-block;margin-top:2px;"></span>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px;">
+          <button type="button" class="btn btn--ghost" onclick="closeModal('generateOrderModal')">Cancel</button>
+          <button type="submit" class="btn btn--success" id="goSubmitBtn" disabled>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+            Generate Order
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 
 
 <!-- ════════════════════════════════════════════════════
@@ -911,6 +1020,22 @@ ob_start();
 .pg-btn:disabled { opacity: .4; cursor: default; }
 .pg-active { background: var(--primary) !important; color: #fff !important; border-color: var(--primary) !important; }
 .pg-dots { padding: 0 4px; color: var(--text-muted); font-size: 13px; display: flex; align-items: center; }
+
+/* ── Generate Order payment cards ── */
+.go-pay-card { display:block; cursor:pointer; }
+.go-pay-card input[type="radio"] { display:none; }
+.go-pay-card-inner {
+  display:flex; align-items:center; gap:12px;
+  padding:12px 16px; border:1.5px solid #e2e8f0; border-radius:10px;
+  background:#fff; transition:border-color .15s, background .15s;
+}
+.go-pay-card:hover .go-pay-card-inner { border-color:#10b981; background:#f0fdf4; }
+.go-pay-card input:checked ~ .go-pay-card-inner {
+  border-color:#059669; background:#f0fdf4;
+  box-shadow:0 0 0 3px rgba(5,150,105,.12);
+}
+.go-pay-card-inner svg { color:#6b7280; flex-shrink:0; }
+.go-pay-card input:checked ~ .go-pay-card-inner svg { color:#059669; }
 </style>
 
 
@@ -1742,6 +1867,39 @@ function openDeleteQuotModal(qid, ref) {
   document.getElementById('delQuotRef').textContent = ref;
   openModal('delQuotModal');
 }
+
+/* ── Generate Order modal ── */
+var _goPayModeMap = {
+  'Invoice':         { os: 'Order Confirmed', osBg: '#dcfce7', osTxt: '#15803d', ps: 'Not Required',    psBg: '#f3f4f6', psTxt: '#6b7280' },
+  'Bank Transfer':   { os: 'Order Pending',   osBg: '#dbeafe', osTxt: '#1d4ed8', ps: 'Payment Pending', psBg: '#fef3c7', psTxt: '#92400e' },
+  'Payment Gateway': { os: 'Order Pending',   osBg: '#dbeafe', osTxt: '#1d4ed8', ps: 'Payment Pending', psBg: '#fef3c7', psTxt: '#92400e' },
+};
+
+function openGenerateOrderModal(qid, custName, totalAmt) {
+  document.getElementById('goQid').value             = qid;
+  document.getElementById('goModalCustName').textContent = custName;
+  document.getElementById('goModalTotal').textContent    = totalAmt;
+  /* Reset radio selection */
+  document.querySelectorAll('#goPayModeGroup input[type="radio"]').forEach(function(r) { r.checked = false; });
+  document.getElementById('goSubmitBtn').disabled    = true;
+  document.getElementById('goStatusPreview').style.display = 'none';
+  openModal('generateOrderModal');
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('#goPayModeGroup input[type="radio"]').forEach(function(r) {
+    r.addEventListener('change', function() {
+      var m = _goPayModeMap[this.value];
+      if (!m) return;
+      var osEl = document.getElementById('goPreviewOsLabel');
+      var psEl = document.getElementById('goPreviewPsLabel');
+      osEl.textContent = m.os; osEl.style.background = m.osBg; osEl.style.color = m.osTxt;
+      psEl.textContent = m.ps; psEl.style.background = m.psBg; psEl.style.color = m.psTxt;
+      document.getElementById('goStatusPreview').style.display = 'block';
+      document.getElementById('goSubmitBtn').disabled = false;
+    });
+  });
+});
 
 /* ── Resend ── */
 function resendQuotEmail(qid, email) {

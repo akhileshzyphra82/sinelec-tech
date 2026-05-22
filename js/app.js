@@ -2077,6 +2077,21 @@ function initAuthModal() {
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape' && modal && !modal.hidden) closeAuth();
   });
+
+  window.sinelecOpenAuth = openAuth;
+}
+
+function initQuoteAuthGuard() {
+  if (AUTH_STATE.isSignedIn) return;
+
+  document.addEventListener('click', e => {
+    const link = e.target.closest('a[href="request-a-quote"]');
+    if (!link) return;
+    e.preventDefault();
+    const redirectInput = document.getElementById('authRedirect');
+    if (redirectInput) redirectInput.value = 'request-a-quote';
+    if (window.sinelecOpenAuth) window.sinelecOpenAuth('signin');
+  }, true);
 }
 
 function initAccountMenu() {
@@ -2140,6 +2155,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initDeliveryLocationModal();
   initAuthModal();
   initAccountMenu();
+  initQuoteAuthGuard();
 
   if (window.FLASH_TOAST && window.FLASH_TOAST.message) {
     const message = String(window.FLASH_TOAST.message || '').trim();

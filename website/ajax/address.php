@@ -7,31 +7,21 @@ header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 header('Cache-Control: no-store');
 
+require_once __DIR__ . '/../../controller/website_controller.php';
+
 function jsonOut(array $data): void
 {
     echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG);
     exit();
 }
 
-/* ── Auth ────────────────────────────────────────────────────── */
+/* ── Auth ── */
 $userId = (int)($_SESSION['sinelec_user']['USER_ID'] ?? 0);
 if ($userId <= 0) {
     jsonOut(['ok' => false, 'msg' => 'Not authenticated.']);
 }
 
-/* ── DB connect ──────────────────────────────────────────────── */
-require_once __DIR__ . '/../../config/db_helper.php';
-
-try {
-    $db = new MySQLDB();
-} catch (Throwable $e) {
-    error_log('address.php DB connect: ' . $e->getMessage());
-    jsonOut(['ok' => false, 'msg' => 'Database connection failed.']);
-}
-
-$action = trim((string)($_POST['action'] ?? $_GET['action'] ?? ''));
-
-/* ── Helpers ─────────────────────────────────────────────────── */
+/* ── Helper: map DB row to JS-friendly array ── */
 function addrRowToJs(object $row): array
 {
     return [
@@ -56,104 +46,78 @@ function addrRowToJs(object $row): array
     ];
 }
 
-function getList(MySQLDB $db, float $uid): array
+/* ── POST field helpers ── */
+function p(string $k): string { return trim((string)($_POST[$k] ?? '')); }
+function postInt(string $k): int { return (int)($_POST[$k] ?? 0); }
+function postFlt(string $k): float { return (float)($_POST[$k] ?? 0); }
+
+/* ── Build address data array from POST ── */
+function postAddr(): array
 {
-    $rows = $db->select(
-        "SELECT user_address_id, label, user_name, company_name,
-                address AS address_notes,
-                address_line_one, address_line_two, landmark,
-                city, state, zip, country, country_id,
-                delivery_phone_no, mobile_country_code,
-                recipient_name, recipient_email, recipient_contact
-         FROM tbl_user_address
-         WHERE user_id = ?
-         ORDER BY user_address_id DESC",
-        [$uid]
-    );
-    return array_map('addrRowToJs', $rows);
+    return [
+        'label'               => p('label'),
+        'company_name'        => p('company_name'),
+        'user_name'           => p('user_name'),
+        'delivery_phone_no'   => p('delivery_phone_no'),
+        'mobile_country_code' => postInt('mobile_country_code'),
+        'address_line_one'    => p('address_line_one'),
+        'address_line_two'    => p('address_line_two'),
+        'landmark'            => p('landmark'),
+        'city'                => p('city'),
+        'state'               => p('state'),
+        'zip'                 => p('zip'),
+        'country'             => p('country'),
+        'country_id'          => postFlt('country_id'),
+        'address'             => p('address'),
+        'recipient_name'      => p('recipient_name'),
+        'recipient_email'     => p('recipient_email'),
+        'recipient_contact'   => p('recipient_contact'),
+    ];
 }
 
-function p(string $k): string  { return trim((string)($_POST[$k] ?? '')); }
-function pint(string $k): int  { return (int)($_POST[$k] ?? 0); }
-function pflt(string $k): float { return (float)($_POST[$k] ?? 0); }
+function validateAddr(array $d): string
+{
+    if (empty($d['address_line_one'])) return 'Address Line 1 is required.';
+    if (empty($d['city']))             return 'City is required.';
+    if (empty($d['zip']))              return 'Postal Code is required.';
+    return '';
+}
 
-/* ── Router ──────────────────────────────────────────────────── */
+/* ── Router ── */
 try {
+    $ctrl   = new WebsiteController();
+    $action = trim((string)($_POST['action'] ?? $_GET['action'] ?? ''));
 
     switch ($action) {
 
-        /* ── LIST ── */
         case 'get_list':
-            jsonOut(['ok' => true, 'list' => getList($db, (float)$userId)]);
+            $rows = $ctrl->getUserAddresses($userId);
+            jsonOut(['ok' => true, 'list' => array_map('addrRowToJs', $rows)]);
             break;
 
-        /* ── SAVE ── */
         case 'save':
-            $line1 = p('address_line_one');
-            $city  = p('city');
-            $zip   = p('zip');
-            if ($line1 === '' || $city === '' || $zip === '') {
-                jsonOut(['ok' => false, 'msg' => 'Address Line 1, City and Postal Code are required.']);
-            }
-            $label = in_array(p('label'), ['Home','Office','Other']) ? p('label') : 'Other';
-            $db->insert(
-                "INSERT INTO tbl_user_address
-                 (user_id, label, user_name, company_name, delivery_phone_no, mobile_country_code,
-                  address_line_one, address_line_two, landmark,
-                  city, state, zip, country, country_id, address,
-                  recipient_name, recipient_email, recipient_contact)
-                 VALUES (?,?,?,?,?,?, ?,?,?, ?,?,?,?,?,?, ?,?,?)",
-                [
-                    (float)$userId, $label, p('user_name'), p('company_name'),
-                    p('delivery_phone_no'), pint('mobile_country_code'),
-                    $line1, p('address_line_two'), p('landmark'),
-                    $city, p('state'), $zip, p('country'), pflt('country_id'), p('address'),
-                    p('recipient_name'), p('recipient_email'), p('recipient_contact'),
-                ]
-            );
-            jsonOut(['ok' => true, 'list' => getList($db, (float)$userId)]);
+            $d  = postAddr();
+            $er = validateAddr($d);
+            if ($er) jsonOut(['ok' => false, 'msg' => $er]);
+            $ctrl->saveDeliveryAddress($d, $userId);
+            jsonOut(['ok' => true]);
             break;
 
-        /* ── UPDATE ── */
         case 'update':
-            $addrId = pint('user_address_id');
+            $addrId = postInt('user_address_id');
             if ($addrId <= 0) jsonOut(['ok' => false, 'msg' => 'Invalid address ID.']);
-            $line1 = p('address_line_one');
-            $city  = p('city');
-            $zip   = p('zip');
-            if ($line1 === '' || $city === '' || $zip === '') {
-                jsonOut(['ok' => false, 'msg' => 'Address Line 1, City and Postal Code are required.']);
-            }
-            $label = in_array(p('label'), ['Home','Office','Other']) ? p('label') : 'Other';
-            $db->update(
-                "UPDATE tbl_user_address SET
-                   label=?, user_name=?, company_name=?,
-                   delivery_phone_no=?, mobile_country_code=?,
-                   address_line_one=?, address_line_two=?, landmark=?,
-                   city=?, state=?, zip=?, country=?, country_id=?, address=?,
-                   recipient_name=?, recipient_email=?, recipient_contact=?
-                 WHERE user_address_id=? AND user_id=?",
-                [
-                    $label, p('user_name'), p('company_name'),
-                    p('delivery_phone_no'), pint('mobile_country_code'),
-                    $line1, p('address_line_two'), p('landmark'),
-                    $city, p('state'), $zip, p('country'), pflt('country_id'), p('address'),
-                    p('recipient_name'), p('recipient_email'), p('recipient_contact'),
-                    (float)$addrId, (float)$userId,
-                ]
-            );
-            jsonOut(['ok' => true, 'list' => getList($db, (float)$userId)]);
+            $d  = postAddr();
+            $er = validateAddr($d);
+            if ($er) jsonOut(['ok' => false, 'msg' => $er]);
+            $ctrl->updateDeliveryAddress($addrId, $d, $userId);
+            jsonOut(['ok' => true]);
             break;
 
-        /* ── DELETE ── */
         case 'delete':
-            $addrId = pint('user_address_id');
+            $addrId = postInt('user_address_id');
             if ($addrId <= 0) jsonOut(['ok' => false, 'msg' => 'Invalid address ID.']);
-            $db->update(
-                "DELETE FROM tbl_user_address WHERE user_address_id=? AND user_id=?",
-                [(float)$addrId, (float)$userId]
-            );
-            jsonOut(['ok' => true, 'list' => getList($db, (float)$userId)]);
+            $ctrl->deleteDeliveryAddress($addrId, $userId);
+            jsonOut(['ok' => true]);
             break;
 
         default:
@@ -161,6 +125,6 @@ try {
     }
 
 } catch (Throwable $e) {
-    error_log('address.php exception [' . $action . ']: ' . $e->getMessage());
-    jsonOut(['ok' => false, 'msg' => 'Server error: ' . $e->getMessage()]);
+    error_log('address.php [' . ($action ?? '') . ']: ' . $e->getMessage());
+    jsonOut(['ok' => false, 'msg' => $e->getMessage()]);
 }

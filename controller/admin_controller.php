@@ -503,7 +503,7 @@ class AdminController
             if (!empty($filters['status'])) $where .= " AND p.product_status='".addslashes($filters['status'])."'";
             return $this->db->select(
                 "SELECT p.*, pc.product_category_name,
-                 (SELECT image_ext FROM tbl_product_img WHERE product_id=p.product_id AND image_for='Product' LIMIT 1) AS thumb_ext
+                 (SELECT product_image_path FROM tbl_product_img WHERE product_id=p.product_id AND image_for='Product' LIMIT 1) AS thumb_ext
                  FROM tbl_product p
                  LEFT JOIN tbl_product_category pc ON pc.product_category_id=p.product_category_id
                  ".$where." ORDER BY p.product_id DESC"
@@ -594,9 +594,9 @@ class AdminController
         } catch (Exception $e) { error_log('updateProduct: '.$e->getMessage()); return false; }
     }
 
-    public function addProductImage(int $productId, string $ext, string $imageFor, string $title = '', int $prio = 0, string $imageName = '', string $displayFlag = 'Yes', string $hyperLink = ''): int
+    public function addProductImage(int $productId, string $path, string $imageFor, string $title = '', int $prio = 0, string $imageName = '', string $displayFlag = 'Yes', string $hyperLink = ''): int
     {
-        $ext         = addslashes($ext);
+        $path        = addslashes($path);
         $imageFor    = in_array($imageFor, ['Product', 'Product Mannual']) ? $imageFor : 'Product';
         $title       = addslashes($title);
         $imageName   = addslashes($imageName);
@@ -604,29 +604,13 @@ class AdminController
         $hyperLink   = addslashes($hyperLink);
         $date        = date('Y-m-d');
 
-        /* Try full INSERT (with image_name + hyper_link columns).
-           If those columns don't exist yet, fall back to base INSERT. */
-        $newId = 0;
-        try {
-            $sql   = "INSERT INTO tbl_product_img(product_id,image_ext,image_name,priorty,display_flag,image_for,product_manual_title,hyper_link,manual_upload_date)
-                      VALUES({$productId},'{$ext}','{$imageName}',{$prio},'{$displayFlag}','{$imageFor}','{$title}','{$hyperLink}','{$date}')";
-            $newId = (int)$this->db->insert($sql);
-        } catch (Exception $e) {
-            /* Columns image_name / hyper_link may not exist yet — fall back */
-            error_log('addProductImage full INSERT failed, trying base: '.$e->getMessage());
-            try {
-                $sql   = "INSERT INTO tbl_product_img(product_id,image_ext,priorty,display_flag,image_for,product_manual_title,manual_upload_date)
-                          VALUES({$productId},'{$ext}',{$prio},'{$displayFlag}','{$imageFor}','{$title}','{$date}')";
-                $newId = (int)$this->db->insert($sql);
-            } catch (Exception $e2) {
-                error_log('addProductImage base INSERT also failed: '.$e2->getMessage());
-                return 0;
-            }
-        }
+        $sql   = "INSERT INTO tbl_product_img(product_id,product_image_path,image_name,priorty,display_flag,image_for,product_manual_title,hyper_link,manual_upload_date)
+                  VALUES({$productId},'{$path}','{$imageName}',{$prio},'{$displayFlag}','{$imageFor}','{$title}','{$hyperLink}','{$date}')";
+        $newId = (int)$this->db->insert($sql);
 
         if ($newId > 0) {
-            $this->logActivity('add', 'tbl_product_img', $sql ?? '', null,
-                ['product_id'=>$productId,'image_ext'=>$ext,'image_name'=>$imageName,
+            $this->logActivity('add', 'tbl_product_img', $sql, null,
+                ['product_id'=>$productId,'product_image_path'=>$path,'image_name'=>$imageName,
                  'priorty'=>$prio,'display_flag'=>$displayFlag,'image_for'=>$imageFor,
                  'product_manual_title'=>$title,'hyper_link'=>$hyperLink]
             );
@@ -2209,6 +2193,109 @@ class AdminController
         } catch (Exception $e) { return false; }
     }
 
+    /* Returns set of enquiry_quote_ids that already have an order in tbl_user_order */
+    public function getQuotationIdsWithOrders(): array
+    {
+        try {
+            $rows = $this->db->select(
+                "SELECT DISTINCT enquiry_quote_id FROM tbl_user_order
+                 WHERE enquiry_quote_id IS NOT NULL AND enquiry_quote_id > 0"
+            );
+            $ids = [];
+            foreach ($rows as $r) { $ids[] = (int)(float)($r->ENQUIRY_QUOTE_ID ?? 0); }
+            return $ids;
+        } catch (Exception $e) { return []; }
+    }
+
+    /* Creates tbl_user_order + items + first history row from a quotation.
+       Returns the new user_order_id, or 0 on failure. */
+    public function generateOrderFromQuotation(array $d): int
+    {
+        $qid        = (int)($d['enquiry_quote_id'] ?? 0);
+        $userId     = (int)($d['user_id']          ?? 0);
+        $addrId     = (int)($d['user_address_id']   ?? 0);
+        $bilAddrId  = (int)($d['billing_address_id'] ?? $addrId);
+        $payMode    = in_array($d['order_mode'] ?? '', ['Payment Gateway','Bank Transfer','Invoice'])
+                      ? $d['order_mode'] : 'Invoice';
+        $custPoId   = addslashes(trim($d['customer_po_id']       ?? ''));
+        $custSupNo  = addslashes(trim($d['customer_supplier_no'] ?? ''));
+        $totalProd  = (float)($d['order_total_amt']    ?? 0);
+        $shipAmt    = (float)($d['shipping_amt']       ?? 0);
+        $discAmt    = (float)($d['discount_amt']       ?? 0);
+        $taxAmt     = (float)($d['tax_total_amount']   ?? 0);
+        $finalAmt   = (float)($d['final_total_amt']    ?? 0);
+        $adminUid   = (int)($d['changed_by_user_id']   ?? 0);
+        $items      = $d['items'] ?? [];
+        $year       = (int)date('Y');
+
+        $orderStatus  = ($payMode === 'Invoice') ? 'Order Confirmed' : 'Order Pending';
+        $payStatus    = ($payMode === 'Invoice') ? 'Not Required'    : 'Payment Pending';
+
+        try {
+            /* 1. Insert order with temp order_number */
+            $newId = (int)$this->db->insert(
+                "INSERT INTO tbl_user_order
+                 (order_type, user_id, order_number, order_year,
+                  customer_po_id, customer_supplier_no,
+                  order_mode, order_status, payment_status,
+                  order_total_amt, shipping_amt, discount_amt, tax_total_amount, final_total_amt,
+                  user_address_id, billing_user_address_id, enquiry_quote_id)
+                 VALUES('Order',$userId,'PENDING',$year,
+                  '$custPoId','$custSupNo',
+                  '$payMode','$orderStatus','$payStatus',
+                  $totalProd,$shipAmt,$discAmt,$taxAmt,$finalAmt,
+                  $addrId,$bilAddrId,$qid)"
+            );
+            if ($newId <= 0) return 0;
+
+            /* 2. Set proper order number */
+            $orderNo = 'ORD-'.$year.'-'.str_pad((string)$newId, 6, '0', STR_PAD_LEFT);
+            $this->db->update("UPDATE tbl_user_order SET order_number='$orderNo' WHERE user_order_id=$newId");
+
+            /* 3. Insert order items */
+            foreach ($items as $item) {
+                $catId   = (int)($item['product_category_id'] ?? 0);
+                $prodId  = (int)($item['product_id']          ?? 0);
+                $qty     = (float)($item['product_quantity']  ?? 1);
+                $unitAmt = (float)($item['product_amt']       ?? 0);
+                $discPct = (float)($item['product_discount_pct'] ?? 0);
+                $discIt  = round($unitAmt * $discPct / 100, 2);
+                $taxPct  = 0;
+                $taxIt   = 0;
+                $finalIt = round(($unitAmt - $discIt) * $qty, 2);
+                $discItT = round($discIt * $qty, 2);
+                if ($prodId <= 0 || $catId <= 0) continue;
+                $this->db->insert(
+                    "INSERT INTO tbl_user_order_item
+                     (user_order_id, product_category_id, product_id, quantity,
+                      product_amt, discount_percentage, discount_amt,
+                      tax_percentage, tax_amt, final_amt, item_status, order_type)
+                     VALUES($newId,$catId,$prodId,$qty,
+                      $unitAmt,$discPct,$discItT,
+                      $taxPct,$taxIt,$finalIt,'Active','Order')"
+                );
+            }
+
+            /* 4. Insert first history row */
+            $histRemark = addslashes('Order generated from quotation QT-'.str_pad((string)$qid, 6, '0', STR_PAD_LEFT).' via '.$payMode);
+            $this->db->insert(
+                "INSERT INTO tbl_user_order_history
+                 (user_order_id, history_type, history_order_status, history_payment_status,
+                  history_remarks, changed_by_user_id)
+                 VALUES($newId,'Order','$orderStatus','$payStatus','$histRemark',$adminUid)"
+            );
+
+            /* 5. Mark quotation as Order Generated */
+            $this->db->update("UPDATE tbl_enquiry_quote SET enquiry_status='Order Generated' WHERE enquiry_quote_id=$qid");
+
+            $this->logActivity('add', 'tbl_user_order', '', null, ['order_id'=>$newId,'quote_id'=>$qid]);
+            return $newId;
+        } catch (Exception $e) {
+            error_log('generateOrderFromQuotation: '.$e->getMessage());
+            return 0;
+        }
+    }
+
     public function updateQuotationStatus(int $id, string $status, string $remark = ''): bool
     {
         try {
@@ -2348,6 +2435,205 @@ class AdminController
             );
             return true;
         } catch (Exception $e) { error_log('deleteManufacturer: '.$e->getMessage()); return false; }
+    }
+
+    /* ═══════════════════════════════════════════════════
+       USER ORDERS (tbl_user_order)
+    ═══════════════════════════════════════════════════ */
+
+    public function getAllUserOrders(array $f = []): array
+    {
+        try {
+            $where = '1=1';
+            if (!empty($f['search'])) {
+                $s = addslashes($f['search']);
+                $where .= " AND (o.order_number LIKE '%$s%'
+                             OR COALESCE(u.name,'') LIKE '%$s%'
+                             OR COALESCE(u.communication_email_id,'') LIKE '%$s%'
+                             OR COALESCE(u.company_name,'') LIKE '%$s%')";
+            }
+            if (!empty($f['order_status']))   $where .= " AND o.order_status='".addslashes($f['order_status'])."'";
+            if (!empty($f['payment_status'])) $where .= " AND o.payment_status='".addslashes($f['payment_status'])."'";
+            if (!empty($f['order_mode']))     $where .= " AND o.order_mode='".addslashes($f['order_mode'])."'";
+            if (!empty($f['source'])) {
+                if ($f['source'] === 'quotation') $where .= " AND o.enquiry_quote_id IS NOT NULL AND o.enquiry_quote_id > 0";
+                elseif ($f['source'] === 'direct') $where .= " AND (o.enquiry_quote_id IS NULL OR o.enquiry_quote_id = 0)";
+            }
+            if (!empty($f['date_from'])) $where .= " AND DATE(o.order_date) >= '".addslashes($f['date_from'])."'";
+            if (!empty($f['date_to']))   $where .= " AND DATE(o.order_date) <= '".addslashes($f['date_to'])."'";
+            return $this->db->select(
+                "SELECT o.*,
+                        COALESCE(u.name, '') AS cust_name,
+                        COALESCE(u.communication_email_id, '') AS cust_email,
+                        COALESCE(u.communication_mobile_num, '') AS cust_phone,
+                        COALESCE(u.company_name, '') AS cust_company,
+                        eq.enquiry_quote_id AS quote_id,
+                        (SELECT COUNT(*) FROM tbl_user_order_item i WHERE i.user_order_id = o.user_order_id AND i.item_status='Active') AS item_count
+                 FROM tbl_user_order o
+                 LEFT JOIN tbl_user u ON u.user_id = o.user_id
+                 LEFT JOIN tbl_enquiry_quote eq ON eq.enquiry_quote_id = o.enquiry_quote_id
+                 WHERE $where
+                 ORDER BY o.user_order_id DESC"
+            );
+        } catch (Exception $e) { error_log('getAllUserOrders: '.$e->getMessage()); return []; }
+    }
+
+    public function getUserOrderById(int $id): ?object
+    {
+        try {
+            $rows = $this->db->select(
+                "SELECT o.*,
+                        COALESCE(u.name,'') AS cust_name,
+                        COALESCE(u.communication_email_id,'') AS cust_email,
+                        COALESCE(u.communication_mobile_num,'') AS cust_phone,
+                        COALESCE(u.company_name,'') AS cust_company,
+                        a.company_name AS addr_company, a.recipient_name, a.address,
+                        a.address_line_one, a.address_line_two, a.city, a.state, a.zip, a.country,
+                        a.delivery_phone_no, a.recipient_email
+                 FROM tbl_user_order o
+                 LEFT JOIN tbl_user u ON u.user_id = o.user_id
+                 LEFT JOIN tbl_user_address a ON a.user_address_id = o.user_address_id
+                 WHERE o.user_order_id = $id LIMIT 1"
+            );
+            return $rows[0] ?? null;
+        } catch (Exception $e) { return null; }
+    }
+
+    public function getUserOrderItems(int $orderId): array
+    {
+        try {
+            return $this->db->select(
+                "SELECT i.*, p.product_name, p.product_code, pc.product_category_name
+                 FROM tbl_user_order_item i
+                 LEFT JOIN tbl_product p  ON p.product_id  = i.product_id
+                 LEFT JOIN tbl_product_category pc ON pc.product_category_id = i.product_category_id
+                 WHERE i.user_order_id = $orderId AND i.item_status = 'Active'
+                 ORDER BY i.user_order_item_id ASC"
+            );
+        } catch (Exception $e) { return []; }
+    }
+
+    public function getUserOrderHistory(int $orderId): array
+    {
+        try {
+            return $this->db->select(
+                "SELECT h.*, COALESCE(u.name,'System') AS changed_by_name
+                 FROM tbl_user_order_history h
+                 LEFT JOIN tbl_user u ON u.user_id = h.changed_by_user_id
+                 WHERE h.user_order_id = $orderId
+                 ORDER BY h.user_order_history_id DESC"
+            );
+        } catch (Exception $e) { return []; }
+    }
+
+    public function updateUserOrderStatus(int $id, string $orderStatus, string $payStatus, string $remark, int $adminUid): bool
+    {
+        $validOs = ['Order Pending','Order Confirmed','Order Packed','Order Dispatch','Order In Transit','Order Delivered','Order Cancelled'];
+        $validPs = ['Payment Pending','Payment Successful','Payment Failed','Refund Initiated','Refund Completed','Not Required'];
+        if (!in_array($orderStatus, $validOs) || !in_array($payStatus, $validPs)) return false;
+        try {
+            $os = addslashes($orderStatus);
+            $ps = addslashes($payStatus);
+            $this->db->update("UPDATE tbl_user_order SET order_status='$os', payment_status='$ps' WHERE user_order_id=$id");
+            $r = addslashes(trim($remark));
+            $this->db->insert(
+                "INSERT INTO tbl_user_order_history
+                 (user_order_id, history_type, history_order_status, history_payment_status, history_remarks, changed_by_user_id)
+                 VALUES($id,'Order','$os','$ps','$r',$adminUid)"
+            );
+            $this->logActivity('edit','tbl_user_order','',null,['order_id'=>$id,'order_status'=>$orderStatus,'payment_status'=>$payStatus]);
+            return true;
+        } catch (Exception $e) { error_log('updateUserOrderStatus: '.$e->getMessage()); return false; }
+    }
+
+    public function createDirectOrder(array $d): int
+    {
+        $userId    = (int)($d['user_id']              ?? 0);
+        $addrId    = (int)($d['user_address_id']       ?? 0);
+        $bilAddrId = (int)($d['billing_address_id']    ?? $addrId);
+        $payMode   = in_array($d['order_mode'] ?? '', ['Payment Gateway','Bank Transfer','Invoice'])
+                     ? $d['order_mode'] : 'Invoice';
+        $custPoId  = addslashes(trim($d['customer_po_id']       ?? ''));
+        $custSupNo = addslashes(trim($d['customer_supplier_no'] ?? ''));
+        $shipAmt   = (float)($d['shipping_amt']      ?? 0);
+        $discAmt   = (float)($d['discount_amt']      ?? 0);
+        $taxAmt    = (float)($d['tax_amt']            ?? 0);
+        $adminUid  = (int)($d['changed_by_user_id']  ?? 0);
+        $items     = $d['items'] ?? [];
+        $year      = (int)date('Y');
+
+        $orderStatus = ($payMode === 'Invoice') ? 'Order Confirmed' : 'Order Pending';
+        $payStatus   = ($payMode === 'Invoice') ? 'Not Required'    : 'Payment Pending';
+
+        $totalProd = 0;
+        foreach ($items as $item) {
+            $qty     = (float)($item['qty']      ?? 1);
+            $unitAmt = (float)($item['unit_amt'] ?? 0);
+            $discPct = (float)($item['disc_pct'] ?? 0);
+            $totalProd += round($unitAmt * (1 - $discPct / 100) * $qty, 2);
+        }
+        $finalAmt = round($totalProd + $shipAmt - $discAmt + $taxAmt, 2);
+
+        try {
+            $newId = (int)$this->db->insert(
+                "INSERT INTO tbl_user_order
+                 (order_type, user_id, order_number, order_year,
+                  customer_po_id, customer_supplier_no,
+                  order_mode, order_status, payment_status,
+                  order_total_amt, shipping_amt, discount_amt, tax_total_amount, final_total_amt,
+                  user_address_id, billing_user_address_id)
+                 VALUES('Order',$userId,'PENDING',$year,
+                  '$custPoId','$custSupNo',
+                  '$payMode','$orderStatus','$payStatus',
+                  $totalProd,$shipAmt,$discAmt,$taxAmt,$finalAmt,
+                  $addrId,$bilAddrId)"
+            );
+            if ($newId <= 0) return 0;
+
+            $orderNo = 'ORD-'.$year.'-'.str_pad((string)$newId, 6, '0', STR_PAD_LEFT);
+            $this->db->update("UPDATE tbl_user_order SET order_number='$orderNo' WHERE user_order_id=$newId");
+
+            foreach ($items as $item) {
+                $catId   = (int)($item['cat_id']   ?? 0);
+                $prodId  = (int)($item['prod_id']  ?? 0);
+                $qty     = (float)($item['qty']     ?? 1);
+                $unitAmt = (float)($item['unit_amt'] ?? 0);
+                $discPct = (float)($item['disc_pct'] ?? 0);
+                $taxPct  = (float)($item['tax_pct']  ?? 0);
+                $discIt  = round($unitAmt * $discPct / 100, 2);
+                $taxIt   = round(($unitAmt - $discIt) * $taxPct / 100, 2);
+                $finalIt = round(($unitAmt - $discIt + $taxIt) * $qty, 2);
+                if ($prodId <= 0 || $catId <= 0) continue;
+                $this->db->insert(
+                    "INSERT INTO tbl_user_order_item
+                     (user_order_id, product_category_id, product_id, quantity,
+                      product_amt, discount_percentage, discount_amt,
+                      tax_percentage, tax_amt, final_amt, item_status, order_type)
+                     VALUES($newId,$catId,$prodId,$qty,
+                      $unitAmt,$discPct,".round($discIt*$qty,2).",
+                      $taxPct,$taxIt,$finalIt,'Active','Order')"
+                );
+            }
+
+            $this->db->insert(
+                "INSERT INTO tbl_user_order_history
+                 (user_order_id, history_type, history_order_status, history_payment_status,
+                  history_remarks, changed_by_user_id)
+                 VALUES($newId,'Order','$orderStatus','$payStatus','Order created directly by admin',$adminUid)"
+            );
+
+            $this->logActivity('add','tbl_user_order','',null,['order_id'=>$newId,'source'=>'direct']);
+            return $newId;
+        } catch (Exception $e) { error_log('createDirectOrder: '.$e->getMessage()); return 0; }
+    }
+
+    public function deleteUserOrder(int $id): bool
+    {
+        try {
+            $this->db->update("DELETE FROM tbl_user_order WHERE user_order_id=$id");
+            $this->logActivity('delete','tbl_user_order','',null,['order_id'=>$id]);
+            return true;
+        } catch (Exception $e) { return false; }
     }
 }
 ?>

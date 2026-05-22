@@ -75,11 +75,22 @@ foreach ($addrRows as $r) {
 }
 
 /* ── Company sidebar data ───────────────────────────────────── */
-$_cPhone  = htmlspecialchars((string)($company->CONTACT_NUMBER  ?? ''));
-$_cWp     = htmlspecialchars((string)($company->WHATSAPP_NUMBER ?? ''));
-$_cEmail  = htmlspecialchars((string)($company->EMAIL           ?? ''));
-$_cHrs    = htmlspecialchars((string)($company->OFFICE_HRS      ?? ''));
-$_cWpLink = 'https://wa.me/' . preg_replace('/[^0-9]/', '', (string)($company->WHATSAPP_NUMBER ?? ''));
+$_cName    = htmlspecialchars((string)($company->NAME             ?? 'Sinelec Technologies'));
+$_cPhone   = htmlspecialchars((string)($company->CONTACT_NUMBER   ?? ''));
+$_cFax     = htmlspecialchars((string)($company->FAX              ?? ''));
+$_cWp      = htmlspecialchars((string)($company->WHATSAPP_NUMBER  ?? ''));
+$_cEmail   = htmlspecialchars((string)($company->EMAIL            ?? ''));
+$_cSupport = htmlspecialchars((string)($company->SUPPORT_MAIL_ID  ?? ''));
+$_cHrs     = htmlspecialchars((string)($company->OFFICE_HRS       ?? ''));
+$_cAddress = htmlspecialchars((string)($company->ADDRESS          ?? ''));
+$_cBranch  = html_entity_decode((string)($company->BRANCH_OFFICE_ADDRESS ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+$_cMapUrl  = (string)($company->MAP_URL ?? '');
+$_cFb      = htmlspecialchars((string)($company->FACEBOOK_URL  ?? ''));
+$_cLi      = htmlspecialchars((string)($company->LINKEDIN_URL  ?? ''));
+$_cTw      = htmlspecialchars((string)($company->TWITTER_URL   ?? ''));
+$_cYt      = htmlspecialchars((string)($company->YOUTUBE_URL   ?? ''));
+$_cIg      = htmlspecialchars((string)($company->INSTAGRAM_URL ?? ''));
+$_cWpLink  = 'https://wa.me/' . preg_replace('/[^0-9]/', '', (string)($company->WHATSAPP_NUMBER ?? ''));
 
 /* ── Turnstile site key ─────────────────────────────────────── */
 $cfSiteKey = htmlspecialchars(sinelec_env('SITE_KEY', '') ?? '');
@@ -471,18 +482,106 @@ require_once 'header.php';
   display: inline-flex; align-items: center; background: #fff;
 }
 
-/* ── Sidebar ───────────────────────────────────────────────── */
-.rq-side { background: #fff; border: 1.5px solid var(--rq-border); border-radius: var(--rq-radius); padding: 20px; margin-bottom: 16px; }
-.rq-side-title { font-size: 13px; font-weight: 700; color: var(--rq-dark); margin-bottom: 14px; }
-.rq-why li { font-size: 13px; color: #374151; display: flex; gap: 8px; align-items: flex-start; margin-bottom: 8px; list-style: none; }
-.rq-why { padding: 0; margin: 0; }
-.rq-ci  { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 12px; }
-.rq-ci:last-child { margin-bottom: 0; }
-.rq-ci-icon { width: 28px; height: 28px; border-radius: 8px; background: #eff6ff; display: grid; place-items: center; flex-shrink: 0; }
-.rq-ci-lbl  { font-size: 10.5px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: .4px; margin-bottom: 2px; }
-.rq-ci-val  { font-size: 13px; color: #1e293b; word-break: break-word; }
-.rq-ci-val a { color: var(--rq-blue); text-decoration: none; }
-.rq-ci-val a:hover { text-decoration: underline; }
+/* ── Sidebar cards ─────────────────────────────────────────── */
+.rq-side { background: #fff; border: 1.5px solid var(--rq-border); border-radius: var(--rq-radius); margin-bottom: 16px; overflow: hidden; box-shadow: var(--rq-shadow); }
+.rq-side:last-child { margin-bottom: 0; }
+
+/* Why card */
+.rq-why-head {
+  background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 60%, #1a56a0 100%);
+  padding: 18px 20px 14px; position: relative; overflow: hidden;
+}
+.rq-why-head::before {
+  content:''; position:absolute; inset:0;
+  background: radial-gradient(ellipse 80% 70% at 0% 0%, rgba(59,130,246,.22) 0%, transparent 70%);
+  pointer-events:none;
+}
+.rq-why-head-label {
+  font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;
+  color: #93c5fd; margin-bottom: 5px; position: relative;
+}
+.rq-why-head-title {
+  font-size: 16px; font-weight: 800; color: #fff; margin: 0; position: relative; line-height: 1.3;
+}
+.rq-why-body { padding: 4px 0 6px; }
+.rq-why-item {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 12px 20px; border-bottom: 1px solid #f1f5f9;
+  transition: background .15s;
+}
+.rq-why-item:last-child { border-bottom: none; }
+.rq-why-item:hover { background: #f8faff; }
+.rq-why-icon {
+  width: 32px; height: 32px; border-radius: 9px;
+  display: grid; place-items: center; flex-shrink: 0; margin-top: 1px;
+}
+.rq-why-text { flex: 1; min-width: 0; }
+.rq-why-text strong { display: block; font-size: 12.5px; font-weight: 700; color: #0f172a; line-height: 1.3; }
+.rq-why-text span   { display: block; font-size: 11.5px; color: #64748b; margin-top: 2px; line-height: 1.4; }
+
+/* Contact card */
+.rq-contact-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 18px; background: #f8fafc;
+  border-bottom: 1px solid var(--rq-border);
+}
+.rq-contact-head-icon {
+  width: 36px; height: 36px; border-radius: 10px;
+  background: #eff6ff; display: grid; place-items: center; flex-shrink: 0;
+}
+.rq-contact-head-title { font-size: 13px; font-weight: 700; color: var(--rq-dark); }
+.rq-contact-head-sub   { font-size: 11px; color: #64748b; margin-top: 1px; }
+
+.rq-contact-block { padding: 12px 18px; border-bottom: 1px solid #f1f5f9; }
+.rq-contact-block:last-child { border-bottom: none; }
+.rq-contact-block-title {
+  font-size: 10px; font-weight: 700; letter-spacing: 1px;
+  text-transform: uppercase; color: #94a3b8; margin-bottom: 8px;
+  display: flex; align-items: center; gap: 5px;
+}
+.rq-contact-row {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 6px 0;
+}
+.rq-contact-row-icon {
+  width: 28px; height: 28px; border-radius: 8px;
+  display: grid; place-items: center; flex-shrink: 0; margin-top: 1px;
+}
+.rq-contact-row-lbl  { font-size: 10.5px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: .4px; margin-bottom: 2px; }
+.rq-contact-row-val  { font-size: 13px; color: #1e293b; word-break: break-word; line-height: 1.4; }
+.rq-contact-row-val a { color: var(--rq-blue); text-decoration: none; }
+.rq-contact-row-val a:hover { text-decoration: underline; }
+.rq-address-text { font-size: 13px; color: #374151; line-height: 1.7; white-space: pre-line; margin: 0; }
+
+.rq-socials { display: flex; gap: 8px; padding: 12px 18px; flex-wrap: wrap; }
+.rq-soc {
+  width: 32px; height: 32px; border-radius: 8px;
+  background: #f1f5f9; color: #475569;
+  display: grid; place-items: center;
+  transition: background .15s, color .15s;
+}
+.rq-soc:hover { background: #2563eb; color: #fff; }
+
+/* Map card */
+.rq-map-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 18px; background: #f8fafc;
+  border-bottom: 1px solid var(--rq-border);
+}
+.rq-map-head-icon {
+  width: 36px; height: 36px; border-radius: 10px;
+  background: #eff6ff; display: grid; place-items: center; flex-shrink: 0;
+}
+.rq-map-head-title { font-size: 13px; font-weight: 700; color: var(--rq-dark); }
+.rq-map-head-sub   { font-size: 11px; color: #64748b; margin-top: 1px; }
+.rq-map-frame { line-height: 0; }
+.rq-map-frame iframe { width: 100%; height: 220px; border: none; display: block; }
+.rq-map-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; padding: 36px 20px; color: #94a3b8; text-align: center;
+}
+.rq-map-empty svg { opacity: .3; }
+.rq-map-empty p { font-size: 12px; margin: 0; }
 
 /* ── Spin animation ────────────────────────────────────────── */
 @keyframes rqSpin { to { transform: rotate(360deg); } }
@@ -948,44 +1047,216 @@ require_once 'header.php';
 
 <!-- ══ RIGHT: SIDEBAR ════════════════════════════════════════ -->
 <div>
+
+  <!-- ─ Why request a quote? ─────────────────────────────── -->
   <div class="rq-side">
-    <div class="rq-side-title">Why request a quote?</div>
-    <ul class="rq-why">
-      <li><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>Best price for bulk &amp; custom orders</li>
-      <li><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>Hard-to-find parts sourced globally</li>
-      <li><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>Dedicated account manager</li>
-      <li><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>100% genuine certified components</li>
-      <li><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>Priority dispatch &amp; tracking</li>
-    </ul>
+    <div class="rq-why-head">
+      <div class="rq-why-head-label">Benefits</div>
+      <h3 class="rq-why-head-title">Why Request a Quote?</h3>
+    </div>
+    <div class="rq-why-body">
+
+      <div class="rq-why-item">
+        <div class="rq-why-icon" style="background:#fef9c3;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#b45309" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        </div>
+        <div class="rq-why-text">
+          <strong>Best Price for Bulk &amp; Custom Orders</strong>
+          <span>Competitive quotes tailored to your quantity and specification</span>
+        </div>
+      </div>
+
+      <div class="rq-why-item">
+        <div class="rq-why-icon" style="background:#ede9fe;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        </div>
+        <div class="rq-why-text">
+          <strong>Hard-to-Find Parts Sourced Globally</strong>
+          <span>Access our worldwide network of verified distributors and manufacturers</span>
+        </div>
+      </div>
+
+      <div class="rq-why-item">
+        <div class="rq-why-icon" style="background:#dbeafe;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        </div>
+        <div class="rq-why-text">
+          <strong>Dedicated Account Manager</strong>
+          <span>A single point of contact who knows your business and requirements</span>
+        </div>
+      </div>
+
+      <div class="rq-why-item">
+        <div class="rq-why-icon" style="background:#dcfce7;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        </div>
+        <div class="rq-why-text">
+          <strong>100% Genuine Certified Components</strong>
+          <span>Every part fully traceable with authenticity certificates available</span>
+        </div>
+      </div>
+
+      <div class="rq-why-item">
+        <div class="rq-why-icon" style="background:#fff7ed;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ea580c" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </div>
+        <div class="rq-why-text">
+          <strong>Priority Dispatch &amp; Tracking</strong>
+          <span>Fast fulfilment with real-time shipment tracking from door to door</span>
+        </div>
+      </div>
+
+    </div>
   </div>
 
+  <!-- ─ Contact details ──────────────────────────────────── -->
   <div class="rq-side">
-    <div class="rq-side-title">Prefer to talk directly?</div>
-    <?php if ($_cPhone): ?>
-    <div class="rq-ci">
-      <div class="rq-ci-icon"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 8.81 19.79 19.79 0 01.1 2.27 2 2 0 012.07.1h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L6.91 7.91a16 16 0 006.16 6.16l.91-.91a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z"/></svg></div>
-      <div><div class="rq-ci-lbl">Phone</div><div class="rq-ci-val"><a href="tel:<?= preg_replace('/[^+\d]/', '', $company->CONTACT_NUMBER ?? '') ?>"><?= $_cPhone ?></a></div></div>
+    <div class="rq-contact-head">
+      <div class="rq-contact-head-icon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2A19.79 19.79 0 0 1 11.51 19 19.43 19.43 0 0 1 4.36 12a19.79 19.79 0 0 1-2.29-7.93A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.362 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91A16 16 0 0 0 14.09 15.91l1.27-1.27a2 2 0 0 1 2.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+      </div>
+      <div>
+        <div class="rq-contact-head-title"><?= $_cName ?></div>
+        <div class="rq-contact-head-sub">Get in touch with us</div>
+      </div>
+    </div>
+
+    <?php if ($_cAddress): ?>
+    <div class="rq-contact-block">
+      <div class="rq-contact-block-title">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        Address
+      </div>
+      <p class="rq-address-text"><?= $_cAddress ?></p>
     </div>
     <?php endif; ?>
-    <?php if ($_cWp): ?>
-    <div class="rq-ci">
-      <div class="rq-ci-icon" style="background:#f0fdf4;"><svg width="13" height="13" viewBox="0 0 24 24" fill="#16a34a"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.52-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg></div>
-      <div><div class="rq-ci-lbl">WhatsApp</div><div class="rq-ci-val"><a href="<?= htmlspecialchars($_cWpLink) ?>" target="_blank" rel="noopener"><?= $_cWp ?></a></div></div>
+
+    <?php if ($_cBranch && $_cBranch !== '<p><br></p>'): ?>
+    <div class="rq-contact-block">
+      <div class="rq-contact-block-title">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        Branch Office
+      </div>
+      <div style="font-size:13px;line-height:1.7;color:#374151;"><?= $_cBranch ?></div>
     </div>
     <?php endif; ?>
-    <?php if ($_cEmail): ?>
-    <div class="rq-ci">
-      <div class="rq-ci-icon"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></div>
-      <div><div class="rq-ci-lbl">Email</div><div class="rq-ci-val"><a href="mailto:<?= $_cEmail ?>"><?= $_cEmail ?></a></div></div>
+
+    <?php if ($_cPhone || $_cFax || $_cEmail || $_cSupport || $_cWp || $_cHrs): ?>
+    <div class="rq-contact-block">
+      <div class="rq-contact-block-title">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 16.92v3a2 2 0 0 1-2.18 2A19.79 19.79 0 0 1 11.51 19 19.43 19.43 0 0 1 4.36 12a19.79 19.79 0 0 1-2.29-7.93A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.362 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91A16 16 0 0 0 14.09 15.91l1.27-1.27a2 2 0 0 1 2.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+        Customer Service &amp; Support
+      </div>
+
+      <?php if ($_cPhone): ?>
+      <div class="rq-contact-row">
+        <div class="rq-contact-row-icon" style="background:#eff6ff;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2A19.79 19.79 0 0 1 11.51 19 19.43 19.43 0 0 1 4.36 12a19.79 19.79 0 0 1-2.29-7.93A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.362 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91A16 16 0 0 0 14.09 15.91l1.27-1.27a2 2 0 0 1 2.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+        </div>
+        <div>
+          <div class="rq-contact-row-lbl">Tel</div>
+          <div class="rq-contact-row-val"><a href="tel:<?= preg_replace('/[^+\d]/', '', $company->CONTACT_NUMBER ?? '') ?>"><?= $_cPhone ?></a></div>
+        </div>
+      </div>
+      <?php endif; ?>
+
+      <?php if ($_cFax): ?>
+      <div class="rq-contact-row">
+        <div class="rq-contact-row-icon" style="background:#f0fdf4;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2"><path d="M6 9V2h12v20H6v-7"/><polyline points="6 15 2 15 2 9 6 9"/><line x1="10" y1="6" x2="14" y2="6"/><line x1="10" y1="10" x2="14" y2="10"/></svg>
+        </div>
+        <div>
+          <div class="rq-contact-row-lbl">Fax</div>
+          <div class="rq-contact-row-val"><?= $_cFax ?></div>
+        </div>
+      </div>
+      <?php endif; ?>
+
+      <?php if ($_cWp): ?>
+      <div class="rq-contact-row">
+        <div class="rq-contact-row-icon" style="background:#f0fdf4;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="#16a34a"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413z"/></svg>
+        </div>
+        <div>
+          <div class="rq-contact-row-lbl">WhatsApp</div>
+          <div class="rq-contact-row-val"><a href="<?= htmlspecialchars($_cWpLink) ?>" target="_blank" rel="noopener"><?= $_cWp ?></a></div>
+        </div>
+      </div>
+      <?php endif; ?>
+
+      <?php if ($_cEmail): ?>
+      <div class="rq-contact-row">
+        <div class="rq-contact-row-icon" style="background:#fdf4ff;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9333ea" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+        </div>
+        <div>
+          <div class="rq-contact-row-lbl">Email</div>
+          <div class="rq-contact-row-val"><a href="mailto:<?= $_cEmail ?>"><?= $_cEmail ?></a></div>
+        </div>
+      </div>
+      <?php endif; ?>
+
+      <?php if ($_cSupport && $_cSupport !== $_cEmail): ?>
+      <div class="rq-contact-row">
+        <div class="rq-contact-row-icon" style="background:#fff7ed;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ea580c" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+        </div>
+        <div>
+          <div class="rq-contact-row-lbl">Support Email</div>
+          <div class="rq-contact-row-val"><a href="mailto:<?= $_cSupport ?>"><?= $_cSupport ?></a></div>
+        </div>
+      </div>
+      <?php endif; ?>
+
+      <?php if ($_cHrs): ?>
+      <div class="rq-contact-row">
+        <div class="rq-contact-row-icon" style="background:#fff7ed;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ea580c" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </div>
+        <div>
+          <div class="rq-contact-row-lbl">Mon – Fri</div>
+          <div class="rq-contact-row-val"><?= $_cHrs ?></div>
+        </div>
+      </div>
+      <?php endif; ?>
+
     </div>
     <?php endif; ?>
-    <?php if ($_cHrs): ?>
-    <div class="rq-ci">
-      <div class="rq-ci-icon"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
-      <div><div class="rq-ci-lbl">Office Hours</div><div class="rq-ci-val"><?= $_cHrs ?></div></div>
+
+    <?php if ($_cFb || $_cLi || $_cTw || $_cYt || $_cIg): ?>
+    <div class="rq-socials">
+      <?php if ($_cFb): ?><a href="<?= $_cFb ?>" class="rq-soc" target="_blank" rel="noopener" title="Facebook"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg></a><?php endif; ?>
+      <?php if ($_cTw): ?><a href="<?= $_cTw ?>" class="rq-soc" target="_blank" rel="noopener" title="Twitter / X"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.746l7.73-8.835L1.254 2.25H8.08l4.264 5.633 5.9-5.633zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a><?php endif; ?>
+      <?php if ($_cLi): ?><a href="<?= $_cLi ?>" class="rq-soc" target="_blank" rel="noopener" title="LinkedIn"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/><rect x="2" y="9" width="4" height="12"/><circle cx="4" cy="4" r="2"/></svg></a><?php endif; ?>
+      <?php if ($_cYt): ?><a href="<?= $_cYt ?>" class="rq-soc" target="_blank" rel="noopener" title="YouTube"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M22.54 6.42a2.78 2.78 0 0 0-1.95-1.96C18.88 4 12 4 12 4s-6.88 0-8.59.46a2.78 2.78 0 0 0-1.95 1.96A29 29 0 0 0 1 12a29 29 0 0 0 .46 5.58A2.78 2.78 0 0 0 3.41 19.6C5.12 20 12 20 12 20s6.88 0 8.59-.46a2.78 2.78 0 0 0 1.95-1.95A29 29 0 0 0 23 12a29 29 0 0 0-.46-5.58z"/><polygon points="9.75 15.02 15.5 12 9.75 8.98 9.75 15.02" fill="#fff"/></svg></a><?php endif; ?>
+      <?php if ($_cIg): ?><a href="<?= $_cIg ?>" class="rq-soc" target="_blank" rel="noopener" title="Instagram"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg></a><?php endif; ?>
     </div>
     <?php endif; ?>
   </div>
+
+  <!-- ─ Map ──────────────────────────────────────────────── -->
+  <div class="rq-side">
+    <div class="rq-map-head">
+      <div class="rq-map-head-icon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+      </div>
+      <div>
+        <div class="rq-map-head-title">Our Location</div>
+        <div class="rq-map-head-sub"><?= $_cAddress ?: 'Find us on the map' ?></div>
+      </div>
+    </div>
+    <?php if ($_cMapUrl !== ''):
+      $rqMapEmbed = preg_replace('/\s*(width|height)=["\'][^"\']*["\']/', '', $_cMapUrl);
+    ?>
+    <div class="rq-map-frame"><?= $rqMapEmbed ?></div>
+    <?php else: ?>
+    <div class="rq-map-empty">
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+      <p>Map not configured</p>
+    </div>
+    <?php endif; ?>
+  </div>
+
 </div>
 
 </div><!-- /layout -->

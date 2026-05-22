@@ -250,13 +250,29 @@ switch ($action) {
     case 'AddProductImages':
         adminRequireAuth();
         require_once __DIR__.'/../common/uploadFileCloudflare.php';
+
+        $isAjax = !empty($_POST['_ajax']);
         $pid    = (int)($_POST['product_id'] ?? 0);
         $imgFor = ($_POST['image_for'] ?? 'Product') === 'Product Mannual' ? 'Product Mannual' : 'Product';
-        if ($pid <= 0) adminRedirectWithFlash('products', 'warn', 'Invalid product.');
+
+        if ($pid <= 0) {
+            if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['success'=>false,'error'=>'Invalid product.']); exit; }
+            adminRedirectWithFlash('products', 'warn', 'Invalid product.');
+        }
+
+        /* Accepted types: product images = JPG/PNG only; manuals = PDF + common images */
+        $allowedType = ($imgFor === 'Product Mannual') ? 'pdf,jpg,jpeg,png,gif,webp' : 'jpg,jpeg,png';
 
         $files    = $_FILES['product_images'] ?? [];
         $uploaded = 0;
-        $count    = isset($files['tmp_name']) && is_array($files['tmp_name']) ? count($files['tmp_name']) : 1;
+        $errors   = [];
+        $savedRows = [];
+
+        /* Build a normalised count whether PHP gave us arrays (multi-file) or scalars (single) */
+        $count = 0;
+        if (!empty($files['tmp_name'])) {
+            $count = is_array($files['tmp_name']) ? count($files['tmp_name']) : 1;
+        }
 
         for ($i = 0; $i < $count; $i++) {
             $f = [
@@ -266,34 +282,76 @@ switch ($action) {
                 'error'    => is_array($files['error']    ?? '') ? ($files['error'][$i]    ?? 4)  : ($files['error']    ?? 4),
                 'size'     => is_array($files['size']     ?? '') ? ($files['size'][$i]     ?? 0)  : ($files['size']     ?? 0),
             ];
-            $hasFile  = !empty($f['tmp_name']) && ($f['error'] === UPLOAD_ERR_OK);
+            $hasFile  = !empty($f['tmp_name']) && ((int)$f['error'] === UPLOAD_ERR_OK);
             $imgName  = trim((string)(($_POST['image_names'][$i]   ?? '')));
             $title    = trim((string)(($_POST['manual_titles'][$i] ?? '')));
             $hyperLnk = trim((string)(($_POST['hyper_links'][$i]   ?? '')));
             $dispFlag = in_array(($_POST['display_flags'][$i] ?? 'Yes'), ['Yes','No']) ? $_POST['display_flags'][$i] : 'Yes';
             $prioVal  = (int)(($_POST['priorities'][$i] ?? ($i + 1)));
 
-            /* Product images require a file; manuals accept file OR link */
+            /* Product images require a file; manuals accept file OR direct link */
             if ($imgFor === 'Product' && !$hasFile) continue;
             if ($imgFor === 'Product Mannual' && !$hasFile && $hyperLnk === '') continue;
 
             $r2Key = '';
             if ($hasFile) {
-                $r2 = uploadToR2($f, 'products', $imgFor === 'Product Mannual' ? 'ANY' : 'IMAGE');
+                $r2 = uploadToR2($f, 'products', $allowedType);
                 if ($r2['success']) {
                     $r2Key = $r2['key'];
-                } elseif ($imgFor === 'Product') {
-                    continue; /* Skip product image if upload failed */
+                } else {
+                    $errors[] = 'File '.($i + 1).': '.($r2['error'] ?? 'Upload failed.');
+                    continue;
                 }
             }
 
             if ($r2Key !== '' || $hyperLnk !== '') {
-                $newId = $controller->addProductImage($pid, $r2Key, $imgFor, $title, $prioVal, $imgName, $dispFlag, $hyperLnk);
-                if ($newId > 0) $uploaded++;
+                try {
+                    $newId = $controller->addProductImage($pid, $r2Key, $imgFor, $title, $prioVal, $imgName, $dispFlag, $hyperLnk);
+                } catch (Exception $e) {
+                    $errors[] = 'File '.($i + 1).': DB error — '.$e->getMessage();
+                    continue;
+                }
+                if ($newId > 0) {
+                    $uploaded++;
+                    $pubBaseUrl = rtrim(sinelec_env('PUBLIC_BASE_URL'), '/');
+                    $savedRows[] = [
+                        'id'      => $newId,
+                        'path'    => $r2Key,
+                        'url'     => ($r2Key !== '' && strpos($r2Key, '/') !== false) ? $pubBaseUrl.'/'.$r2Key : '',
+                        'for'     => $imgFor,
+                        'name'    => $imgName,
+                        'title'   => $title,
+                        'hyper'   => $hyperLnk,
+                        'prio'    => $prioVal,
+                        'display' => $dispFlag,
+                    ];
+                } else {
+                    $errors[] = 'File '.($i + 1).': Saved to R2 but DB insert returned 0.';
+                }
             }
         }
-        if ($uploaded > 0) adminRedirectWithFlash('products', 'ok', $uploaded.' file(s) saved successfully.');
-        adminRedirectWithFlash('products', 'warn', 'Nothing was saved — please upload a file or provide a direct URL.');
+
+        if ($isAjax) {
+            header('Content-Type: application/json');
+            if ($uploaded > 0) {
+                echo json_encode(['success'=>true,'uploaded'=>$uploaded,'images'=>$savedRows,'skipped'=>$errors]);
+            } else {
+                $errMsg = !empty($errors) ? implode(' | ', $errors) : 'Please select a valid file or provide a direct URL.';
+                echo json_encode(['success'=>false,'error'=>$errMsg,'images'=>[]]);
+            }
+            exit;
+        }
+
+        if ($uploaded > 0) {
+            $msg = $uploaded.' file(s) saved successfully.';
+            if (!empty($errors)) $msg .= ' — Skipped: '.implode('; ', $errors);
+            adminRedirectWithFlash('products', 'ok', $msg);
+        }
+
+        $failMsg = !empty($errors)
+            ? implode(' | ', $errors)
+            : 'Please select a valid file or provide a direct URL.';
+        adminRedirectWithFlash('products', 'err', $failMsg);
     break;
 
     case 'DeleteProductImage':
@@ -302,7 +360,7 @@ switch ($action) {
         if ($imgId <= 0) adminRedirectWithFlash('products', 'warn', 'Invalid request.');
         $imgRow = $controller->getProductImageById($imgId);
         if ($imgRow) {
-            $r2Key = (string)($imgRow->IMAGE_EXT ?? '');
+            $r2Key = (string)($imgRow->PRODUCT_IMAGE_PATH ?? '');
             if ($r2Key !== '' && strpos($r2Key, '/') !== false) {
                 require_once __DIR__.'/../common/uploadFileCloudflare.php';
                 deleteFromR2($r2Key);
@@ -1395,6 +1453,455 @@ switch ($action) {
         adminRedirectWithFlash('quotation', 'ok',
             'Status updated to "' . htmlspecialchars($status) . '"'
             . ($usNotified ? ' &amp; notification sent to ' . $usNotified : '') . '.');
+    break;
+
+    case 'GenerateOrder':
+        adminRequireAuth();
+        $goQid      = (int)($_POST['enquiry_quote_id'] ?? 0);
+        $goPayMode  = trim($_POST['order_mode'] ?? '');
+        $goAdminUid = (int)($_SESSION['sinelec_admin']['USER_ID'] ?? 0);
+
+        $validModes = ['Payment Gateway', 'Bank Transfer', 'Invoice'];
+        if ($goQid <= 0)                           adminRedirectWithFlash('quotation', 'warn', 'Invalid request.');
+        if (!in_array($goPayMode, $validModes))    adminRedirectWithFlash('quotation', 'warn', 'Please select a valid payment method.');
+
+        /* Guard: no duplicate orders */
+        $goExisting = $controller->getQuotationIdsWithOrders();
+        if (in_array($goQid, $goExisting))         adminRedirectWithFlash('quotation', 'warn', 'An order already exists for this quotation.');
+
+        /* Load quotation + products */
+        $goQ = $controller->getQuotationById($goQid);
+        if (!$goQ)                                 adminRedirectWithFlash('quotation', 'err', 'Quotation not found.');
+
+        $goItems = $controller->getQuotationProducts($goQid);
+
+        /* Build totals from quote row */
+        $goTotalProd = 0;
+        foreach ($goItems as $gi) {
+            $qty     = (float)($gi->PRODUCT_QUANTITY    ?? 1);
+            $unitAmt = (float)($gi->PRODUCT_AMT         ?? 0);
+            $discPct = (float)($gi->PRODUCT_DISCOUNT_PCT ?? 0);
+            $goTotalProd += round($unitAmt * (1 - $discPct / 100) * $qty, 2);
+        }
+
+        $goNewId = $controller->generateOrderFromQuotation([
+            'enquiry_quote_id'     => $goQid,
+            'user_id'              => (int)(float)($goQ->USER_ID             ?? 0),
+            'user_address_id'      => (int)(float)($goQ->USER_ADDRESS_ID     ?? 0),
+            'billing_address_id'   => (int)(float)($goQ->BILLING_ADDRESS_ID  ?? 0),
+            'order_mode'           => $goPayMode,
+            'customer_po_id'       => (string)($goQ->CUSTOMER_ORDER_NO      ?? ''),
+            'customer_supplier_no' => (string)($goQ->CUSTOMER_SUPPLIER_NO   ?? ''),
+            'order_total_amt'      => $goTotalProd,
+            'shipping_amt'         => (float)($goQ->ENQUIRY_SHIPPING_AMT    ?? 0),
+            'discount_amt'         => (float)($goQ->DISCOUNT_AMT            ?? 0),
+            'tax_total_amount'     => (float)($goQ->ENQUIRY_VAT_AMT         ?? 0),
+            'final_total_amt'      => (float)($goQ->ENQUIRY_TOTAL_AMT       ?? 0),
+            'changed_by_user_id'   => $goAdminUid,
+            'items'                => array_map(fn($gi) => [
+                'product_category_id' => (int)(float)($gi->PRODUCT_CATEGORY_ID  ?? 0),
+                'product_id'          => (int)(float)($gi->PRODUCT_ID           ?? 0),
+                'product_quantity'    => (float)($gi->PRODUCT_QUANTITY           ?? 1),
+                'product_amt'         => (float)($gi->PRODUCT_AMT               ?? 0),
+                'product_discount_pct'=> (float)($gi->PRODUCT_DISCOUNT_PCT      ?? 0),
+            ], $goItems),
+        ]);
+
+        if ($goNewId <= 0) adminRedirectWithFlash('quotation', 'err', 'Failed to generate order. Please try again.');
+
+        $goOrderNo  = 'ORD-'.date('Y').'-'.str_pad((string)$goNewId, 6, '0', STR_PAD_LEFT);
+        $goQuoteRef = 'QT-'.str_pad((string)$goQid, 6, '0', STR_PAD_LEFT);
+
+        /* ── Resolve company + recipient email ─────────────────── */
+        $goComp     = $controller->getCompanyDetails();
+        $goUid      = (int)(float)($goQ->USER_ID         ?? 0);
+        $goAddrId   = (int)(float)($goQ->USER_ADDRESS_ID ?? 0);
+        $goCustName = htmlspecialchars((string)($goQ->USER_NAME_RESOLVED  ?? $goQ->USER_NAME  ?? 'Customer'));
+        $goCustEmail= (string)($goQ->USER_EMAIL_RESOLVED ?? $goQ->USER_EMAIL ?? '');
+        $goTotalFmt = '€'.number_format((float)($goQ->ENQUIRY_TOTAL_AMT ?? 0), 2);
+
+        $goCoName    = $goComp ? htmlspecialchars((string)($goComp->NAME           ?? 'Our Company')) : 'Our Company';
+        $goCoEmail   = $goComp ? (string)($goComp->EMAIL          ?? '') : '';
+        $goCoPhone   = $goComp ? (string)($goComp->CONTACT_NUMBER ?? '') : '';
+        $goCoLogoUrl = $goComp ? trim((string)($goComp->LOGO ?? '')) : '';
+
+        $goCoContactHtml = '';
+        if ($goCoEmail) $goCoContactHtml .= '<a href="mailto:'.htmlspecialchars($goCoEmail).'" style="color:#6366f1;text-decoration:none;">'.htmlspecialchars($goCoEmail).'</a>';
+        if ($goCoEmail && $goCoPhone) $goCoContactHtml .= ' &nbsp;|&nbsp; ';
+        if ($goCoPhone) $goCoContactHtml .= htmlspecialchars($goCoPhone);
+
+        $goRecEmail = '';
+        if ($goAddrId > 0 && $goUid > 0) {
+            $goAddrs = $controller->getUserAddressesForQuote($goUid);
+            foreach ($goAddrs as $ga) {
+                if ((int)(float)($ga->USER_ADDRESS_ID ?? 0) === $goAddrId) {
+                    $goRecEmail = trim((string)($ga->RECIPIENT_EMAIL ?? ''));
+                    break;
+                }
+            }
+        }
+
+        $goSupportEmails = [];
+        if ($goComp) {
+            $goRaw = trim((string)($goComp->SUPPORT_MAIL_ID ?? ''));
+            if ($goRaw !== '') $goSupportEmails = array_filter(array_map('trim', explode(',', $goRaw)));
+        }
+
+        $goOrderStatus  = ($goPayMode === 'Invoice') ? 'Order Confirmed' : 'Order Pending';
+        $goPayStatus    = ($goPayMode === 'Invoice') ? 'Not Required'    : 'Payment Pending';
+
+        /* ── Status badge colours ──────────────────────────────── */
+        $goOsBg   = ($goPayMode === 'Invoice') ? '#dcfce7' : '#dbeafe';
+        $goOsTxt  = ($goPayMode === 'Invoice') ? '#15803d' : '#1d4ed8';
+        $goOsBdr  = ($goPayMode === 'Invoice') ? '#86efac' : '#93c5fd';
+        $goPsBg   = ($goPayMode === 'Invoice') ? '#f3f4f6' : '#fef3c7';
+        $goPsTxt  = ($goPayMode === 'Invoice') ? '#6b7280' : '#92400e';
+        $goPsBdr  = ($goPayMode === 'Invoice') ? '#d1d5db' : '#fcd34d';
+
+        $goOrderBadge = '<span style="display:inline-block;background:'.$goOsBg.';color:'.$goOsTxt.';border:1px solid '.$goOsBdr.';font-size:12px;font-weight:700;padding:4px 14px;border-radius:20px;">'.$goOrderStatus.'</span>';
+        $goPayBadge   = '<span style="display:inline-block;background:'.$goPsBg.';color:'.$goPsTxt.';border:1px solid '.$goPsBdr.';font-size:12px;font-weight:700;padding:4px 14px;border-radius:20px;">'.$goPayStatus.'</span>';
+
+        $goModeIcon = match($goPayMode) {
+            'Invoice'         => '&#128196;',
+            'Bank Transfer'   => '&#127968;',
+            'Payment Gateway' => '&#128179;',
+            default           => '&#9679;',
+        };
+
+        /* ── Customer-facing email ─────────────────────────────── */
+        $goBodyCustomer = '
+<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:\'Segoe UI\',Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:32px 16px;">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+
+  <!-- Header -->
+  <tr><td style="background:linear-gradient(135deg,#059669 0%,#10b981 100%);border-radius:12px 12px 0 0;padding:32px 40px;text-align:center;">
+    '.($goCoLogoUrl ? '<img src="'.$goCoLogoUrl.'" alt="'.$goCoName.'" style="max-height:52px;max-width:180px;object-fit:contain;filter:brightness(0) invert(1);margin-bottom:12px;display:block;margin-left:auto;margin-right:auto;">' : '').'
+    <div style="color:#fff;font-size:22px;font-weight:700;letter-spacing:.5px;">'.($goCoLogoUrl ? '' : $goCoName).'</div>
+    <div style="color:rgba(255,255,255,.8);font-size:13px;margin-top:4px;">&#9989; Order Confirmation</div>
+  </td></tr>
+
+  <!-- Body -->
+  <tr><td style="background:#ffffff;padding:40px 40px 32px;">
+    <p style="margin:0 0 20px;font-size:16px;font-weight:700;color:#1e293b;">Dear '.$goCustName.',</p>
+    <p style="margin:0 0 20px;font-size:14px;color:#475569;line-height:1.7;">
+      Great news! Your order has been successfully generated from quotation <strong style="color:#4f46e5;">'.$goQuoteRef.'</strong>.
+      Please find your order details below.
+    </p>
+
+    <!-- Order Card -->
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;margin:0 0 24px;">
+      <tr>
+        <td style="padding:16px 24px;border-bottom:1px solid #e2e8f0;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:4px;">Order Number</div>
+          <div style="font-size:20px;font-weight:800;color:#059669;">'.$goOrderNo.'</div>
+        </td>
+        <td style="padding:16px 24px;border-bottom:1px solid #e2e8f0;text-align:right;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:4px;">Total Amount</div>
+          <div style="font-size:20px;font-weight:800;color:#059669;">'.$goTotalFmt.'</div>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:14px 24px;border-bottom:1px solid #e2e8f0;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:6px;">Order Status</div>
+          '.$goOrderBadge.'
+        </td>
+        <td style="padding:14px 24px;border-bottom:1px solid #e2e8f0;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:6px;">Payment Status</div>
+          '.$goPayBadge.'
+        </td>
+      </tr>
+      <tr>
+        <td colspan="2" style="padding:14px 24px;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:4px;">Payment Method</div>
+          <div style="font-size:13px;font-weight:600;color:#1e293b;">'.$goModeIcon.' '.$goPayMode.'</div>
+        </td>
+      </tr>
+    </table>
+
+    <p style="margin:0 0 12px;font-size:13px;color:#64748b;line-height:1.7;">
+      We will keep you updated as your order progresses. If you have any questions, please do not hesitate to contact us.
+    </p>
+    <p style="margin:0;font-size:13px;color:#64748b;line-height:1.7;">Thank you for your business. We look forward to serving you.</p>
+  </td></tr>
+
+  <!-- Sign-off -->
+  <tr><td style="background:#f8fafc;padding:24px 40px;border-top:1px solid #e2e8f0;">
+    <p style="margin:0 0 4px;font-size:13px;color:#475569;">Warm regards,</p>
+    <p style="margin:0 0 4px;font-size:14px;font-weight:700;color:#1e293b;">'.$goCoName.'</p>
+    '.($goCoContactHtml ? '<p style="margin:0;font-size:12px;color:#94a3b8;">'.$goCoContactHtml.'</p>' : '').'
+  </td></tr>
+
+  <!-- Footer -->
+  <tr><td style="background:#e2e8f0;border-radius:0 0 12px 12px;padding:14px 40px;text-align:center;">
+    <p style="margin:0;font-size:11px;color:#94a3b8;">
+      This is an automated order confirmation from '.$goCoName.'.<br>
+      Quotation reference: <strong>'.$goQuoteRef.'</strong> | Order: <strong>'.$goOrderNo.'</strong>
+    </p>
+  </td></tr>
+
+</table>
+</td></tr></table>
+</body></html>';
+
+        /* ── Internal notification email ───────────────────────── */
+        $goBodyInternal = '
+<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:\'Segoe UI\',Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 16px;">
+<tr><td align="center">
+<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#fff;border-radius:10px;overflow:hidden;border:1px solid #e2e8f0;">
+  <tr><td style="background:#059669;padding:18px 28px;">
+    <div style="color:#fff;font-size:15px;font-weight:700;">&#9989; New Order Generated — '.$goOrderNo.'</div>
+  </td></tr>
+  <tr><td style="padding:24px 28px;">
+    <table width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;padding-bottom:8px;width:40%;">Customer</td>
+        <td style="font-size:13px;font-weight:700;color:#1e293b;padding-bottom:8px;">'.$goCustName.'</td>
+      </tr>
+      <tr>
+        <td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;padding-bottom:8px;">Quotation</td>
+        <td style="font-size:13px;color:#4f46e5;font-weight:700;padding-bottom:8px;">'.$goQuoteRef.'</td>
+      </tr>
+      <tr>
+        <td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;padding-bottom:8px;">Order Number</td>
+        <td style="font-size:13px;color:#059669;font-weight:700;padding-bottom:8px;">'.$goOrderNo.'</td>
+      </tr>
+      <tr>
+        <td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;padding-bottom:8px;">Payment Method</td>
+        <td style="font-size:13px;font-weight:600;color:#1e293b;padding-bottom:8px;">'.$goModeIcon.' '.$goPayMode.'</td>
+      </tr>
+      <tr>
+        <td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;padding-bottom:8px;">Order Status</td>
+        <td style="padding-bottom:8px;">'.$goOrderBadge.'</td>
+      </tr>
+      <tr>
+        <td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;padding-bottom:16px;">Total Amount</td>
+        <td style="font-size:14px;font-weight:700;color:#059669;padding-bottom:16px;">'.$goTotalFmt.'</td>
+      </tr>
+    </table>
+  </td></tr>
+  <tr><td style="background:#f8fafc;padding:12px 28px;border-top:1px solid #e2e8f0;">
+    <p style="margin:0;font-size:11px;color:#94a3b8;">Internal notification — '.$goCoName.' Order System</p>
+  </td></tr>
+</table>
+</td></tr></table>
+</body></html>';
+
+        /* ── Deduplicate & dispatch ─────────────────────────────── */
+        $goSentTo = []; $goRecips = [];
+        $goCustSubject = 'Your Order '.$goOrderNo.' Has Been Confirmed | '.$goCoName;
+        $goIntSubject  = '[New Order] '.$goOrderNo.' from '.$goCustName.' | '.$goCoName;
+
+        if ($goCustEmail !== '' && !in_array(strtolower($goCustEmail), $goSentTo)) {
+            $goSentTo[] = strtolower($goCustEmail);
+            $goRecips[] = ['to_mail_id'=>$goCustEmail, 'subject'=>$goCustSubject, 'body'=>$goBodyCustomer];
+        }
+        if ($goRecEmail !== '' && !in_array(strtolower($goRecEmail), $goSentTo)) {
+            $goSentTo[] = strtolower($goRecEmail);
+            $goRecips[] = ['to_mail_id'=>$goRecEmail, 'subject'=>$goCustSubject, 'body'=>$goBodyCustomer];
+        }
+        foreach ($goSupportEmails as $goSmail) {
+            if ($goSmail !== '' && !in_array(strtolower($goSmail), $goSentTo)) {
+                $goSentTo[] = strtolower($goSmail);
+                $goRecips[] = ['to_mail_id'=>$goSmail, 'subject'=>$goIntSubject, 'body'=>$goBodyInternal];
+            }
+        }
+        if (!empty($goRecips)) sinelec_send_mail($goRecips);
+
+        $goNotified = implode(', ', array_map('htmlspecialchars', array_slice($goSentTo, 0, 2)));
+        adminRedirectWithFlash('quotation', 'ok',
+            'Order <strong>'.$goOrderNo.'</strong> generated successfully'
+            . ($goNotified ? ' &amp; notification sent to '.$goNotified : '') . '.');
+    break;
+
+    /* ─────────────────────────────────────────────────────────────
+       USER ORDERS (tbl_user_order)
+    ───────────────────────────────────────────────────────────── */
+    case 'CreateDirectOrder':
+        adminRequireAuth();
+        $cdoUid     = (int)($_SESSION['sinelec_admin']['USER_ID'] ?? 0);
+        $cdoCustId  = (int)($_POST['user_id']       ?? 0);
+        $cdoAddrId  = (int)($_POST['user_address_id'] ?? 0);
+        $cdoBilId   = (int)($_POST['billing_address_id'] ?? $cdoAddrId);
+        $cdoMode    = trim($_POST['order_mode']      ?? '');
+        $cdoPoId    = trim($_POST['customer_po_id']  ?? '');
+        $cdoSupNo   = trim($_POST['customer_supplier_no'] ?? '');
+        $cdoShip    = (float)($_POST['shipping_amt'] ?? 0);
+        $cdoDisc    = (float)($_POST['discount_amt'] ?? 0);
+        $cdoTax     = (float)($_POST['tax_amt']      ?? 0);
+
+        $validModes = ['Payment Gateway','Bank Transfer','Invoice'];
+        if ($cdoCustId <= 0)                          adminRedirectWithFlash('order-list', 'warn', 'Please select a customer.');
+        if (!in_array($cdoMode, $validModes))         adminRedirectWithFlash('order-list', 'warn', 'Please select a valid payment method.');
+
+        $cdoProdIds  = $_POST['prod_ids']   ?? [];
+        $cdoCatIds   = $_POST['cat_ids']    ?? [];
+        $cdoQtys     = $_POST['quantities'] ?? [];
+        $cdoUnitAmts = $_POST['unit_amts']  ?? [];
+        $cdoDiscPcts = $_POST['disc_pcts']  ?? [];
+        $cdoTaxPcts  = $_POST['tax_pcts']   ?? [];
+
+        $cdoItems = [];
+        foreach ($cdoProdIds as $idx => $prodId) {
+            $prodId  = (int)$prodId;
+            $catId   = (int)($cdoCatIds[$idx]   ?? 0);
+            $qty     = (float)($cdoQtys[$idx]     ?? 1);
+            $unitAmt = (float)($cdoUnitAmts[$idx] ?? 0);
+            $discPct = (float)($cdoDiscPcts[$idx] ?? 0);
+            $taxPct  = (float)($cdoTaxPcts[$idx]  ?? 0);
+            if ($prodId <= 0 || $catId <= 0 || $qty <= 0) continue;
+            $cdoItems[] = ['prod_id'=>$prodId,'cat_id'=>$catId,'qty'=>$qty,'unit_amt'=>$unitAmt,'disc_pct'=>$discPct,'tax_pct'=>$taxPct];
+        }
+        if (empty($cdoItems)) adminRedirectWithFlash('order-list', 'warn', 'Please add at least one product.');
+
+        $cdoNewId = $controller->createDirectOrder([
+            'user_id'              => $cdoCustId,
+            'user_address_id'      => $cdoAddrId,
+            'billing_address_id'   => $cdoBilId,
+            'order_mode'           => $cdoMode,
+            'customer_po_id'       => $cdoPoId,
+            'customer_supplier_no' => $cdoSupNo,
+            'shipping_amt'         => $cdoShip,
+            'discount_amt'         => $cdoDisc,
+            'tax_amt'              => $cdoTax,
+            'changed_by_user_id'   => $cdoUid,
+            'items'                => $cdoItems,
+        ]);
+        if ($cdoNewId <= 0) adminRedirectWithFlash('order-list', 'err', 'Failed to create order. Please try again.');
+
+        /* Send confirmation mail */
+        $cdoOrderNo  = 'ORD-'.date('Y').'-'.str_pad((string)$cdoNewId, 6, '0', STR_PAD_LEFT);
+        $cdoComp     = $controller->getCompanyDetails();
+        $cdoQ        = $controller->getUserOrderById($cdoNewId);
+        $cdoCustName = htmlspecialchars((string)($cdoQ->CUST_NAME  ?? 'Customer'));
+        $cdoCustEmail= (string)($cdoQ->CUST_EMAIL ?? '');
+        $cdoTotalFmt = '€'.number_format((float)($cdoQ->FINAL_TOTAL_AMT ?? 0), 2);
+        $cdoPayMode  = (string)($cdoQ->ORDER_MODE ?? $cdoMode);
+        $cdoOsText   = (string)($cdoQ->ORDER_STATUS ?? '');
+        $cdoCoName   = $cdoComp ? htmlspecialchars((string)($cdoComp->NAME ?? 'Our Company')) : 'Our Company';
+        $cdoCoEmail  = $cdoComp ? (string)($cdoComp->EMAIL ?? '') : '';
+        $cdoCoPhone  = $cdoComp ? (string)($cdoComp->CONTACT_NUMBER ?? '') : '';
+        $cdoSupEmails = [];
+        if ($cdoComp) {
+            $cdoRaw = trim((string)($cdoComp->SUPPORT_MAIL_ID ?? ''));
+            if ($cdoRaw !== '') $cdoSupEmails = array_filter(array_map('trim', explode(',', $cdoRaw)));
+        }
+        $cdoRecEmail = (string)($cdoQ->RECIPIENT_EMAIL ?? '');
+        $cdoModeIcon = match($cdoPayMode) { 'Invoice'=>'&#128196;', 'Bank Transfer'=>'&#127968;', default=>'&#128179;' };
+        $cdoOsBadge  = '<span style="display:inline-block;background:#dbeafe;color:#1d4ed8;border:1px solid #93c5fd;font-size:12px;font-weight:700;padding:4px 14px;border-radius:20px;">'.$cdoOsText.'</span>';
+        $cdoCoContactHtml = '';
+        if ($cdoCoEmail) $cdoCoContactHtml .= '<a href="mailto:'.htmlspecialchars($cdoCoEmail).'" style="color:#6366f1;">'.htmlspecialchars($cdoCoEmail).'</a>';
+        if ($cdoCoEmail && $cdoCoPhone) $cdoCoContactHtml .= ' | ';
+        if ($cdoCoPhone) $cdoCoContactHtml .= htmlspecialchars($cdoCoPhone);
+        $cdoBodyCust = '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="margin:0;padding:0;background:#f1f5f9;font-family:\'Segoe UI\',Arial,sans-serif;"><table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:32px 16px;"><tr><td align="center"><table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;"><tr><td style="background:linear-gradient(135deg,#059669 0%,#10b981 100%);border-radius:12px 12px 0 0;padding:32px 40px;text-align:center;"><div style="color:#fff;font-size:22px;font-weight:700;">'.$cdoCoName.'</div><div style="color:rgba(255,255,255,.8);font-size:13px;margin-top:4px;">&#9989; Order Confirmation</div></td></tr><tr><td style="background:#fff;padding:36px 40px 28px;"><p style="margin:0 0 20px;font-size:16px;font-weight:700;color:#1e293b;">Dear '.$cdoCustName.',</p><p style="margin:0 0 20px;font-size:14px;color:#475569;line-height:1.7;">Your order has been successfully created. Please find the details below.</p><table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;margin:0 0 20px;"><tr><td style="padding:16px 24px;border-bottom:1px solid #e2e8f0;"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:4px;">Order Number</div><div style="font-size:20px;font-weight:800;color:#059669;">'.$cdoOrderNo.'</div></td><td style="padding:16px 24px;border-bottom:1px solid #e2e8f0;text-align:right;"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:4px;">Total Amount</div><div style="font-size:20px;font-weight:800;color:#059669;">'.$cdoTotalFmt.'</div></td></tr><tr><td style="padding:14px 24px;border-bottom:1px solid #e2e8f0;"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:6px;">Order Status</div>'.$cdoOsBadge.'</td><td style="padding:14px 24px;border-bottom:1px solid #e2e8f0;"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:4px;">Payment Method</div><div style="font-size:13px;font-weight:600;color:#1e293b;">'.$cdoModeIcon.' '.$cdoPayMode.'</div></td></tr></table><p style="margin:0;font-size:13px;color:#64748b;line-height:1.7;">Thank you for your business. We will keep you updated as your order progresses.</p></td></tr><tr><td style="background:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;"><p style="margin:0 0 4px;font-size:13px;color:#475569;">Warm regards,</p><p style="margin:0 0 4px;font-size:14px;font-weight:700;color:#1e293b;">'.$cdoCoName.'</p>'.($cdoCoContactHtml ? '<p style="margin:0;font-size:12px;color:#94a3b8;">'.$cdoCoContactHtml.'</p>' : '').'</td></tr><tr><td style="background:#e2e8f0;border-radius:0 0 12px 12px;padding:12px 40px;text-align:center;"><p style="margin:0;font-size:11px;color:#94a3b8;">Automated notification from '.$cdoCoName.' | Order: <strong>'.$cdoOrderNo.'</strong></p></td></tr></table></td></tr></table></body></html>';
+        $cdoBodyInt  = '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="margin:0;padding:0;background:#f1f5f9;font-family:\'Segoe UI\',Arial,sans-serif;"><table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 16px;"><tr><td align="center"><table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#fff;border-radius:10px;overflow:hidden;border:1px solid #e2e8f0;"><tr><td style="background:#059669;padding:16px 24px;"><div style="color:#fff;font-size:15px;font-weight:700;">&#9989; New Direct Order — '.$cdoOrderNo.'</div></td></tr><tr><td style="padding:20px 24px;"><table width="100%" cellpadding="0" cellspacing="0"><tr><td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;padding-bottom:6px;width:40%;">Customer</td><td style="font-size:13px;font-weight:700;color:#1e293b;padding-bottom:6px;">'.$cdoCustName.'</td></tr><tr><td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;padding-bottom:6px;">Order No</td><td style="font-size:13px;color:#059669;font-weight:700;padding-bottom:6px;">'.$cdoOrderNo.'</td></tr><tr><td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;padding-bottom:6px;">Payment</td><td style="font-size:13px;font-weight:600;color:#1e293b;padding-bottom:6px;">'.$cdoModeIcon.' '.$cdoPayMode.'</td></tr><tr><td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;padding-bottom:6px;">Total</td><td style="font-size:14px;font-weight:700;color:#059669;padding-bottom:6px;">'.$cdoTotalFmt.'</td></tr></table></td></tr><tr><td style="background:#f8fafc;padding:10px 24px;border-top:1px solid #e2e8f0;"><p style="margin:0;font-size:11px;color:#94a3b8;">Internal — '.$cdoCoName.' Order System</p></td></tr></table></td></tr></table></body></html>';
+
+        $cdoSentTo = []; $cdoRecips = [];
+        $cdoCustSubj = 'Your Order '.$cdoOrderNo.' | '.$cdoCoName;
+        $cdoIntSubj  = '[New Order] '.$cdoOrderNo.' — '.$cdoCustName.' | '.$cdoCoName;
+        if ($cdoCustEmail !== '' && !in_array(strtolower($cdoCustEmail), $cdoSentTo)) {
+            $cdoSentTo[] = strtolower($cdoCustEmail);
+            $cdoRecips[] = ['to_mail_id'=>$cdoCustEmail,'subject'=>$cdoCustSubj,'body'=>$cdoBodyCust];
+        }
+        if ($cdoRecEmail !== '' && !in_array(strtolower($cdoRecEmail), $cdoSentTo)) {
+            $cdoSentTo[] = strtolower($cdoRecEmail);
+            $cdoRecips[] = ['to_mail_id'=>$cdoRecEmail,'subject'=>$cdoCustSubj,'body'=>$cdoBodyCust];
+        }
+        foreach ($cdoSupEmails as $sm) {
+            if ($sm !== '' && !in_array(strtolower($sm), $cdoSentTo)) {
+                $cdoSentTo[] = strtolower($sm);
+                $cdoRecips[] = ['to_mail_id'=>$sm,'subject'=>$cdoIntSubj,'body'=>$cdoBodyInt];
+            }
+        }
+        if (!empty($cdoRecips)) sinelec_send_mail($cdoRecips);
+        adminRedirectWithFlash('order-list', 'ok', 'Order <strong>'.$cdoOrderNo.'</strong> created successfully.');
+    break;
+
+    case 'UpdateUserOrderStatus':
+        adminRequireAuth();
+        $uosId       = (int)($_POST['user_order_id']   ?? 0);
+        $uosStatus   = trim($_POST['order_status']      ?? '');
+        $uosPayment  = trim($_POST['payment_status']    ?? '');
+        $uosRemark   = trim($_POST['remark']            ?? '');
+        $uosAdminUid = (int)($_SESSION['sinelec_admin']['USER_ID'] ?? 0);
+        if ($uosId <= 0 || $uosStatus === '' || $uosPayment === '') adminRedirectWithFlash('order-list', 'warn', 'Invalid request.');
+
+        if (!$controller->updateUserOrderStatus($uosId, $uosStatus, $uosPayment, $uosRemark, $uosAdminUid)) {
+            adminRedirectWithFlash('order-list', 'err', 'Failed to update order status.');
+        }
+
+        /* Send status update mail */
+        $uosQ       = $controller->getUserOrderById($uosId);
+        $uosComp    = $controller->getCompanyDetails();
+        $uosOrderNo = (string)($uosQ->ORDER_NUMBER ?? '');
+        $uosCustN   = htmlspecialchars((string)($uosQ->CUST_NAME  ?? 'Customer'));
+        $uosCustEm  = (string)($uosQ->CUST_EMAIL ?? '');
+        $uosRecEm   = (string)($uosQ->RECIPIENT_EMAIL ?? '');
+        $uosTotal   = '€'.number_format((float)($uosQ->FINAL_TOTAL_AMT ?? 0), 2);
+        $uosCoName  = $uosComp ? htmlspecialchars((string)($uosComp->NAME ?? 'Our Company')) : 'Our Company';
+        $uosCoEmail = $uosComp ? (string)($uosComp->EMAIL ?? '') : '';
+        $uosCoPhone = $uosComp ? (string)($uosComp->CONTACT_NUMBER ?? '') : '';
+        $uosCoContactHtml = '';
+        if ($uosCoEmail) $uosCoContactHtml .= '<a href="mailto:'.htmlspecialchars($uosCoEmail).'" style="color:#6366f1;">'.htmlspecialchars($uosCoEmail).'</a>';
+        if ($uosCoEmail && $uosCoPhone) $uosCoContactHtml .= ' | ';
+        if ($uosCoPhone) $uosCoContactHtml .= htmlspecialchars($uosCoPhone);
+        $uosSupEmails = [];
+        if ($uosComp) {
+            $uosRaw = trim((string)($uosComp->SUPPORT_MAIL_ID ?? ''));
+            if ($uosRaw !== '') $uosSupEmails = array_filter(array_map('trim', explode(',', $uosRaw)));
+        }
+        $uosIsCancel = str_contains(strtolower($uosStatus), 'cancel');
+        $uosIsDeliv  = str_contains(strtolower($uosStatus), 'deliver');
+        $uosHdrBg = $uosIsCancel ? 'background:linear-gradient(135deg,#b91c1c 0%,#dc2626 100%)' : ($uosIsDeliv ? 'background:linear-gradient(135deg,#059669 0%,#10b981 100%)' : 'background:linear-gradient(135deg,#4f46e5 0%,#6366f1 100%)');
+        $uosOsColor = match(true) {
+            str_contains(strtolower($uosStatus),'deliver') => ['bg'=>'#dcfce7','t'=>'#15803d','b'=>'#86efac'],
+            str_contains(strtolower($uosStatus),'cancel')  => ['bg'=>'#fee2e2','t'=>'#b91c1c','b'=>'#fca5a5'],
+            str_contains(strtolower($uosStatus),'confirm') => ['bg'=>'#dcfce7','t'=>'#15803d','b'=>'#86efac'],
+            str_contains(strtolower($uosStatus),'transit') => ['bg'=>'#dbeafe','t'=>'#1d4ed8','b'=>'#93c5fd'],
+            str_contains(strtolower($uosStatus),'dispatch')=> ['bg'=>'#dbeafe','t'=>'#1d4ed8','b'=>'#93c5fd'],
+            default                                         => ['bg'=>'#fef3c7','t'=>'#92400e','b'=>'#fcd34d'],
+        };
+        $uosBadge = '<span style="display:inline-block;background:'.$uosOsColor['bg'].';color:'.$uosOsColor['t'].';border:1px solid '.$uosOsColor['b'].';font-size:12px;font-weight:700;padding:4px 14px;border-radius:20px;">'.$uosStatus.'</span>';
+        $uosRemarkHtml = $uosRemark !== '' ? '<div style="background:#f8fafc;border-left:3px solid #6366f1;padding:10px 14px;border-radius:0 6px 6px 0;font-size:13px;color:#475569;margin-top:16px;line-height:1.6;"><strong>Note:</strong> '.htmlspecialchars($uosRemark).'</div>' : '';
+        $uosBodyCust = '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="margin:0;padding:0;background:#f1f5f9;font-family:\'Segoe UI\',Arial,sans-serif;"><table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:32px 16px;"><tr><td align="center"><table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;"><tr><td style="'.$uosHdrBg.';border-radius:12px 12px 0 0;padding:32px 40px;text-align:center;"><div style="color:#fff;font-size:22px;font-weight:700;">'.$uosCoName.'</div><div style="color:rgba(255,255,255,.8);font-size:13px;margin-top:4px;">Order Status Update</div></td></tr><tr><td style="background:#fff;padding:36px 40px 28px;"><p style="margin:0 0 20px;font-size:16px;font-weight:700;color:#1e293b;">Dear '.$uosCustN.',</p><p style="margin:0 0 20px;font-size:14px;color:#475569;line-height:1.7;">Your order status has been updated. Please find the details below.</p><table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;margin:0 0 16px;"><tr><td style="padding:16px 24px;border-bottom:1px solid #e2e8f0;"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:4px;">Order Number</div><div style="font-size:18px;font-weight:800;color:#4f46e5;">'.$uosOrderNo.'</div></td><td style="padding:16px 24px;border-bottom:1px solid #e2e8f0;text-align:right;"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:4px;">Total Amount</div><div style="font-size:18px;font-weight:800;color:#059669;">'.$uosTotal.'</div></td></tr><tr><td colspan="2" style="padding:16px 24px;"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:8px;">Current Order Status</div>'.$uosBadge.'</td></tr></table>'.$uosRemarkHtml.'<p style="margin:16px 0 0;font-size:13px;color:#64748b;line-height:1.7;">If you have any questions, please contact us at any time.</p></td></tr><tr><td style="background:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;"><p style="margin:0 0 4px;font-size:13px;color:#475569;">Warm regards,</p><p style="margin:0 0 4px;font-size:14px;font-weight:700;color:#1e293b;">'.$uosCoName.'</p>'.($uosCoContactHtml ? '<p style="margin:0;font-size:12px;color:#94a3b8;">'.$uosCoContactHtml.'</p>' : '').'</td></tr><tr><td style="background:#e2e8f0;border-radius:0 0 12px 12px;padding:12px 40px;text-align:center;"><p style="margin:0;font-size:11px;color:#94a3b8;">Order: <strong>'.$uosOrderNo.'</strong></p></td></tr></table></td></tr></table></body></html>';
+        $uosBodyInt  = '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="margin:0;padding:0;background:#f1f5f9;font-family:\'Segoe UI\',Arial,sans-serif;"><table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 16px;"><tr><td align="center"><table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#fff;border-radius:10px;overflow:hidden;border:1px solid #e2e8f0;"><tr><td style="background:#4f46e5;padding:16px 24px;"><div style="color:#fff;font-size:15px;font-weight:700;">&#128204; Status Updated — '.$uosOrderNo.'</div></td></tr><tr><td style="padding:20px 24px;"><table width="100%" cellpadding="0" cellspacing="0"><tr><td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;padding-bottom:6px;width:40%;">Customer</td><td style="font-size:13px;font-weight:700;color:#1e293b;padding-bottom:6px;">'.$uosCustN.'</td></tr><tr><td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;padding-bottom:6px;">Order No</td><td style="font-size:13px;color:#4f46e5;font-weight:700;padding-bottom:6px;">'.$uosOrderNo.'</td></tr><tr><td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;padding-bottom:6px;">New Status</td><td style="padding-bottom:6px;">'.$uosBadge.'</td></tr><tr><td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;padding-bottom:6px;">Payment Status</td><td style="font-size:13px;color:#1e293b;padding-bottom:6px;">'.htmlspecialchars($uosPayment).'</td></tr>'.($uosRemark !== '' ? '<tr><td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;padding-bottom:6px;">Remark</td><td style="font-size:13px;color:#475569;padding-bottom:6px;">'.htmlspecialchars($uosRemark).'</td></tr>' : '').'</table></td></tr><tr><td style="background:#f8fafc;padding:10px 24px;border-top:1px solid #e2e8f0;"><p style="margin:0;font-size:11px;color:#94a3b8;">Internal — '.$uosCoName.' Order System</p></td></tr></table></td></tr></table></body></html>';
+
+        $uosSentTo = []; $uosRecips = [];
+        $uosCustSubj = 'Order Status Update: '.$uosOrderNo.' | '.$uosCoName;
+        $uosIntSubj  = '['.htmlspecialchars($uosStatus).'] '.$uosOrderNo.' — '.$uosCustN;
+        if ($uosCustEm !== '' && !in_array(strtolower($uosCustEm), $uosSentTo)) {
+            $uosSentTo[] = strtolower($uosCustEm);
+            $uosRecips[] = ['to_mail_id'=>$uosCustEm,'subject'=>$uosCustSubj,'body'=>$uosBodyCust];
+        }
+        if ($uosRecEm !== '' && !in_array(strtolower($uosRecEm), $uosSentTo)) {
+            $uosSentTo[] = strtolower($uosRecEm);
+            $uosRecips[] = ['to_mail_id'=>$uosRecEm,'subject'=>$uosCustSubj,'body'=>$uosBodyCust];
+        }
+        foreach ($uosSupEmails as $sm) {
+            if ($sm !== '' && !in_array(strtolower($sm), $uosSentTo)) {
+                $uosSentTo[] = strtolower($sm);
+                $uosRecips[] = ['to_mail_id'=>$sm,'subject'=>$uosIntSubj,'body'=>$uosBodyInt];
+            }
+        }
+        if (!empty($uosRecips)) sinelec_send_mail($uosRecips);
+        $uosNotified = implode(', ', array_map('htmlspecialchars', array_slice($uosSentTo, 0, 2)));
+        adminRedirectWithFlash('order-list', 'ok',
+            'Order status updated to "<strong>'.htmlspecialchars($uosStatus).'</strong>"'
+            . ($uosNotified ? ' &amp; notification sent to '.$uosNotified : '') . '.');
+    break;
+
+    case 'DeleteUserOrder':
+        adminRequireAuth();
+        $duoId = (int)($_POST['user_order_id'] ?? 0);
+        if ($duoId <= 0) adminRedirectWithFlash('order-list', 'warn', 'Invalid request.');
+        if ($controller->deleteUserOrder($duoId)) {
+            adminRedirectWithFlash('order-list', 'ok', 'Order deleted successfully.');
+        }
+        adminRedirectWithFlash('order-list', 'err', 'Failed to delete order.');
     break;
 
     case 'ResendQuotation':

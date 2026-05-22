@@ -348,5 +348,8 @@ function sinelaAuthGate(url) {
 <script src="../js/cart.js"></script>
 <script src="../js/app.js"></script>
 <script src="../assets/js/chatbot.js"></script>
+<?php if (!empty($pageJS)): foreach ((array)$pageJS as $_js): ?>
+<script src="<?= htmlspecialchars($_js) ?>"></script>
+<?php endforeach; endif; ?>
 </body>
 </html>

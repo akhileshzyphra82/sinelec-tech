@@ -2,7 +2,6 @@
 /*
  * Run these once if not already done:
  *
- * ALTER TABLE tbl_product_img MODIFY COLUMN image_ext VARCHAR(500) NOT NULL DEFAULT '';
  * ALTER TABLE tbl_product_img
  *     ADD COLUMN IF NOT EXISTS image_name  VARCHAR(150) NOT NULL DEFAULT '',
  *     ADD COLUMN IF NOT EXISTS hyper_link  VARCHAR(300)          DEFAULT NULL;
@@ -43,6 +42,40 @@ foreach ($allCats as $c) {
     if ($cid > 0) $catMap[$cid] = (string)($c->PRODUCT_CATEGORY_NAME ?? '');
 }
 
+/* Build grouped category structure: parents first, children nested under them */
+$_catParents  = [];   // parent_id => [children objects]
+$_catTopLevel = [];   // root-level category objects
+foreach ($allCats as $c) {
+    $parentId = (int)(float)($c->PARENT_CATEGORY_ID ?? 0);
+    if ($parentId === 0) {
+        $_catTopLevel[] = $c;
+    } else {
+        $_catParents[$parentId][] = $c;
+    }
+}
+
+/* Render <optgroup> / <option> HTML for category dropdowns */
+function renderCatOptions(array $topLevel, array $grouped, bool $blankFirst = false, string $blankLabel = '— Uncategorised —'): string {
+    $html = $blankFirst ? '<option value="0">' . htmlspecialchars($blankLabel) . '</option>' : '';
+    foreach ($topLevel as $parent) {
+        $pid      = (int)(float)($parent->PRODUCT_CATEGORY_ID ?? 0);
+        $pName    = htmlspecialchars((string)($parent->PRODUCT_CATEGORY_NAME ?? ''));
+        $children = $grouped[$pid] ?? [];
+        if (!empty($children)) {
+            $html .= '<optgroup label="' . $pName . '">';
+            foreach ($children as $child) {
+                $cid   = (int)(float)($child->PRODUCT_CATEGORY_ID ?? 0);
+                $cName = htmlspecialchars((string)($child->PRODUCT_CATEGORY_NAME ?? ''));
+                $html .= '<option value="' . $cid . '">' . $cName . '</option>';
+            }
+            $html .= '</optgroup>';
+        } else {
+            $html .= '<option value="' . $pid . '">' . $pName . '</option>';
+        }
+    }
+    return $html;
+}
+
 ob_start();
 ?>
 
@@ -76,11 +109,7 @@ ob_start();
   </div>
   <select id="prodCatFilter" class="form-control" style="height:36px;width:auto;min-width:160px;" onchange="prodOnSearch()">
     <option value="">All Categories</option>
-    <?php foreach ($allCats as $c): ?>
-    <option value="<?= (int)(float)($c->PRODUCT_CATEGORY_ID ?? 0) ?>">
-      <?= htmlspecialchars((string)($c->PRODUCT_CATEGORY_NAME ?? '')) ?>
-    </option>
-    <?php endforeach; ?>
+    <?= renderCatOptions($_catTopLevel, $_catParents) ?>
   </select>
   <select id="prodStatusFilter" class="form-control" style="height:36px;width:auto;min-width:130px;" onchange="prodOnSearch()">
     <option value="">All Status</option>
@@ -181,9 +210,10 @@ ob_start();
           </td>
           <td>
             <div style="font-weight:600;color:var(--text);font-size:13px;line-height:1.3;"><?= htmlspecialchars($pName) ?></div>
-            <?php if ($pCode): ?>
-            <div style="font-size:11px;color:var(--text-muted);margin-top:2px;font-family:monospace;"><?= htmlspecialchars($pCode) ?></div>
-            <?php endif; ?>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px;font-family:monospace;">
+              #<?= $pid ?>
+              <?php if ($pCode): ?>&nbsp;·&nbsp;<?= htmlspecialchars($pCode) ?><?php endif; ?>
+            </div>
           </td>
           <td style="font-size:12px;color:var(--text-muted);"><?= $catName ? htmlspecialchars($catName) : '<span style="color:var(--text-muted);">—</span>' ?></td>
           <td style="text-align:right;font-size:13px;font-weight:600;color:var(--text);">
@@ -229,12 +259,6 @@ ob_start();
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                   View Details
                 </button>
-                <?php if ($canEdit): ?>
-                <button class="kbm-item" onclick="closeKbm(this);openImagesModal(<?= $pid ?>,<?= htmlspecialchars(json_encode($pName), ENT_QUOTES) ?>)">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                  Manage Images
-                </button>
-                <?php endif; ?>
                 <?php if ($canDelete): ?>
                 <div class="kbm-divider"></div>
                 <button class="kbm-item kbm-item--danger" onclick="closeKbm(this);confirmDeleteProd(<?= $pid ?>,<?= htmlspecialchars(json_encode($pName), ENT_QUOTES) ?>)">
@@ -276,6 +300,10 @@ ob_start();
     <!-- Tabs -->
     <div class="prod-tabs" id="prodTabs">
       <button class="prod-tab active" data-tab="basic" onclick="switchProdTab('basic',this)">Basic Info</button>
+      <button class="prod-tab" data-tab="images" onclick="switchProdTab('images',this)">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px;vertical-align:-2px;"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+        Images / Manual
+      </button>
       <button class="prod-tab" data-tab="pricing" onclick="switchProdTab('pricing',this)">Pricing</button>
       <button class="prod-tab" data-tab="desc" onclick="switchProdTab('desc',this)">Description</button>
       <button class="prod-tab" data-tab="spec" onclick="switchProdTab('spec',this)">Specification</button>
@@ -286,8 +314,107 @@ ob_start();
       </button>
     </div>
 
-    <div style="overflow-y:auto;flex:1;padding:22px;">
-      <form method="POST" action="service?urlstring=<?= EncryptURL('action=SaveProduct') ?>" id="prodForm" autocomplete="off">
+    <div style="overflow-y:auto;flex:1;min-height:0;">
+      <div style="padding:22px;">
+
+        <!-- ─── TAB: Images / Manual ─── -->
+        <!-- Placed OUTSIDE #prodForm because HTML forbids nested <form> elements -->
+        <div id="pt-images" class="prod-tab-panel" style="display:none;">
+
+          <!-- Shown for new (unsaved) products -->
+          <div id="ptImagesNewNote" style="display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:44px 20px;text-align:center;background:#f8fafc;border:1px dashed var(--border);border-radius:10px;">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#c0ccd8" stroke-width="1.3"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+            <div style="font-size:13px;font-weight:600;color:var(--text);">Save the product first</div>
+            <div style="font-size:12px;color:var(--text-muted);max-width:280px;">Complete Basic Info and click <strong>Save Product</strong> before uploading images.</div>
+          </div>
+
+          <!-- Shown for existing products -->
+          <div id="ptImagesContent" style="display:none;">
+
+            <!-- Sub-tabs: Product Images | Manual/Documents -->
+            <div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:20px;background:#fafbfc;">
+              <button class="img-tab active" id="imgTab-product" onclick="switchImgTab('product')">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                Product Images
+              </button>
+              <button class="img-tab" id="imgTab-manual" onclick="switchImgTab('manual')">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                Manual / Documents
+              </button>
+            </div>
+
+            <!-- ── Product Images panel ── -->
+            <div id="imgPanel-product">
+              <div style="background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:20px;">
+                <div style="font-size:12px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;">Upload Product Images</div>
+                <div style="display:flex;align-items:flex-end;gap:10px;margin-bottom:14px;">
+                  <div class="fg" style="max-width:180px;">
+                    <label style="font-size:12px;">How many images to upload?</label>
+                    <input type="number" id="prodImgCount" class="form-control" value="1" min="1" max="20" style="height:34px;">
+                  </div>
+                  <button type="button" class="btn btn--outline" style="height:34px;padding:0 14px;font-size:13px;" onclick="buildImgBoxes('product')">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    Add Boxes
+                  </button>
+                </div>
+                <form method="POST" action="service?urlstring=<?= EncryptURL('action=AddProductImages') ?>" enctype="multipart/form-data" id="imgUploadFormProduct">
+                  <input type="hidden" name="product_id" id="imgUploadPidProduct">
+                  <input type="hidden" name="image_for" value="Product">
+                  <input type="hidden" name="_ajax" value="1">
+                  <div id="imgBoxesProduct"></div>
+                  <div id="imgUploadMsgProduct" style="display:none;margin-top:10px;padding:9px 12px;border-radius:8px;font-size:12px;font-weight:600;"></div>
+                  <div style="display:flex;justify-content:flex-end;margin-top:12px;">
+                    <button type="submit" class="btn btn--primary" id="imgUploadBtnProduct" disabled>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/></svg>
+                      Upload Images
+                    </button>
+                  </div>
+                </form>
+              </div>
+              <div>
+                <div style="font-size:12px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;">Uploaded Product Images</div>
+                <div id="existingProductImagesArea"></div>
+              </div>
+            </div>
+
+            <!-- ── Manual / Documents panel ── -->
+            <div id="imgPanel-manual" style="display:none;">
+              <div style="background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:20px;">
+                <div style="font-size:12px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;">Upload Manual / Documents</div>
+                <div style="display:flex;align-items:flex-end;gap:10px;margin-bottom:14px;">
+                  <div class="fg" style="max-width:180px;">
+                    <label style="font-size:12px;">How many files to upload?</label>
+                    <input type="number" id="prodManualCount" class="form-control" value="1" min="1" max="20" style="height:34px;">
+                  </div>
+                  <button type="button" class="btn btn--outline" style="height:34px;padding:0 14px;font-size:13px;" onclick="buildImgBoxes('manual')">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    Add Boxes
+                  </button>
+                </div>
+                <form method="POST" action="service?urlstring=<?= EncryptURL('action=AddProductImages') ?>" enctype="multipart/form-data" id="imgUploadFormManual">
+                  <input type="hidden" name="product_id" id="imgUploadPidManual">
+                  <input type="hidden" name="image_for" value="Product Mannual">
+                  <input type="hidden" name="_ajax" value="1">
+                  <div id="imgBoxesManual"></div>
+                  <div id="imgUploadMsgManual" style="display:none;margin-top:10px;padding:9px 12px;border-radius:8px;font-size:12px;font-weight:600;"></div>
+                  <div style="display:flex;justify-content:flex-end;margin-top:12px;">
+                    <button type="submit" class="btn btn--primary" id="imgUploadBtnManual" disabled>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/></svg>
+                      Upload Manuals
+                    </button>
+                  </div>
+                </form>
+              </div>
+              <div>
+                <div style="font-size:12px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;">Uploaded Manuals</div>
+                <div id="existingManualsArea"></div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <form method="POST" action="service?urlstring=<?= EncryptURL('action=SaveProduct') ?>" id="prodForm" autocomplete="off">
         <input type="hidden" name="product_id" id="fProdId" value="0">
         <input type="hidden" name="product_description"  id="fProdDescHidden">
         <input type="hidden" name="product_specification" id="fProdSpecHidden">
@@ -309,12 +436,7 @@ ob_start();
             <div class="fg">
               <label>Category</label>
               <select name="product_category_id" id="fProdCat" class="form-control">
-                <option value="0">— Uncategorised —</option>
-                <?php foreach ($allCats as $c): ?>
-                <option value="<?= (int)(float)($c->PRODUCT_CATEGORY_ID ?? 0) ?>">
-                  <?= htmlspecialchars((string)($c->PRODUCT_CATEGORY_NAME ?? '')) ?>
-                </option>
-                <?php endforeach; ?>
+                <?= renderCatOptions($_catTopLevel, $_catParents, true, '— Uncategorised —') ?>
               </select>
             </div>
             <div class="fg">
@@ -452,139 +574,33 @@ ob_start();
           <div id="sampleCodeRows"></div>
         </div>
 
-        <div style="display:flex;gap:10px;justify-content:space-between;padding-top:16px;border-top:1px solid var(--border);margin-top:20px;align-items:center;">
-          <button type="button" class="btn btn--outline" onclick="closeModal('prodModal')">Cancel</button>
-          <div style="display:flex;gap:8px;align-items:center;">
-            <button type="button" class="btn btn--outline" id="prodPrevBtn" onclick="prodNavTab(-1)" style="display:none;">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
-              Previous
-            </button>
-            <button type="button" class="btn btn--secondary" id="prodNextBtn" onclick="prodNavTab(1)">
-              Next
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
-            </button>
-            <button type="submit" class="btn btn--primary" id="prodSubmitBtn">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v14a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-              Save Product
-            </button>
-          </div>
-        </div>
       </form>
-    </div>
-  </div>
-</div>
 
+      </div><!-- /padding wrapper -->
 
-<!-- ════════════════════════════════════════════════════
-     MANAGE IMAGES MODAL
-════════════════════════════════════════════════════ -->
-<div class="modal-overlay" id="imagesModal">
-  <div class="modal" style="max-width:760px;max-height:94vh;display:flex;flex-direction:column;">
-    <div class="modal-hd" style="display:flex;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid var(--border);flex-shrink:0;">
-      <div>
-        <div class="modal-title" id="imagesModalTitle">Manage Images</div>
-        <div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="imagesModalSub">Upload and manage product images &amp; manuals.</div>
-      </div>
-      <button class="modal-close" onclick="closeModal('imagesModal')" style="font-size:22px;line-height:1;">×</button>
-    </div>
-
-    <!-- Image modal tabs -->
-    <div style="display:flex;border-bottom:1px solid var(--border);background:#fafbfc;flex-shrink:0;padding:0 22px;">
-      <button class="img-tab active" id="imgTab-product" onclick="switchImgTab('product')">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-        Product Images
-      </button>
-      <button class="img-tab" id="imgTab-manual" onclick="switchImgTab('manual')">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-        Manual / Documents
-      </button>
-    </div>
-
-    <div style="overflow-y:auto;flex:1;">
-
-      <!-- ── PRODUCT IMAGES TAB ── -->
-      <div id="imgPanel-product" style="padding:20px;">
-
-        <!-- Upload Section -->
-        <div style="background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:20px;">
-          <div style="font-size:12px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;">Upload Product Images</div>
-
-          <div style="display:flex;align-items:flex-end;gap:10px;margin-bottom:14px;">
-            <div class="fg" style="max-width:180px;">
-              <label style="font-size:12px;">How many images to upload?</label>
-              <input type="number" id="prodImgCount" class="form-control" value="1" min="1" max="20" style="height:34px;">
-            </div>
-            <button type="button" class="btn btn--outline" style="height:34px;padding:0 14px;font-size:13px;" onclick="buildImgBoxes('product')">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              Add Boxes
-            </button>
-          </div>
-
-          <form method="POST" action="service?urlstring=<?= EncryptURL('action=AddProductImages') ?>" enctype="multipart/form-data" id="imgUploadFormProduct">
-            <input type="hidden" name="product_id" id="imgUploadPidProduct">
-            <input type="hidden" name="image_for" value="Product">
-
-            <div id="imgBoxesProduct"></div>
-
-            <div style="display:flex;justify-content:flex-end;margin-top:12px;">
-              <button type="submit" class="btn btn--primary" id="imgUploadBtnProduct" disabled>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/></svg>
-                Upload Images
-              </button>
-            </div>
-          </form>
-        </div>
-
-        <!-- Existing product images -->
-        <div>
-          <div style="font-size:12px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;">Uploaded Product Images</div>
-          <div id="existingProductImagesArea"></div>
-        </div>
-      </div>
-
-      <!-- ── MANUAL TAB ── -->
-      <div id="imgPanel-manual" style="padding:20px;display:none;">
-
-        <!-- Upload Section -->
-        <div style="background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:20px;">
-          <div style="font-size:12px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;">Upload Manual / Documents</div>
-
-          <div style="display:flex;align-items:flex-end;gap:10px;margin-bottom:14px;">
-            <div class="fg" style="max-width:180px;">
-              <label style="font-size:12px;">How many files to upload?</label>
-              <input type="number" id="prodManualCount" class="form-control" value="1" min="1" max="20" style="height:34px;">
-            </div>
-            <button type="button" class="btn btn--outline" style="height:34px;padding:0 14px;font-size:13px;" onclick="buildImgBoxes('manual')">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              Add Boxes
-            </button>
-          </div>
-
-          <form method="POST" action="service?urlstring=<?= EncryptURL('action=AddProductImages') ?>" enctype="multipart/form-data" id="imgUploadFormManual">
-            <input type="hidden" name="product_id" id="imgUploadPidManual">
-            <input type="hidden" name="image_for" value="Product Mannual">
-
-            <div id="imgBoxesManual"></div>
-
-            <div style="display:flex;justify-content:flex-end;margin-top:12px;">
-              <button type="submit" class="btn btn--primary" id="imgUploadBtnManual" disabled>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/></svg>
-                Upload Manuals
-              </button>
-            </div>
-          </form>
-        </div>
-
-        <!-- Existing manuals -->
-        <div>
-          <div style="font-size:12px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;">Uploaded Manuals</div>
-          <div id="existingManualsArea"></div>
+      <!-- Modal footer: submit uses form="prodForm" — works outside the <form> element -->
+      <div id="prodFormFooter" style="display:flex;gap:10px;justify-content:space-between;padding:14px 22px;border-top:1px solid var(--border);flex-shrink:0;background:#fff;">
+        <button type="button" class="btn btn--outline" onclick="closeModal('prodModal')">Cancel</button>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button type="button" class="btn btn--outline" id="prodPrevBtn" onclick="prodNavTab(-1)" style="display:none;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+            Previous
+          </button>
+          <button type="button" class="btn btn--secondary" id="prodNextBtn" onclick="prodNavTab(1)">
+            Next
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+          <button type="submit" form="prodForm" class="btn btn--primary" id="prodSubmitBtn">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v14a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            Save Product
+          </button>
         </div>
       </div>
 
     </div>
   </div>
 </div>
+
 
 <!-- Pre-rendered image panels (hidden, split by type) -->
 <?php foreach ($products as $p):
@@ -601,11 +617,11 @@ ob_start();
   <div class="prod-img-list">
     <?php foreach ($prodImgs as $img):
       $imgId   = (int)(float)($img->IMAGE_ID ?? 0);
-      $imgExt  = (string)($img->IMAGE_EXT ?? '');
+      $imgPath = (string)($img->PRODUCT_IMAGE_PATH ?? '');
       $imgName = (string)($img->IMAGE_NAME ?? '');
       $imgPrio = (int)($img->PRIORTY ?? 0);
       $imgDisp = (string)($img->DISPLAY_FLAG ?? 'Yes');
-      $imgUrl  = ($imgExt !== '' && strpos($imgExt, '/') !== false) ? $pubBase.'/'.$imgExt : '';
+      $imgUrl  = ($imgPath !== '' && strpos($imgPath, '/') !== false) ? $pubBase.'/'.$imgPath : '';
     ?>
     <div class="prod-img-list-row">
       <div class="prod-img-list-thumb">
@@ -655,13 +671,13 @@ ob_start();
   <div class="prod-img-list">
     <?php foreach ($manuals as $img):
       $imgId     = (int)(float)($img->IMAGE_ID ?? 0);
-      $imgExt    = (string)($img->IMAGE_EXT ?? '');
+      $imgPath   = (string)($img->PRODUCT_IMAGE_PATH ?? '');
       $imgName   = (string)($img->IMAGE_NAME ?? '');
       $imgTitle  = (string)($img->PRODUCT_MANUAL_TITLE ?? '');
       $imgPrio   = (int)($img->PRIORTY ?? 0);
       $imgDisp   = (string)($img->DISPLAY_FLAG ?? 'Yes');
       $hyperLink = (string)($img->HYPER_LINK ?? '');
-      $fileUrl   = ($imgExt !== '' && strpos($imgExt, '/') !== false) ? $pubBase.'/'.$imgExt : '';
+      $fileUrl   = ($imgPath !== '' && strpos($imgPath, '/') !== false) ? $pubBase.'/'.$imgPath : '';
     ?>
     <div class="prod-img-list-row" style="align-items:flex-start;">
       <div class="prod-img-list-thumb" style="background:#eef2ff;border-radius:8px;flex-shrink:0;">
@@ -916,6 +932,7 @@ ob_start();
 .prod-view-tab { padding:7px 14px;font-size:12px;font-weight:500;color:var(--text-muted);background:none;border:none;border-bottom:2px solid transparent;cursor:pointer;transition:all .15s; }
 .prod-view-tab:hover { color:var(--text); }
 .prod-view-tab.active { color:var(--primary);border-bottom-color:var(--primary);font-weight:600; }
+@keyframes spin { to { transform: rotate(360deg); } }
 </style>
 
 
@@ -953,10 +970,10 @@ const PROD_DATA = <?= json_encode(array_values(array_map(function($p) {
 
 const PROD_IMAGES = <?= json_encode(array_map(function($imgs) use ($pubBase) {
     return array_map(function($img) use ($pubBase) {
-        $ext = (string)($img->IMAGE_EXT ?? '');
+        $path = (string)($img->PRODUCT_IMAGE_PATH ?? '');
         return [
             'id'        => (int)(float)($img->IMAGE_ID ?? 0),
-            'url'       => ($ext !== '' && strpos($ext, '/') !== false) ? $pubBase.'/'.$ext : '',
+            'url'       => ($path !== '' && strpos($path, '/') !== false) ? $pubBase.'/'.$path : '',
             'for'       => (string)($img->IMAGE_FOR ?? 'Product'),
             'name'      => (string)($img->IMAGE_NAME ?? ''),
             'title'     => (string)($img->PRODUCT_MANUAL_TITLE ?? ''),
@@ -968,6 +985,8 @@ const PROD_IMAGES = <?= json_encode(array_map(function($imgs) use ($pubBase) {
 }, $allImages)) ?>;
 
 const PUB_BASE = <?= json_encode($pubBase) ?>;
+const _IMG_DELETE_ACTION = <?= json_encode('service?urlstring='.EncryptURL('action=DeleteProductImage')) ?>;
+const _CAN_DELETE_IMG    = <?= $canDelete ? 'true' : 'false' ?>;
 
 const PROD_SAMPLE = <?= json_encode((object)array_map(function($rows) {
     return array_values(array_map(function($r) {
@@ -1215,6 +1234,38 @@ function openProdModal(prodId) {
     document.getElementById('prodSubmitBtn').innerHTML    = prodSaveSvg + ' Save Product';
   }
 
+  /* Populate Images / Manual tab */
+  var existProd = document.getElementById('existingProductImagesArea');
+  var existMan  = document.getElementById('existingManualsArea');
+  var newNote   = document.getElementById('ptImagesNewNote');
+  var imgContent = document.getElementById('ptImagesContent');
+  if (_editProdId > 0) {
+    var pp = document.getElementById('prod-imgs-product-' + _editProdId);
+    var mp = document.getElementById('prod-imgs-manual-'  + _editProdId);
+    if (existProd) existProd.innerHTML = pp ? pp.innerHTML : '<div class="img-empty-state">No product images uploaded yet.</div>';
+    if (existMan)  existMan.innerHTML  = mp ? mp.innerHTML : '<div class="img-empty-state">No manuals uploaded yet.</div>';
+    document.getElementById('imgUploadPidProduct').value = _editProdId;
+    document.getElementById('imgUploadPidManual').value  = _editProdId;
+    if (newNote)    newNote.style.display    = 'none';
+    if (imgContent) imgContent.style.display = 'block';
+  } else {
+    if (newNote)    newNote.style.display    = 'flex';
+    if (imgContent) imgContent.style.display = 'none';
+  }
+  /* Reset upload boxes */
+  ['imgBoxesProduct','imgBoxesManual'].forEach(function(id) {
+    var el = document.getElementById(id); if (el) el.innerHTML = '';
+  });
+  var btnP = document.getElementById('imgUploadBtnProduct');
+  var btnM = document.getElementById('imgUploadBtnManual');
+  if (btnP) btnP.disabled = true;
+  if (btnM) btnM.disabled = true;
+  var cntP = document.getElementById('prodImgCount');
+  var cntM = document.getElementById('prodManualCount');
+  if (cntP) cntP.value = '1';
+  if (cntM) cntM.value = '1';
+  switchImgTab('product');
+
   openModal('prodModal');
 }
 
@@ -1295,7 +1346,7 @@ function populateSampleCodes(prodId) {
 /* ═══════════════════════════════════════════════════
    PROD MODAL SAVE & NEXT NAVIGATION
    ═══════════════════════════════════════════════════ */
-var _prodTabOrder = ['basic','pricing','desc','spec','dets','sample'];
+var _prodTabOrder = ['basic','images','pricing','desc','spec','dets','sample'];
 var _prodCurTab   = 'basic';
 
 function _updateProdNavBtns(tab) {
@@ -1325,45 +1376,23 @@ function prodNavTab(dir) {
 
 
 /* ═══════════════════════════════════════════════════
-   MANAGE IMAGES MODAL
+   IMAGES / MANUAL SUB-TABS (inside prod modal)
    ═══════════════════════════════════════════════════ */
-var _imgModalProdId = 0;
-
 function switchImgTab(type) {
   document.querySelectorAll('.img-tab').forEach(function(t) { t.classList.remove('active'); });
-  document.getElementById('imgTab-' + type).classList.add('active');
-  document.getElementById('imgPanel-product').style.display = type === 'product' ? 'block' : 'none';
-  document.getElementById('imgPanel-manual').style.display  = type === 'manual'  ? 'block' : 'none';
+  var activeTab = document.getElementById('imgTab-' + type);
+  if (activeTab) activeTab.classList.add('active');
+  var pp = document.getElementById('imgPanel-product');
+  var mp = document.getElementById('imgPanel-manual');
+  if (pp) pp.style.display = type === 'product' ? 'block' : 'none';
+  if (mp) mp.style.display = type === 'manual'  ? 'block' : 'none';
 }
 
 function openImagesModal(prodId, prodName) {
-  _imgModalProdId = prodId;
-  document.getElementById('imagesModalTitle').textContent = 'Manage Images';
-  document.getElementById('imagesModalSub').textContent   = prodName;
-
-  /* Set product_id in both forms */
-  document.getElementById('imgUploadPidProduct').value = prodId;
-  document.getElementById('imgUploadPidManual').value  = prodId;
-
-  /* Inject pre-rendered panels */
-  var prodArea   = document.getElementById('existingProductImagesArea');
-  var manualArea = document.getElementById('existingManualsArea');
-  var prodPanel  = document.getElementById('prod-imgs-product-' + prodId);
-  var manPanel   = document.getElementById('prod-imgs-manual-' + prodId);
-  prodArea.innerHTML   = prodPanel  ? prodPanel.innerHTML  : '<div class="img-empty-state">No product images uploaded yet.</div>';
-  manualArea.innerHTML = manPanel   ? manPanel.innerHTML   : '<div class="img-empty-state">No manuals uploaded yet.</div>';
-
-  /* Reset upload boxes */
-  document.getElementById('imgBoxesProduct').innerHTML = '';
-  document.getElementById('imgBoxesManual').innerHTML  = '';
-  document.getElementById('imgUploadBtnProduct').disabled = true;
-  document.getElementById('imgUploadBtnManual').disabled  = true;
-  document.getElementById('prodImgCount').value    = '1';
-  document.getElementById('prodManualCount').value = '1';
-
-  /* Always open on product tab */
-  switchImgTab('product');
-  openModal('imagesModal');
+  /* Legacy shim — opens prod modal and switches to Images tab */
+  openProdModal(prodId);
+  var imgBtn = document.querySelector('[data-tab="images"]');
+  if (imgBtn) switchProdTab('images', imgBtn);
 }
 
 function buildImgBoxes(type) {
@@ -1380,7 +1409,9 @@ function buildImgBoxes(type) {
     var boxId  = type + '-box-' + i;
     var fileId = type + '-file-' + i;
     var linkId = type + '-link-' + i;
-    var accept = isManual ? '*/*' : 'image/jpeg,image/png,image/webp,image/gif';
+    var accept = isManual
+      ? 'application/pdf,image/jpeg,image/png,image/gif,image/webp'
+      : 'image/jpeg,image/png';
 
     var box = document.createElement('div');
     box.className = 'img-upload-box';
@@ -1397,9 +1428,12 @@ function buildImgBoxes(type) {
         '<div style="display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:center;margin-bottom:10px;">' +
           '<div>' +
             '<label style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:6px;">Upload File <span style="font-weight:400;text-transform:none;">(optional)</span></label>' +
-            '<div class="img-upload-file-zone" id="zone-' + boxId + '" onclick="document.getElementById(\'' + fileId + '\').click()" style="min-height:56px;padding:10px;">' +
-              '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="1.5"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/></svg>' +
-              '<span id="zone-lbl-' + boxId + '" style="font-size:12px;color:#9ca3af;margin-left:6px;">Click to choose</span>' +
+            '<div class="img-upload-file-zone" id="zone-' + boxId + '" onclick="document.getElementById(\'' + fileId + '\').click()" style="min-height:56px;padding:10px;flex-direction:column;gap:4px;">' +
+              '<div style="display:flex;align-items:center;gap:6px;">' +
+                '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="1.5"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/></svg>' +
+                '<span id="zone-lbl-' + boxId + '" style="font-size:12px;color:#9ca3af;">Click to choose</span>' +
+              '</div>' +
+              '<span style="font-size:10.5px;color:#b0bec5;">PDF, JPG, JPEG, PNG, GIF, WEBP</span>' +
             '</div>' +
             '<input type="file" name="product_images[]" id="' + fileId + '" accept="' + accept + '" style="display:none;" onchange="onImgBoxFileChange(this,\'' + boxId + '\',\'' + type + '\')">' +
           '</div>' +
@@ -1412,9 +1446,12 @@ function buildImgBoxes(type) {
     } else {
       /* Product image: upload zone only */
       html +=
-        '<div class="img-upload-file-zone" id="zone-' + boxId + '" onclick="document.getElementById(\'' + fileId + '\').click()" style="margin-bottom:10px;">' +
-          '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="1.5"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/></svg>' +
-          '<span id="zone-lbl-' + boxId + '" style="font-size:12px;color:#9ca3af;margin-left:6px;">Click to choose image</span>' +
+        '<div class="img-upload-file-zone" id="zone-' + boxId + '" onclick="document.getElementById(\'' + fileId + '\').click()" style="margin-bottom:10px;flex-direction:column;gap:4px;">' +
+          '<div style="display:flex;align-items:center;gap:8px;">' +
+            '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="1.5"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/></svg>' +
+            '<span id="zone-lbl-' + boxId + '" style="font-size:12px;color:#9ca3af;">Click to choose image</span>' +
+          '</div>' +
+          '<span style="font-size:10.5px;color:#b0bec5;">JPG, JPEG, PNG only</span>' +
         '</div>' +
         '<input type="file" name="product_images[]" id="' + fileId + '" accept="' + accept + '" style="display:none;" onchange="onImgBoxFileChange(this,\'' + boxId + '\',\'' + type + '\')">';
     }
@@ -1468,24 +1505,191 @@ function _checkImgUploadBtn(type) {
   uploadBtn.disabled = !hasAny;
 }
 
+var _imgAllowedExts = {
+  product: ['jpg','jpeg','png'],
+  manual:  ['pdf','jpg','jpeg','png','gif','webp']
+};
+
 function onImgBoxFileChange(input, boxId, type) {
-  var zone = document.getElementById('zone-' + boxId);
-  var lbl  = document.getElementById('zone-lbl-' + boxId);
+  var zone    = document.getElementById('zone-' + boxId);
+  var lbl     = document.getElementById('zone-lbl-' + boxId);
+  var allowed = _imgAllowedExts[type] || _imgAllowedExts.product;
+
+  function _reset() {
+    lbl.textContent = type === 'manual' ? 'Click to choose' : 'Click to choose image';
+    lbl.style.color = '#9ca3af';
+    zone.classList.remove('has-file');
+    input.value = '';
+  }
+
   if (input.files && input.files.length > 0) {
     var fname = input.files[0].name;
+    var ext   = fname.split('.').pop().toLowerCase();
+    if (allowed.indexOf(ext) === -1) {
+      alert('Invalid file type ".' + ext + '".\nAllowed: ' + allowed.join(', ').toUpperCase());
+      _reset();
+      _checkImgUploadBtn(type);
+      return;
+    }
     lbl.textContent = fname.length > 28 ? fname.slice(0, 26) + '…' : fname;
     lbl.style.color = '#15803d';
     zone.classList.add('has-file');
   } else {
-    lbl.textContent = type === 'manual' ? 'Click to choose' : 'Click to choose image';
-    lbl.style.color = '#9ca3af';
-    zone.classList.remove('has-file');
+    _reset();
   }
   _checkImgUploadBtn(type);
 }
 
 function onImgBoxLinkInput(type) {
   _checkImgUploadBtn(type);
+}
+
+/* ═══════════════════════════════════════════════════
+   AJAX IMAGE UPLOAD
+   ═══════════════════════════════════════════════════ */
+document.addEventListener('DOMContentLoaded', function() {
+  ['imgUploadFormProduct','imgUploadFormManual'].forEach(function(formId) {
+    var form = document.getElementById(formId);
+    if (!form) return;
+    form.addEventListener('submit', function(e) {
+      e.preventDefault();
+      var type = formId === 'imgUploadFormProduct' ? 'product' : 'manual';
+      submitImgForm(form, type);
+    });
+  });
+});
+
+function submitImgForm(form, type) {
+  var btn = document.getElementById(type === 'product' ? 'imgUploadBtnProduct' : 'imgUploadBtnManual');
+  var origHtml = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin .8s linear infinite"><path d="M12 2a10 10 0 010 20"/></svg> Uploading…'; }
+  showImgUploadMsg(type, 'loading', 'Uploading…');
+
+  var fd = new FormData(form);
+  fetch(form.action, { method: 'POST', body: fd })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.success) {
+        var msg = data.uploaded + ' file(s) uploaded successfully.';
+        if (data.skipped && data.skipped.length) msg += ' Skipped: ' + data.skipped.join('; ');
+        showImgUploadMsg(type, 'ok', msg);
+        appendUploadedImages(data.images, type);
+        /* Reset boxes */
+        var boxes = document.getElementById(type === 'product' ? 'imgBoxesProduct' : 'imgBoxesManual');
+        if (boxes) boxes.innerHTML = '';
+        if (btn) { btn.disabled = true; btn.innerHTML = origHtml; }
+        /* Reset count spinner */
+        var cntEl = document.getElementById(type === 'product' ? 'prodImgCount' : 'prodManualCount');
+        if (cntEl) cntEl.value = '1';
+      } else {
+        showImgUploadMsg(type, 'err', data.error || 'Upload failed.');
+        if (btn) { btn.disabled = false; btn.innerHTML = origHtml; }
+      }
+    })
+    .catch(function(err) {
+      showImgUploadMsg(type, 'err', 'Network error — please try again.');
+      if (btn) { btn.disabled = false; btn.innerHTML = origHtml; }
+    });
+}
+
+function showImgUploadMsg(type, kind, msg) {
+  var el = document.getElementById(type === 'product' ? 'imgUploadMsgProduct' : 'imgUploadMsgManual');
+  if (!el) return;
+  el.style.display = 'block';
+  if (kind === 'ok') {
+    el.style.background = '#f0fdf4'; el.style.border = '1px solid #86efac'; el.style.color = '#15803d';
+  } else if (kind === 'err') {
+    el.style.background = '#fff5f5'; el.style.border = '1px solid #fca5a5'; el.style.color = '#dc2626';
+  } else {
+    el.style.background = '#f0f4ff'; el.style.border = '1px solid #c7d2fe'; el.style.color = '#4f46e5';
+  }
+  el.textContent = msg;
+  if (kind !== 'loading') setTimeout(function() { el.style.display = 'none'; }, 6000);
+}
+
+function _buildImgDeleteForm(imgId) {
+  if (!_CAN_DELETE_IMG) return '';
+  return '<form method="POST" action="' + _IMG_DELETE_ACTION + '" style="margin:0;" onsubmit="return confirm(\'Delete this image?\')">' +
+           '<input type="hidden" name="image_id" value="' + imgId + '">' +
+           '<button type="submit" class="prod-img-del-btn" title="Remove">' +
+             '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg>' +
+             ' Remove</button></form>';
+}
+
+function appendUploadedImages(images, type) {
+  if (!images || !images.length) return;
+  var pid       = _editProdId;
+  var areaId    = type === 'product' ? 'existingProductImagesArea' : 'existingManualsArea';
+  var panelId   = type === 'product' ? 'prod-imgs-product-' + pid : 'prod-imgs-manual-' + pid;
+  var area      = document.getElementById(areaId);
+  var panel     = document.getElementById(panelId);
+
+  /* Remove empty-state placeholder if present */
+  if (area) {
+    var empty = area.querySelector('.img-empty-state');
+    if (empty) empty.remove();
+    var list = area.querySelector('.prod-img-list');
+    if (!list) { list = document.createElement('div'); list.className = 'prod-img-list'; area.appendChild(list); }
+  }
+  if (panel) {
+    var pempty = panel.querySelector('.img-empty-state');
+    if (pempty) pempty.remove();
+    var plist = panel.querySelector('.prod-img-list');
+    if (!plist) { plist = document.createElement('div'); plist.className = 'prod-img-list'; panel.appendChild(plist); }
+  }
+
+  images.forEach(function(img) {
+    var html = '';
+    if (type === 'product') {
+      html =
+        '<div class="prod-img-list-row">' +
+          '<div class="prod-img-list-thumb">' +
+            (img.url
+              ? '<img src="' + img.url + '" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:6px;">'
+              : '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#f1f5f9;border-radius:6px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/></svg></div>') +
+          '</div>' +
+          '<div class="prod-img-list-info" style="flex:1;min-width:0;">' +
+            '<div style="font-size:13px;font-weight:600;color:var(--text);">' + (img.name || '<span style="color:var(--text-muted);font-weight:400;">Untitled</span>') + '</div>' +
+            '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Priority: ' + img.prio + ' &nbsp;·&nbsp; Display: <span style="color:' + (img.display==='Yes'?'#15803d':'#dc2626') + ';font-weight:600;">' + img.display + '</span></div>' +
+          '</div>' +
+          '<div style="display:flex;gap:6px;flex-shrink:0;align-items:center;">' +
+            (img.url ? '<a href="' + img.url + '" target="_blank" class="prod-img-view-btn" title="View full image"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> View</a>' : '') +
+            _buildImgDeleteForm(img.id) +
+          '</div>' +
+        '</div>';
+    } else {
+      html =
+        '<div class="prod-img-list-row" style="align-items:flex-start;">' +
+          '<div class="prod-img-list-thumb" style="background:#eef2ff;border-radius:8px;flex-shrink:0;">' +
+            '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>' +
+          '</div>' +
+          '<div class="prod-img-list-info" style="flex:1;min-width:0;">' +
+            '<div style="font-size:13px;font-weight:600;color:var(--text);">' + (img.name || '<span style="color:var(--text-muted);font-weight:400;">Untitled</span>') + '</div>' +
+            (img.title ? '<div style="font-size:12px;color:var(--text-muted);margin-top:1px;">' + img.title + '</div>' : '') +
+            '<div style="font-size:11px;color:var(--text-muted);margin-top:3px;">Priority: ' + img.prio + ' &nbsp;·&nbsp; Display: <span style="color:' + (img.display==='Yes'?'#15803d':'#dc2626') + ';font-weight:600;">' + img.display + '</span></div>' +
+            '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">' +
+              (img.url ? '<a href="' + img.url + '" target="_blank" class="manual-open-btn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Open Uploaded File ↗</a>' : '') +
+              (img.hyper ? '<a href="' + img.hyper + '" target="_blank" class="manual-open-btn" style="background:#f0fdf4;color:#15803d;border-color:#bbf7d0;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg> Open Direct Link ↗</a>' : '') +
+              (!img.url && !img.hyper ? '<span style="font-size:11px;color:var(--text-muted);font-style:italic;">No link available</span>' : '') +
+            '</div>' +
+          '</div>' +
+          _buildImgDeleteForm(img.id) +
+        '</div>';
+    }
+
+    var row = document.createElement('div');
+    row.innerHTML = html;
+    var rowEl = row.firstElementChild;
+
+    if (area) {
+      var aList = area.querySelector('.prod-img-list');
+      if (aList) aList.appendChild(rowEl.cloneNode(true));
+    }
+    if (panel) {
+      var pList = panel.querySelector('.prod-img-list');
+      if (pList) pList.appendChild(rowEl.cloneNode(true));
+    }
+  });
 }
 
 

@@ -661,103 +661,92 @@ class WebsiteController
         } catch (Exception $e) { return []; }
     }
 
-    /* ── Quote: user addresses ──────────────────────────────── */
+    /* ── Address: list ──────────────────────────────────────── */
     public function getUserAddresses(int $userId): array
     {
-        try {
-            return $this->dbHelper->select(
-                "SELECT user_address_id, label, user_name, company_name,
-                        address AS address_extra,
-                        address_line_one, address_line_two, landmark,
-                        city, state, zip, country, country_id,
-                        delivery_phone_no, mobile_country_code,
-                        recipient_name, recipient_email, recipient_contact
-                 FROM tbl_user_address
-                 WHERE user_id = $userId
-                 ORDER BY user_address_id DESC"
-            );
-        } catch (Exception $e) { return []; }
+        return $this->dbHelper->select(
+            "SELECT user_address_id, label, user_name, company_name,
+                    address AS address_notes,
+                    address_line_one, address_line_two, landmark,
+                    city, state, zip, country, country_id,
+                    delivery_phone_no, mobile_country_code,
+                    recipient_name, recipient_email, recipient_contact
+             FROM tbl_user_address
+             WHERE user_id = $userId
+             ORDER BY user_address_id DESC"
+        );
     }
 
     /* ── Address: save (insert) ─────────────────────────────── */
-    public function saveDeliveryAddress(array $d, int $userId): int
+    public function saveDeliveryAddress(array $d, int $userId): void
     {
-        try {
-            if ($userId <= 0) return 0;
-            $label        = in_array($d['label'] ?? 'Home', ['Home','Office','Other']) ? ($d['label'] ?? 'Home') : 'Other';
-            $userName     = addslashes(trim($d['user_name']          ?? ''));
-            $company      = addslashes(trim($d['company_name']       ?? ''));
-            $phone        = addslashes(trim($d['delivery_phone_no']  ?? ''));
-            $mcc          = (int)($d['mobile_country_code']          ?? 0);
-            $line1        = addslashes(trim($d['address_line_one']   ?? ''));
-            $line2        = addslashes(trim($d['address_line_two']   ?? ''));
-            $lmk          = addslashes(trim($d['landmark']           ?? ''));
-            $city         = addslashes(trim($d['city']               ?? ''));
-            $state        = addslashes(trim($d['state']              ?? ''));
-            $zip          = addslashes(trim($d['zip']                ?? ''));
-            $country      = addslashes(trim($d['country']            ?? ''));
-            $countryId    = (float)($d['country_id']                 ?? 0);
-            $addrExtra    = addslashes(trim($d['address']            ?? ''));
-            $recipName    = addslashes(trim($d['recipient_name']     ?? ''));
-            $recipEmail   = addslashes(trim($d['recipient_email']    ?? ''));
-            $recipContact = addslashes(trim($d['recipient_contact']  ?? ''));
-            $sql = "INSERT INTO tbl_user_address
-                 (user_id, label, user_name, company_name, delivery_phone_no, mobile_country_code,
-                  address_line_one, address_line_two, landmark,
-                  city, state, zip, country, country_id, address,
-                  recipient_name, recipient_email, recipient_contact)
-                 VALUES($userId,'$label','$userName','$company','$phone',$mcc,
-                        '$line1','$line2','$lmk','$city','$state','$zip','$country',$countryId,'$addrExtra',
-                        '$recipName','$recipEmail','$recipContact')";
-            return (int)$this->dbHelper->insert($sql);
-        } catch (Exception $e) { error_log('saveDeliveryAddress: '.$e->getMessage()); return 0; }
+        if ($userId <= 0) throw new RuntimeException('Invalid user.');
+        $label        = in_array($d['label'] ?? 'Other', ['Home','Office','Other']) ? $d['label'] : 'Other';
+        $userName     = addslashes(trim($d['user_name']          ?? ''));
+        $company      = addslashes(trim($d['company_name']       ?? ''));
+        $phone        = addslashes(trim($d['delivery_phone_no']  ?? ''));
+        $mcc          = (int)($d['mobile_country_code']          ?? 0);
+        $line1        = addslashes(trim($d['address_line_one']   ?? ''));
+        $line2        = addslashes(trim($d['address_line_two']   ?? ''));
+        $lmk          = addslashes(trim($d['landmark']           ?? ''));
+        $city         = addslashes(trim($d['city']               ?? ''));
+        $state        = addslashes(trim($d['state']              ?? ''));
+        $zip          = addslashes(trim($d['zip']                ?? ''));
+        $country      = addslashes(trim($d['country']            ?? ''));
+        $addrNotes    = addslashes(trim($d['address']            ?? ''));
+        $recipName    = addslashes(trim($d['recipient_name']     ?? ''));
+        $recipEmail   = addslashes(trim($d['recipient_email']    ?? ''));
+        $recipContact = addslashes(trim($d['recipient_contact']  ?? ''));
+        $this->dbHelper->insert(
+            "INSERT INTO tbl_user_address
+             (user_id, label, user_name, company_name, delivery_phone_no, mobile_country_code,
+              address_line_one, address_line_two, landmark,
+              city, state, zip, country, address,
+              recipient_name, recipient_email, recipient_contact)
+             VALUES($userId,'$label','$userName','$company','$phone',$mcc,
+                    '$line1','$line2','$lmk','$city','$state','$zip','$country','$addrNotes',
+                    '$recipName','$recipEmail','$recipContact')"
+        );
     }
 
     /* ── Address: update ────────────────────────────────────── */
-    public function updateDeliveryAddress(int $addrId, array $d, int $userId): bool
+    public function updateDeliveryAddress(int $addrId, array $d, int $userId): void
     {
-        try {
-            if ($addrId <= 0 || $userId <= 0) return false;
-            $label        = in_array($d['label'] ?? 'Home', ['Home','Office','Other']) ? ($d['label'] ?? 'Home') : 'Other';
-            $userName     = addslashes(trim($d['user_name']          ?? ''));
-            $company      = addslashes(trim($d['company_name']       ?? ''));
-            $phone        = addslashes(trim($d['delivery_phone_no']  ?? ''));
-            $mcc          = (int)($d['mobile_country_code']          ?? 0);
-            $line1        = addslashes(trim($d['address_line_one']   ?? ''));
-            $line2        = addslashes(trim($d['address_line_two']   ?? ''));
-            $lmk          = addslashes(trim($d['landmark']           ?? ''));
-            $city         = addslashes(trim($d['city']               ?? ''));
-            $state        = addslashes(trim($d['state']              ?? ''));
-            $zip          = addslashes(trim($d['zip']                ?? ''));
-            $country      = addslashes(trim($d['country']            ?? ''));
-            $countryId    = (float)($d['country_id']                 ?? 0);
-            $addrExtra    = addslashes(trim($d['address']            ?? ''));
-            $recipName    = addslashes(trim($d['recipient_name']     ?? ''));
-            $recipEmail   = addslashes(trim($d['recipient_email']    ?? ''));
-            $recipContact = addslashes(trim($d['recipient_contact']  ?? ''));
-            $sql = "UPDATE tbl_user_address SET
-                     label='$label', user_name='$userName', company_name='$company',
-                     delivery_phone_no='$phone', mobile_country_code=$mcc,
-                     address_line_one='$line1', address_line_two='$line2', landmark='$lmk',
-                     city='$city', state='$state', zip='$zip',
-                     country='$country', country_id=$countryId, address='$addrExtra',
-                     recipient_name='$recipName', recipient_email='$recipEmail', recipient_contact='$recipContact'
-                    WHERE user_address_id=$addrId AND user_id=$userId";
-            $this->dbHelper->update($sql);
-            return true;
-        } catch (Exception $e) { error_log('updateDeliveryAddress: '.$e->getMessage()); return false; }
+        if ($addrId <= 0 || $userId <= 0) throw new RuntimeException('Invalid address or user.');
+        $label        = in_array($d['label'] ?? 'Other', ['Home','Office','Other']) ? $d['label'] : 'Other';
+        $userName     = addslashes(trim($d['user_name']          ?? ''));
+        $company      = addslashes(trim($d['company_name']       ?? ''));
+        $phone        = addslashes(trim($d['delivery_phone_no']  ?? ''));
+        $mcc          = (int)($d['mobile_country_code']          ?? 0);
+        $line1        = addslashes(trim($d['address_line_one']   ?? ''));
+        $line2        = addslashes(trim($d['address_line_two']   ?? ''));
+        $lmk          = addslashes(trim($d['landmark']           ?? ''));
+        $city         = addslashes(trim($d['city']               ?? ''));
+        $state        = addslashes(trim($d['state']              ?? ''));
+        $zip          = addslashes(trim($d['zip']                ?? ''));
+        $country      = addslashes(trim($d['country']            ?? ''));
+        $addrNotes    = addslashes(trim($d['address']            ?? ''));
+        $recipName    = addslashes(trim($d['recipient_name']     ?? ''));
+        $recipEmail   = addslashes(trim($d['recipient_email']    ?? ''));
+        $recipContact = addslashes(trim($d['recipient_contact']  ?? ''));
+        $this->dbHelper->update(
+            "UPDATE tbl_user_address SET
+               label='$label', user_name='$userName', company_name='$company',
+               delivery_phone_no='$phone', mobile_country_code=$mcc,
+               address_line_one='$line1', address_line_two='$line2', landmark='$lmk',
+               city='$city', state='$state', zip='$zip', country='$country', address='$addrNotes',
+               recipient_name='$recipName', recipient_email='$recipEmail', recipient_contact='$recipContact'
+             WHERE user_address_id=$addrId AND user_id=$userId"
+        );
     }
 
     /* ── Address: delete ────────────────────────────────────── */
-    public function deleteDeliveryAddress(int $addrId, int $userId): bool
+    public function deleteDeliveryAddress(int $addrId, int $userId): void
     {
-        try {
-            if ($addrId <= 0 || $userId <= 0) return false;
-            $this->dbHelper->update(
-                "DELETE FROM tbl_user_address WHERE user_address_id=$addrId AND user_id=$userId"
-            );
-            return true;
-        } catch (Exception $e) { error_log('deleteDeliveryAddress: '.$e->getMessage()); return false; }
+        if ($addrId <= 0 || $userId <= 0) throw new RuntimeException('Invalid address or user.');
+        $this->dbHelper->update(
+            "DELETE FROM tbl_user_address WHERE user_address_id=$addrId AND user_id=$userId"
+        );
     }
 
     /* ── Quote: submit (authenticated users only) ───────────── */
