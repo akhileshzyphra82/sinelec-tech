@@ -3562,6 +3562,184 @@ class AdminController
     }
 
     /* ═══════════════════════════════════════════════════════════
+       DASHBOARD V2  (role-aware, uses tbl_user_order)
+    ═══════════════════════════════════════════════════════════ */
+
+    /**
+     * Load only the dashboard sections the current user needs.
+     * $flags: assoc array — ['orders'=>true, 'finance'=>true, ...]
+     * Returns structured array keyed by section.
+     */
+    public function getDashboardV2(array $flags): array
+    {
+        $d = [];
+        try {
+
+            /* ── ORDERS ─────────────────────────────────── */
+            if (!empty($flags['orders'])) {
+                $d['order_kpis'] = $this->db->select(
+                    "SELECT
+                         COUNT(DISTINCT CASE WHEN order_status != 'Cart'                            THEN user_order_id END) AS total,
+                         COUNT(DISTINCT CASE WHEN order_status = 'Order Pending'                    THEN user_order_id END) AS pending,
+                         COUNT(DISTINCT CASE WHEN order_status = 'Order Confirmed'                  THEN user_order_id END) AS confirmed,
+                         COUNT(DISTINCT CASE WHEN order_status IN ('Order Dispatch','Order In Transit','Order Packed') THEN user_order_id END) AS in_transit,
+                         COUNT(DISTINCT CASE WHEN order_status = 'Order Delivered'                  THEN user_order_id END) AS delivered,
+                         COUNT(DISTINCT CASE WHEN order_status = 'Order Cancelled'                  THEN user_order_id END) AS cancelled,
+                         COUNT(DISTINCT CASE WHEN order_status != 'Cart'
+                                             AND YEAR(order_date)  = YEAR(CURDATE())
+                                             AND MONTH(order_date) = MONTH(CURDATE())  THEN user_order_id END) AS this_month
+                     FROM tbl_user_order
+                     WHERE order_type = 'Order'"
+                )[0] ?? null;
+
+                $d['recent_orders'] = $this->db->select(
+                    "SELECT o.user_order_id, o.order_number, o.order_date, o.order_status,
+                            o.payment_status, o.final_total_amt, o.order_mode,
+                            u.name AS cust_name, u.company_name AS cust_company
+                     FROM tbl_user_order o
+                     JOIN tbl_user u ON u.user_id = o.user_id
+                     WHERE o.order_type = 'Order' AND o.order_status != 'Cart'
+                     ORDER BY o.order_date DESC LIMIT 7"
+                );
+            }
+
+            /* ── FINANCE ─────────────────────────────────── */
+            if (!empty($flags['finance'])) {
+                $d['finance_kpis'] = $this->db->select(
+                    "SELECT
+                         SUM(CASE WHEN payment_status='Payment Successful' THEN final_total_amt ELSE 0 END)  AS collected,
+                         SUM(CASE WHEN payment_status='Payment Pending'    THEN final_total_amt ELSE 0 END)  AS pending_rev,
+                         SUM(CASE WHEN payment_status='Payment Failed'     THEN final_total_amt ELSE 0 END)  AS failed_rev,
+                         SUM(CASE WHEN YEAR(order_date)=YEAR(CURDATE()) AND MONTH(order_date)=MONTH(CURDATE())
+                                   AND payment_status='Payment Successful'  THEN final_total_amt ELSE 0 END) AS this_month_col,
+                         COUNT(DISTINCT CASE WHEN payment_status='Payment Pending' THEN user_order_id END)   AS pending_count
+                     FROM tbl_user_order
+                     WHERE order_type = 'Order' AND order_status != 'Cart'"
+                )[0] ?? null;
+
+                /* 6-month revenue chart */
+                $rows = $this->db->select(
+                    "SELECT DATE_FORMAT(order_date,'%b %Y')  AS label,
+                            DATE_FORMAT(order_date,'%Y-%m')  AS ym,
+                            COUNT(DISTINCT user_order_id)     AS orders,
+                            SUM(final_total_amt)              AS revenue,
+                            SUM(CASE WHEN payment_status='Payment Successful'
+                                     THEN final_total_amt ELSE 0 END) AS collected
+                     FROM tbl_user_order
+                     WHERE order_type='Order' AND order_status!='Cart'
+                       AND order_date >= DATE_SUB(CURDATE(), INTERVAL 5 MONTH)
+                     GROUP BY ym ORDER BY ym ASC"
+                ) ?: [];
+
+                $map = [];
+                foreach ($rows as $row) $map[(string)($row->YM ?? '')] = $row;
+
+                $labels = $revArr = $ordArr = $colArr = [];
+                for ($i = 5; $i >= 0; $i--) {
+                    $ym       = date('Y-m', strtotime("-$i month"));
+                    $labels[] = date('M Y',  strtotime("-$i month"));
+                    $row      = $map[$ym] ?? null;
+                    $ordArr[] = $row ? (int)  ($row->ORDERS    ?? 0)    : 0;
+                    $revArr[] = $row ? round((float)($row->REVENUE   ?? 0), 2) : 0;
+                    $colArr[] = $row ? round((float)($row->COLLECTED ?? 0), 2) : 0;
+                }
+                $d['revenue_chart'] = compact('labels', 'revArr', 'ordArr', 'colArr');
+            }
+
+            /* ── PRODUCTS / INVENTORY ─────────────────────── */
+            if (!empty($flags['products'])) {
+                $d['product_kpis'] = $this->db->select(
+                    "SELECT
+                         COUNT(*)                                                                    AS total_products,
+                         SUM(CASE WHEN product_status='Active'   THEN 1 ELSE 0 END)                AS active_products,
+                         SUM(CASE WHEN total_remaining <= product_threshold
+                                   AND product_status='Active'   THEN 1 ELSE 0 END)                AS low_stock,
+                         SUM(CASE WHEN total_remaining = 0
+                                   AND product_status='Active'   THEN 1 ELSE 0 END)                AS out_of_stock
+                     FROM tbl_product"
+                )[0] ?? null;
+
+                $d['low_stock_items'] = $this->db->select(
+                    "SELECT product_id, product_name, product_code,
+                            total_remaining, product_threshold
+                     FROM tbl_product
+                     WHERE total_remaining <= product_threshold
+                       AND product_status = 'Active'
+                     ORDER BY total_remaining ASC LIMIT 5"
+                );
+            }
+
+            /* ── CUSTOMERS ─────────────────────────────────── */
+            if (!empty($flags['customers'])) {
+                $d['customer_kpis'] = $this->db->select(
+                    "SELECT COUNT(*) AS total_customers FROM tbl_user WHERE user_type_id = 2"
+                )[0] ?? null;
+            }
+
+            /* ── QUOTATIONS ─────────────────────────────────── */
+            if (!empty($flags['quotes'])) {
+                $d['quote_kpis'] = $this->db->select(
+                    "SELECT COUNT(*) AS total_quotes,
+                         SUM(CASE WHEN enquiry_status='Quotation Pending' THEN 1 ELSE 0 END) AS pending,
+                         SUM(CASE WHEN enquiry_status='Quotation Sent'    THEN 1 ELSE 0 END) AS sent,
+                         SUM(CASE WHEN enquiry_status='Order Generated'   THEN 1 ELSE 0 END) AS converted,
+                         SUM(CASE WHEN enquiry_status='Order Completed'   THEN 1 ELSE 0 END) AS completed
+                     FROM tbl_enquiry_quote"
+                )[0] ?? null;
+
+                $d['pending_quotes'] = $this->db->select(
+                    "SELECT eq.enquiry_quote_id, eq.user_name, eq.company_name,
+                            eq.enquiry_date, eq.enquiry_status, eq.delivery_country,
+                            COUNT(eqp.enquiry_quote_product_id) AS item_count
+                     FROM tbl_enquiry_quote eq
+                     LEFT JOIN tbl_enquiry_quote_product eqp
+                            ON eqp.enquiry_quote_id = eq.enquiry_quote_id
+                     WHERE eq.enquiry_status = 'Quotation Pending'
+                     GROUP BY eq.enquiry_quote_id
+                     ORDER BY eq.enquiry_date ASC LIMIT 7"
+                );
+            }
+
+            /* ── REFUNDS ─────────────────────────────────── */
+            if (!empty($flags['refunds'])) {
+                $d['refund_kpis'] = $this->db->select(
+                    "SELECT
+                         COUNT(*)                                                                    AS total_returns,
+                         SUM(CASE WHEN order_return_replacement_status='Return Requested' THEN 1 ELSE 0 END) AS pending_approval,
+                         SUM(CASE WHEN order_return_replacement_status IN
+                                  ('Return Request Approved','Pickup Scheduled','Pickup Completed','QC Approved')
+                                  THEN 1 ELSE 0 END)                                                AS in_process,
+                         SUM(final_total_amt)                                                        AS total_return_value
+                     FROM tbl_user_order
+                     WHERE order_type = 'Return & Refund'"
+                )[0] ?? null;
+            }
+
+            /* ── HR ─────────────────────────────────────────── */
+            if (!empty($flags['hr'])) {
+                $d['hr_kpis'] = $this->db->select(
+                    "SELECT COUNT(*) AS total_jobs,
+                         SUM(CASE WHEN job_status='Active' THEN 1 ELSE 0 END) AS active_jobs
+                     FROM tbl_job_career"
+                )[0] ?? null;
+
+                $d['recent_applicants'] = $this->db->select(
+                    "SELECT ca.candidate_applied_job_id, ca.candidate_name,
+                            ca.candidate_email, ca.applied_date, jc.job_position
+                     FROM tbl_candidate_applied_for_job ca
+                     JOIN tbl_job_career jc ON jc.job_post_id = ca.job_post_id
+                     ORDER BY ca.applied_date DESC LIMIT 5"
+                );
+            }
+
+        } catch (Exception $e) {
+            error_log('getDashboardV2: ' . $e->getMessage());
+        }
+
+        return $d;
+    }
+
+    /* ═══════════════════════════════════════════════════════════
        SALES & REVENUE REPORT
     ═══════════════════════════════════════════════════════════ */
 
