@@ -441,11 +441,12 @@ function inv_addr(string $company, string $line1, string $line2, string $city, s
   <!-- Header -->
   <div class="inv-header">
     <div class="inv-logo-wrap">
-      <?php if ($coLogo): ?>
-        <img src="<?= htmlspecialchars($coLogo) ?>" alt="<?= htmlspecialchars($coName) ?>" class="inv-logo-img">
-      <?php endif; ?>
       <div>
-        <div class="inv-co-name"><?= htmlspecialchars($coName ?: 'Company') ?></div>
+        <?php if ($coLogo): ?>
+          <img src="<?= htmlspecialchars($coLogo) ?>" alt="<?= htmlspecialchars($coName) ?>" class="inv-logo-img" style="filter:brightness(0) invert(1);max-height:64px;max-width:180px;object-fit:contain;display:block;margin-bottom:6px;">
+        <?php else: ?>
+          <div class="inv-co-name"><?= htmlspecialchars($coName ?: 'Company') ?></div>
+        <?php endif; ?>
         <?php if ($coAddr): ?><div class="inv-co-sub"><?= htmlspecialchars($coAddr) ?></div><?php endif; ?>
         <?php if ($coEmail || $coPhone): ?>
         <div class="inv-co-sub"><?= implode(' | ', array_filter([htmlspecialchars($coEmail), htmlspecialchars($coPhone)])) ?></div>
@@ -666,37 +667,6 @@ function inv_addr(string $company, string $line1, string $line2, string $city, s
       </tr>
     </table>
   </div>
-
-  <!-- Order History Timeline -->
-  <?php if (!empty($history)): ?>
-  <div class="inv-history">
-    <div class="inv-history-title">Order History</div>
-    <div class="timeline">
-      <?php foreach ($history as $h):
-        $hOs  = (string)($h->HISTORY_ORDER_STATUS   ?? '');
-        $hPs  = (string)($h->HISTORY_PAYMENT_STATUS ?? '');
-        $hRem = trim((string)($h->HISTORY_REMARKS   ?? ''));
-        $hBy  = (string)($h->CHANGED_BY_NAME        ?? 'System');
-        $hDt  = (string)($h->CREATED_AT             ?? '');
-        $hDtF = $hDt ? date('d M Y, H:i', strtotime($hDt)) : '—';
-        $dotClass = match($hOs) {
-            'Order Delivered'   => 'delivered',
-            'Order Cancelled'   => 'cancelled',
-            'Order Pending'     => 'pending',
-            default             => '',
-        };
-      ?>
-      <div class="tl-item">
-        <div class="tl-dot <?= $dotClass ?>"></div>
-        <div class="tl-meta"><?= htmlspecialchars($hDtF) ?> &middot; <?= htmlspecialchars($hBy) ?></div>
-        <div class="tl-status"><?= htmlspecialchars($hOs) ?></div>
-        <?php if ($hPs): ?><div class="tl-pay"><?= htmlspecialchars($hPs) ?></div><?php endif; ?>
-        <?php if ($hRem): ?><div class="tl-remark">"<?= htmlspecialchars($hRem) ?>"</div><?php endif; ?>
-      </div>
-      <?php endforeach; ?>
-    </div>
-  </div>
-  <?php endif; ?>
 
   <!-- Footer -->
   <div class="inv-footer">

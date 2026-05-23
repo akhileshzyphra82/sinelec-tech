@@ -2487,12 +2487,22 @@ class AdminController
                         COALESCE(u.communication_email_id,'') AS cust_email,
                         COALESCE(u.communication_mobile_num,'') AS cust_phone,
                         COALESCE(u.company_name,'') AS cust_company,
-                        a.company_name AS addr_company, a.recipient_name, a.address,
-                        a.address_line_one, a.address_line_two, a.city, a.state, a.zip, a.country,
-                        a.delivery_phone_no, a.recipient_email
+                        a.company_name  AS addr_company,  a.recipient_name,
+                        a.address,      a.address_line_one,  a.address_line_two,
+                        a.city,         a.state,   a.zip,    a.country,
+                        a.delivery_phone_no, a.recipient_email,
+                        b.company_name  AS bil_company,   b.recipient_name  AS bil_recipient_name,
+                        b.address       AS bil_address,
+                        b.address_line_one AS bil_line1,  b.address_line_two AS bil_line2,
+                        b.city          AS bil_city,      b.state AS bil_state,
+                        b.zip           AS bil_zip,       b.country AS bil_country,
+                        b.delivery_phone_no AS bil_phone, b.recipient_email AS bil_email,
+                        cc.courier_company_name, cc.tracking_url AS courier_tracking_url
                  FROM tbl_user_order o
-                 LEFT JOIN tbl_user u ON u.user_id = o.user_id
-                 LEFT JOIN tbl_user_address a ON a.user_address_id = o.user_address_id
+                 LEFT JOIN tbl_user u         ON u.user_id          = o.user_id
+                 LEFT JOIN tbl_user_address a  ON a.user_address_id  = o.user_address_id
+                 LEFT JOIN tbl_user_address b  ON b.user_address_id  = o.billing_user_address_id
+                 LEFT JOIN tbl_courier_company cc ON cc.courier_company_id = o.courier_company_id
                  WHERE o.user_order_id = $id LIMIT 1"
             );
             return $rows[0] ?? null;
@@ -2521,12 +2531,39 @@ class AdminController
                  FROM tbl_user_order_history h
                  LEFT JOIN tbl_user u ON u.user_id = h.changed_by_user_id
                  WHERE h.user_order_id = $orderId
-                 ORDER BY h.user_order_history_id DESC"
+                 ORDER BY h.user_order_history_id ASC"
             );
         } catch (Exception $e) { return []; }
     }
 
-    public function updateUserOrderStatus(int $id, string $orderStatus, string $payStatus, string $remark, int $adminUid): bool
+    public function getCourierCompanies(): array
+    {
+        try {
+            return $this->db->select(
+                "SELECT courier_company_id, courier_company_name, phone, email, tracking_url
+                 FROM tbl_courier_company WHERE status='Active'
+                 ORDER BY courier_company_name ASC"
+            );
+        } catch (Exception $e) { return []; }
+    }
+
+    public function getCourierCompanyById(int $id): ?object
+    {
+        if ($id <= 0) return null;
+        try {
+            $rows = $this->db->select(
+                "SELECT courier_company_id, courier_company_name, tracking_url
+                 FROM tbl_courier_company WHERE courier_company_id=$id LIMIT 1"
+            );
+            return $rows[0] ?? null;
+        } catch (Exception $e) { return null; }
+    }
+
+    /**
+     * @param array $extra  Optional dispatch data:
+     *                      courier_company_id, dispatch_courier_tracking_id
+     */
+    public function updateUserOrderStatus(int $id, string $orderStatus, string $payStatus, string $remark, int $adminUid, array $extra = []): bool
     {
         $validOs = ['Order Pending','Order Confirmed','Order Packed','Order Dispatch','Order In Transit','Order Delivered','Order Cancelled'];
         $validPs = ['Payment Pending','Payment Successful','Payment Failed','Refund Initiated','Refund Completed','Not Required'];
@@ -2534,7 +2571,20 @@ class AdminController
         try {
             $os = addslashes($orderStatus);
             $ps = addslashes($payStatus);
-            $this->db->update("UPDATE tbl_user_order SET order_status='$os', payment_status='$ps' WHERE user_order_id=$id");
+
+            /* ── Dispatch extras ── */
+            $extraSql = '';
+            if ($orderStatus === 'Order Dispatch') {
+                $courierId = (int)($extra['courier_company_id'] ?? 0);
+                $trackId   = addslashes(trim($extra['dispatch_courier_tracking_id'] ?? ''));
+                $extraSql .= ', dispatch_date=NOW()';
+                if ($courierId > 0) $extraSql .= ", courier_company_id=$courierId";
+                if ($trackId !== '') $extraSql .= ", dispatch_courier_tracking_id='$trackId'";
+            }
+
+            $this->db->update(
+                "UPDATE tbl_user_order SET order_status='$os', payment_status='$ps'$extraSql WHERE user_order_id=$id"
+            );
             $r = addslashes(trim($remark));
             $this->db->insert(
                 "INSERT INTO tbl_user_order_history
@@ -2627,6 +2677,99 @@ class AdminController
         } catch (Exception $e) { error_log('createDirectOrder: '.$e->getMessage()); return 0; }
     }
 
+    public function updateDirectOrder(array $d): bool
+    {
+        $orderId   = (int)($d['order_id']              ?? 0);
+        $addrId    = (int)($d['user_address_id']        ?? 0);
+        $bilAddrId = (int)($d['billing_address_id']     ?? $addrId);
+        $payMode   = in_array($d['order_mode'] ?? '', ['Payment Gateway','Bank Transfer','Invoice'])
+                     ? $d['order_mode'] : 'Invoice';
+        $custPoId  = addslashes(trim($d['customer_po_id']       ?? ''));
+        $custSupNo = addslashes(trim($d['customer_supplier_no'] ?? ''));
+        $vatNum    = addslashes(trim($d['vat_number']           ?? ''));
+        $shipAmt   = (float)($d['shipping_amt']     ?? 0);
+        $discAmt   = (float)($d['discount_amt']     ?? 0);
+        $taxAmt    = (float)($d['tax_amt']           ?? 0);
+        $adminUid  = (int)($d['changed_by_user_id'] ?? 0);
+        $items     = $d['items'] ?? [];
+        if ($orderId <= 0) return false;
+
+        /* Re-calculate totals server-side */
+        $totalProd = 0;
+        foreach ($items as $item) {
+            $qty     = (float)($item['qty']      ?? 1);
+            $unitAmt = (float)($item['unit_amt'] ?? 0);
+            $discPct = (float)($item['disc_pct'] ?? 0);
+            $totalProd += round($unitAmt * (1 - $discPct / 100) * $qty, 2);
+        }
+        $finalAmt = round($totalProd + $shipAmt - $discAmt + $taxAmt, 2);
+
+        try {
+            /* Fetch current status for history */
+            $existing = $this->db->select(
+                "SELECT order_status, payment_status FROM tbl_user_order WHERE user_order_id=$orderId LIMIT 1"
+            );
+            $curOs = addslashes((string)($existing[0]->ORDER_STATUS   ?? 'Order Pending'));
+            $curPs = addslashes((string)($existing[0]->PAYMENT_STATUS ?? 'Payment Pending'));
+
+            /* Update order header */
+            $vatClause = $vatNum !== '' ? ", vat_number='$vatNum'" : '';
+            $this->db->update(
+                "UPDATE tbl_user_order SET
+                 user_address_id=$addrId,
+                 billing_user_address_id=$bilAddrId,
+                 order_mode='$payMode',
+                 customer_po_id='$custPoId',
+                 customer_supplier_no='$custSupNo',
+                 shipping_amt=$shipAmt,
+                 discount_amt=$discAmt,
+                 tax_total_amount=$taxAmt,
+                 order_total_amt=$totalProd,
+                 final_total_amt=$finalAmt
+                 $vatClause
+                 WHERE user_order_id=$orderId"
+            );
+
+            /* Replace line items */
+            $this->db->update("DELETE FROM tbl_user_order_item WHERE user_order_id=$orderId");
+            foreach ($items as $item) {
+                $catId   = (int)($item['cat_id']    ?? 0);
+                $prodId  = (int)($item['prod_id']   ?? 0);
+                $qty     = (float)($item['qty']      ?? 1);
+                $unitAmt = (float)($item['unit_amt'] ?? 0);
+                $discPct = (float)($item['disc_pct'] ?? 0);
+                $taxPct  = (float)($item['tax_pct']  ?? 0);
+                $discIt  = round($unitAmt * $discPct / 100, 2);
+                $taxIt   = round(($unitAmt - $discIt) * $taxPct / 100, 2);
+                $finalIt = round(($unitAmt - $discIt + $taxIt) * $qty, 2);
+                if ($prodId <= 0 || $catId <= 0) continue;
+                $this->db->insert(
+                    "INSERT INTO tbl_user_order_item
+                     (user_order_id, product_category_id, product_id, quantity,
+                      product_amt, discount_percentage, discount_amt,
+                      tax_percentage, tax_amt, final_amt, item_status, order_type)
+                     VALUES($orderId,$catId,$prodId,$qty,
+                      $unitAmt,$discPct,".round($discIt * $qty, 2).",
+                      $taxPct,$taxIt,$finalIt,'Active','Order')"
+                );
+            }
+
+            /* History row */
+            $this->db->insert(
+                "INSERT INTO tbl_user_order_history
+                 (user_order_id, history_type, history_order_status, history_payment_status,
+                  history_remarks, changed_by_user_id)
+                 VALUES($orderId,'Order','$curOs','$curPs','Order updated by admin',$adminUid)"
+            );
+
+            $this->logActivity('edit', 'tbl_user_order', '', null, ['order_id' => $orderId, 'source' => 'direct_edit']);
+            return true;
+        } catch (Exception $e) {
+            error_log('updateDirectOrder: ' . $e->getMessage());
+            return false;
+        }
+    }
+
     public function deleteUserOrder(int $id): bool
     {
         try {
@@ -2634,6 +2777,1132 @@ class AdminController
             $this->logActivity('delete','tbl_user_order','',null,['order_id'=>$id]);
             return true;
         } catch (Exception $e) { return false; }
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       REFUND MANAGEMENT
+    ═══════════════════════════════════════════════════════════ */
+
+    /**
+     * Aggregate KPI counts and amounts for the refund dashboard tiles.
+     * Covers Return & Refund orders plus any Order with a refund payment_status.
+     */
+    public function getRefundStats(): ?object
+    {
+        try {
+            $rows = $this->db->select(
+                "SELECT
+                    COUNT(*)   AS total,
+                    SUM(CASE WHEN order_return_replacement_status = 'Return Requested'         THEN 1 ELSE 0 END) AS pending_approval,
+                    SUM(CASE WHEN order_return_replacement_status IN
+                             ('Return Request Approved','Pickup Scheduled',
+                              'Pickup Completed','QC Approved')                               THEN 1 ELSE 0 END) AS in_process,
+                    SUM(CASE WHEN payment_status = 'Refund Initiated'                         THEN 1 ELSE 0 END) AS refund_initiated,
+                    SUM(CASE WHEN order_return_replacement_status = 'Return Completed'
+                              OR  payment_status                  = 'Refund Completed'        THEN 1 ELSE 0 END) AS completed,
+                    SUM(CASE WHEN order_return_replacement_status = 'Return Request Cancelled' THEN 1 ELSE 0 END) AS rejected,
+                    COALESCE(SUM(final_total_amt),    0) AS total_request_value,
+                    COALESCE(SUM(CASE WHEN order_return_replacement_status = 'Return Completed'
+                                       OR payment_status = 'Refund Completed'
+                                      THEN final_total_amt ELSE 0 END), 0) AS completed_amt,
+                    COALESCE(SUM(CASE WHEN payment_status = 'Refund Initiated'
+                                      THEN final_total_amt ELSE 0 END), 0) AS initiated_amt,
+                    COALESCE(SUM(return_handling_fee), 0) AS total_handling_fees
+                 FROM tbl_user_order
+                 WHERE order_type = 'Return & Refund'"
+            );
+            return $rows[0] ?? null;
+        } catch (Exception $e) {
+            error_log('getRefundStats: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Full refund report — Return & Refund orders joined to original order + customer.
+     * Sorted by urgency: pending first, then in-process, then completed/cancelled last.
+     */
+    public function getRefundReport(array $f = []): array
+    {
+        $where = "r.order_type = 'Return & Refund'";
+
+        if (!empty($f['search'])) {
+            $s = addslashes($f['search']);
+            $where .= " AND (r.order_number LIKE '%$s%'
+                          OR COALESCE(orig.order_number,'') LIKE '%$s%'
+                          OR COALESCE(u.name,'') LIKE '%$s%'
+                          OR COALESCE(u.communication_email_id,'') LIKE '%$s%'
+                          OR COALESCE(u.company_name,'') LIKE '%$s%')";
+        }
+        if (!empty($f['return_status']))  $where .= " AND r.order_return_replacement_status='".addslashes($f['return_status'])."'";
+        if (!empty($f['payment_status'])) $where .= " AND r.payment_status='".addslashes($f['payment_status'])."'";
+        if (!empty($f['date_from']))      $where .= " AND DATE(r.order_date) >= '".addslashes($f['date_from'])."'";
+        if (!empty($f['date_to']))        $where .= " AND DATE(r.order_date) <= '".addslashes($f['date_to'])."'";
+        if (!empty($f['pending_only']))   $where .= " AND r.order_return_replacement_status = 'Return Requested'";
+
+        try {
+            return $this->db->select(
+                "SELECT
+                    r.user_order_id,
+                    r.order_number,
+                    r.order_date,
+                    r.order_return_replacement_status   AS return_status,
+                    r.payment_status,
+                    r.final_total_amt,
+                    r.return_handling_fee,
+                    r.user_return_reason,
+                    r.admin_return_reject_reason,
+                    r.user_order_return_id,
+                    r.order_total_amt,
+                    r.tax_total_amount,
+                    r.shipping_amt,
+                    r.discount_amt,
+                    COALESCE(u.name,'')                     AS cust_name,
+                    COALESCE(u.communication_email_id,'')   AS cust_email,
+                    COALESCE(u.company_name,'')             AS cust_company,
+                    COALESCE(u.communication_mobile_num,'') AS cust_phone,
+                    COALESCE(orig.order_number,'')          AS orig_order_number,
+                    orig.order_date                         AS orig_order_date,
+                    COALESCE(orig.final_total_amt,0)        AS orig_order_amt,
+                    DATEDIFF(NOW(), r.order_date)           AS age_days,
+                    (SELECT COUNT(*) FROM tbl_user_order_item i
+                     WHERE i.user_order_id = r.user_order_id
+                       AND i.item_status   = 'Active')      AS item_count
+                 FROM tbl_user_order r
+                 LEFT JOIN tbl_user u
+                        ON u.user_id = r.user_id
+                 LEFT JOIN tbl_user_order orig
+                        ON orig.user_order_id = r.user_order_return_id
+                 WHERE {$where}
+                 ORDER BY
+                     CASE r.order_return_replacement_status
+                         WHEN 'Return Requested'         THEN 1
+                         WHEN 'Return Request Approved'  THEN 2
+                         WHEN 'Pickup Scheduled'         THEN 3
+                         WHEN 'Pickup Completed'         THEN 4
+                         WHEN 'QC Approved'              THEN 5
+                         WHEN 'Return Completed'         THEN 6
+                         WHEN 'Return Request Cancelled' THEN 7
+                         ELSE 8
+                     END,
+                     r.order_date DESC"
+            );
+        } catch (Exception $e) {
+            error_log('getRefundReport: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * Update return/refund status and log history.
+     */
+    public function updateReturnStatus(
+        int    $orderId,
+        string $returnStatus,
+        string $payStatus,
+        string $remark,
+        string $rejectReason,
+        int    $adminUid
+    ): bool {
+        try {
+            $rs = addslashes($returnStatus);
+            $ps = addslashes($payStatus);
+            $rm = addslashes($remark);
+            $rj = addslashes($rejectReason);
+
+            $rejectClause = $rejectReason !== ''
+                ? ", admin_return_reject_reason='$rj'"
+                : '';
+
+            $this->db->update(
+                "UPDATE tbl_user_order SET
+                 order_return_replacement_status = '$rs',
+                 payment_status                  = '$ps'
+                 {$rejectClause}
+                 WHERE user_order_id = {$orderId}"
+            );
+
+            $this->db->insert(
+                "INSERT INTO tbl_user_order_history
+                 (user_order_id, history_type,
+                  history_order_return_replacement_status,
+                  history_payment_status, history_remarks, changed_by_user_id)
+                 VALUES({$orderId},'Return & Refund','$rs','$ps','$rm',{$adminUid})"
+            );
+
+            $this->logActivity('edit', 'tbl_user_order', '', null,
+                ['order_id' => $orderId, 'return_status' => $returnStatus]);
+            return true;
+        } catch (Exception $e) {
+            error_log('updateReturnStatus: ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Full detail for a single refund — order header, items, history.
+     * Used by the AJAX modal.
+     */
+    public function getRefundOrderDetail(int $id): array
+    {
+        try {
+            $order = $this->db->select(
+                "SELECT r.*,
+                        COALESCE(u.name,'')                     AS cust_name,
+                        COALESCE(u.communication_email_id,'')   AS cust_email,
+                        COALESCE(u.company_name,'')             AS cust_company,
+                        COALESCE(u.communication_mobile_num,'') AS cust_phone,
+                        COALESCE(orig.order_number,'')          AS orig_order_number,
+                        orig.order_date                         AS orig_order_date,
+                        COALESCE(orig.final_total_amt,0)        AS orig_order_amt
+                 FROM tbl_user_order r
+                 LEFT JOIN tbl_user u         ON u.user_id          = r.user_id
+                 LEFT JOIN tbl_user_order orig ON orig.user_order_id = r.user_order_return_id
+                 WHERE r.user_order_id = {$id}
+                   AND r.order_type   = 'Return & Refund'
+                 LIMIT 1"
+            );
+            if (empty($order)) return [];
+
+            $items = $this->db->select(
+                "SELECT i.*, p.product_name, p.product_code, pc.product_category_name
+                 FROM tbl_user_order_item i
+                 LEFT JOIN tbl_product p          ON p.product_id          = i.product_id
+                 LEFT JOIN tbl_product_category pc ON pc.product_category_id = i.product_category_id
+                 WHERE i.user_order_id = {$id}
+                   AND i.item_status   = 'Active'
+                 ORDER BY i.user_order_item_id ASC"
+            );
+
+            $history = $this->db->select(
+                "SELECT h.*, COALESCE(u.name,'System') AS changed_by
+                 FROM tbl_user_order_history h
+                 LEFT JOIN tbl_user u ON u.user_id = h.changed_by_user_id
+                 WHERE h.user_order_id = {$id}
+                   AND h.history_type  = 'Return & Refund'
+                 ORDER BY h.created_at ASC"
+            );
+
+            return ['order' => $order[0], 'items' => $items, 'history' => $history];
+        } catch (Exception $e) {
+            error_log('getRefundOrderDetail: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       OPEN INVOICES / PAYMENT REPORT
+    ═══════════════════════════════════════════════════════════ */
+
+    /**
+     * Aggregate counts and amounts grouped by order_mode × payment_status.
+     * Used to populate the three payment-mode summary cards.
+     */
+    public function getPaymentModeStats(): array
+    {
+        try {
+            return $this->db->select(
+                "SELECT
+                    COALESCE(order_mode, 'Unknown') AS order_mode,
+                    payment_status,
+                    COUNT(*)                        AS cnt,
+                    COALESCE(SUM(final_total_amt),0) AS total_amt
+                 FROM tbl_user_order
+                 WHERE order_type   = 'Order'
+                   AND order_status != 'Cart'
+                   AND order_status IS NOT NULL
+                 GROUP BY order_mode, payment_status
+                 ORDER BY order_mode, payment_status"
+            );
+        } catch (Exception $e) {
+            error_log('getPaymentModeStats: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * Full payment report row set — all non-cart orders, richly joined.
+     * Sorted so Payment Pending / Failed rows bubble to the top, oldest-first
+     * within each urgency tier (most actionable items first).
+     */
+    public function getOpenInvoicesReport(array $f = []): array
+    {
+        $where = "o.order_type = 'Order'
+                  AND o.order_status  != 'Cart'
+                  AND o.order_status  IS NOT NULL";
+
+        if (!empty($f['search'])) {
+            $s = addslashes($f['search']);
+            $where .= " AND (o.order_number LIKE '%$s%'
+                          OR COALESCE(u.name,'') LIKE '%$s%'
+                          OR COALESCE(u.communication_email_id,'') LIKE '%$s%'
+                          OR COALESCE(u.company_name,'') LIKE '%$s%'
+                          OR COALESCE(o.invoice_no,'') LIKE '%$s%'
+                          OR COALESCE(o.bank_reference_no,'') LIKE '%$s%')";
+        }
+        if (!empty($f['order_mode']))      $where .= " AND o.order_mode='".addslashes($f['order_mode'])."'";
+        if (!empty($f['payment_status']))  $where .= " AND o.payment_status='".addslashes($f['payment_status'])."'";
+        if (!empty($f['order_status']))    $where .= " AND o.order_status='".addslashes($f['order_status'])."'";
+        if (!empty($f['date_from']))       $where .= " AND DATE(o.order_date) >= '".addslashes($f['date_from'])."'";
+        if (!empty($f['date_to']))         $where .= " AND DATE(o.order_date) <= '".addslashes($f['date_to'])."'";
+        if (!empty($f['overdue_only']))    $where .= " AND o.payment_status IN ('Payment Pending','Payment Failed')
+                                                       AND DATEDIFF(NOW(), o.order_date) > 30";
+
+        try {
+            return $this->db->select(
+                "SELECT
+                    o.user_order_id,
+                    o.order_number,
+                    o.order_date,
+                    o.order_mode,
+                    o.order_status,
+                    o.payment_status,
+                    o.final_total_amt,
+                    o.order_total_amt,
+                    o.tax_total_amount,
+                    o.shipping_amt,
+                    o.discount_amt,
+                    o.invoice_no,
+                    o.bank_reference_no,
+                    o.transaction_id,
+                    o.pay_pal_tx_id,
+                    o.customer_po_id,
+                    o.customer_supplier_no,
+                    o.enquiry_quote_id,
+                    COALESCE(u.name,'')                        AS cust_name,
+                    COALESCE(u.communication_email_id,'')      AS cust_email,
+                    COALESCE(u.communication_mobile_num,'')    AS cust_phone,
+                    COALESCE(u.company_name,'')                AS cust_company,
+                    DATEDIFF(NOW(), o.order_date)              AS age_days,
+                    (SELECT COUNT(*) FROM tbl_user_order_item i
+                     WHERE i.user_order_id = o.user_order_id
+                       AND i.item_status   = 'Active')         AS item_count
+                 FROM tbl_user_order o
+                 LEFT JOIN tbl_user u ON u.user_id = o.user_id
+                 WHERE {$where}
+                 ORDER BY
+                     CASE o.payment_status
+                         WHEN 'Payment Pending'  THEN 1
+                         WHEN 'Payment Failed'   THEN 2
+                         WHEN 'Refund Initiated' THEN 3
+                         ELSE 4
+                     END,
+                     o.order_date ASC"
+            );
+        } catch (Exception $e) {
+            error_log('getOpenInvoicesReport: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       INVENTORY MANAGEMENT
+    ═══════════════════════════════════════════════════════════ */
+
+    /**
+     * Full inventory report with stock health, aging, and movement KPIs per product.
+     */
+    public function getInventoryReport(array $filters = []): array
+    {
+        $where  = ['1=1'];
+        $params = [];
+
+        if (!empty($filters['search'])) {
+            $s = '%' . $filters['search'] . '%';
+            $where[]  = '(p.product_name LIKE ? OR p.product_code LIKE ?)';
+            $params[] = $s;
+            $params[] = $s;
+        }
+        if (!empty($filters['category_id'])) {
+            $cid = (int)$filters['category_id'];
+            /* match the category itself or any child whose parent matches */
+            $where[]  = '(p.product_category_id = ? OR c.parent_category_id = ?)';
+            $params[] = $cid;
+            $params[] = $cid;
+        }
+        if (!empty($filters['status'])) {
+            $where[]  = 'p.product_status = ?';
+            $params[] = $filters['status'];
+        }
+        if (!empty($filters['stock_health'])) {
+            switch ($filters['stock_health']) {
+                case 'out':
+                    $where[] = 'p.total_remaining <= 0'; break;
+                case 'critical':
+                    $where[] = 'p.total_remaining > 0 AND p.total_remaining <= p.product_threshold'; break;
+                case 'warning':
+                    $where[] = 'p.total_remaining > p.product_threshold AND p.total_remaining <= (p.product_threshold * 2)'; break;
+                case 'healthy':
+                    $where[] = 'p.total_remaining > (p.product_threshold * 2)'; break;
+            }
+        }
+
+        $whereStr = implode(' AND ', $where);
+
+        $sql = "SELECT
+                    p.product_id,
+                    p.product_name,
+                    p.product_code,
+                    p.product_status,
+                    p.product_amt,
+                    p.product_threshold,
+                    p.total_product,
+                    p.total_sold,
+                    p.total_remaining,
+                    p.product_entry_date,
+                    c.product_category_name,
+                    c.parent_category_id,
+                    pc.product_category_name  AS parent_category_name,
+                    (SELECT MAX(pp2.date_of_purchase)
+                     FROM tbl_product_purchase pp2
+                     WHERE pp2.product_id = p.product_id)              AS last_purchase_date,
+                    (SELECT COUNT(*)
+                     FROM tbl_product_purchase pp3
+                     WHERE pp3.product_id = p.product_id)              AS purchase_count,
+                    (SELECT COALESCE(SUM(pp4.purchase_amt * pp4.quantity_purchased),0)
+                     FROM tbl_product_purchase pp4
+                     WHERE pp4.product_id = p.product_id)              AS total_purchase_cost,
+                    (SELECT MAX(o2.order_date)
+                     FROM tbl_user_order_item oi2
+                     JOIN tbl_user_order o2 ON o2.user_order_id = oi2.user_order_id
+                     WHERE oi2.product_id = p.product_id
+                       AND oi2.item_status = 'Active'
+                       AND oi2.order_type  = 'Order'
+                       AND o2.order_status NOT IN ('Cart','Order Cancelled')) AS last_sale_date,
+                    (SELECT COUNT(DISTINCT oi3.user_order_id)
+                     FROM tbl_user_order_item oi3
+                     JOIN tbl_user_order o3 ON o3.user_order_id = oi3.user_order_id
+                     WHERE oi3.product_id = p.product_id
+                       AND oi3.item_status = 'Active'
+                       AND oi3.order_type  = 'Order'
+                       AND o3.order_status NOT IN ('Cart','Order Cancelled')) AS order_count,
+                    (SELECT pi2.image_ext
+                     FROM tbl_product_img pi2
+                     WHERE pi2.product_id = p.product_id
+                       AND pi2.image_for  = 'Product'
+                     ORDER BY pi2.priorty ASC LIMIT 1)                 AS thumb_ext
+                FROM tbl_product p
+                LEFT JOIN tbl_product_category c
+                       ON c.product_category_id = p.product_category_id
+                LEFT JOIN tbl_product_category pc
+                       ON pc.product_category_id = c.parent_category_id
+                WHERE {$whereStr}
+                ORDER BY p.total_remaining ASC, p.product_name ASC";
+
+        try {
+            return $this->db->select($sql, !empty($params) ? $params : null);
+        } catch (Exception $e) {
+            error_log('getInventoryReport: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * Aggregate KPI stats for the inventory dashboard tiles.
+     */
+    public function getInventoryStats(): ?object
+    {
+        try {
+            $rows = $this->db->select(
+                "SELECT
+                    COUNT(*)                                                               AS total_products,
+                    SUM(CASE WHEN product_status='Active'  THEN 1 ELSE 0 END)             AS active_products,
+                    SUM(CASE WHEN total_remaining <= 0     THEN 1 ELSE 0 END)             AS out_of_stock,
+                    SUM(CASE WHEN total_remaining > 0
+                              AND total_remaining <= product_threshold               THEN 1 ELSE 0 END) AS critical_stock,
+                    SUM(CASE WHEN total_remaining > product_threshold
+                              AND total_remaining <= (product_threshold * 2)         THEN 1 ELSE 0 END) AS warning_stock,
+                    SUM(CASE WHEN total_remaining > (product_threshold * 2)          THEN 1 ELSE 0 END) AS healthy_stock,
+                    COALESCE(SUM(total_remaining), 0)                                      AS total_units_in_stock,
+                    COALESCE(SUM(total_sold), 0)                                           AS total_units_sold,
+                    COALESCE(SUM(total_remaining * product_amt), 0)                        AS total_stock_value
+                FROM tbl_product
+                WHERE product_status = 'Active'"
+            );
+            return $rows[0] ?? null;
+        } catch (Exception $e) {
+            error_log('getInventoryStats: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Full IN/OUT movement ledger for one product, optionally date-filtered.
+     * Returns movements newest-first; each row also carries RUNNING_BALANCE
+     * (computed in PHP so no balance column needed in the DB).
+     */
+    public function getProductMovementLedger(int $productId, string $dateFrom = '', string $dateTo = ''): array
+    {
+        $dateWhere = '';
+        if ($dateFrom !== '') $dateWhere .= " AND movement_date >= '" . addslashes($dateFrom) . "'";
+        if ($dateTo   !== '') $dateWhere .= " AND movement_date <= '" . addslashes($dateTo)   . " 23:59:59'";
+
+        $sql = "SELECT * FROM (
+                    SELECT
+                        'IN'                          AS movement_type,
+                        pp.product_purchase_id        AS ref_id,
+                        CAST(pp.date_of_purchase AS DATETIME) AS movement_date,
+                        pp.quantity_purchased         AS quantity,
+                        pp.purchased_from             AS reference_name,
+                        COALESCE(pp.receipt_no, '')   AS reference_no,
+                        pp.purchase_amt               AS unit_cost,
+                        0                             AS order_id,
+                        ''                            AS order_number,
+                        ''                            AS customer_name
+                    FROM tbl_product_purchase pp
+                    WHERE pp.product_id = {$productId}
+
+                    UNION ALL
+
+                    SELECT
+                        'OUT'                         AS movement_type,
+                        oi.user_order_item_id         AS ref_id,
+                        o.order_date                  AS movement_date,
+                        oi.quantity                   AS quantity,
+                        u.name                        AS reference_name,
+                        o.order_number                AS reference_no,
+                        oi.product_amt                AS unit_cost,
+                        o.user_order_id               AS order_id,
+                        o.order_number                AS order_number,
+                        u.name                        AS customer_name
+                    FROM tbl_user_order_item oi
+                    JOIN tbl_user_order o  ON o.user_order_id = oi.user_order_id
+                    JOIN tbl_user u        ON u.user_id       = o.user_id
+                    WHERE oi.product_id   = {$productId}
+                      AND oi.item_status  = 'Active'
+                      AND oi.order_type   = 'Order'
+                      AND o.order_status NOT IN ('Cart','Order Cancelled')
+                ) ledger
+                WHERE 1=1 {$dateWhere}
+                ORDER BY movement_date ASC, ref_id ASC";
+
+        try {
+            $rows = $this->db->select($sql);
+        } catch (Exception $e) {
+            error_log('getProductMovementLedger: ' . $e->getMessage());
+            return [];
+        }
+
+        /* Compute running balance (oldest→newest, then reverse for display) */
+        $balance = 0;
+        foreach ($rows as $row) {
+            $qty = (float)($row->QUANTITY ?? 0);
+            if ((string)($row->MOVEMENT_TYPE ?? '') === 'IN') {
+                $balance += $qty;
+            } else {
+                $balance -= $qty;
+            }
+            $row->RUNNING_BALANCE = $balance;
+        }
+
+        return array_reverse($rows); /* newest first */
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       VAT FILING
+    ═══════════════════════════════════════════════════════════ */
+
+    /**
+     * Full data for one calendar month's VAT return.
+     * Returns: summary (totals), byRate (per-rate breakdown),
+     *          orders (line list), filing (saved status record or null).
+     */
+    public function getVatMonthlyData(int $year, int $month): array
+    {
+        try {
+            $summary = $this->db->select(
+                "SELECT
+                     COUNT(DISTINCT o.user_order_id)                                  AS order_count,
+                     SUM(o.order_total_amt)                                           AS gross_sales,
+                     SUM(o.tax_total_amount)                                          AS output_vat,
+                     SUM(o.discount_amt)                                              AS total_discounts,
+                     SUM(o.shipping_amt)                                              AS shipping_revenue,
+                     SUM(o.final_total_amt)                                           AS total_billed,
+                     SUM(o.final_total_amt - o.tax_total_amount)                      AS net_excl_vat,
+                     SUM(CASE WHEN o.payment_status='Payment Successful'
+                              THEN o.final_total_amt ELSE 0 END)                      AS collected,
+                     SUM(CASE WHEN o.payment_status='Payment Pending'
+                              THEN o.final_total_amt ELSE 0 END)                      AS pending,
+                     SUM(CASE WHEN o.tax_total_amount > 0
+                              THEN (o.final_total_amt - o.tax_total_amount) ELSE 0 END) AS std_rated_net,
+                     SUM(CASE WHEN o.tax_total_amount = 0
+                              THEN (o.final_total_amt - o.tax_total_amount) ELSE 0 END) AS zero_rated_net
+                 FROM tbl_user_order o
+                 WHERE o.order_type    = 'Order'
+                   AND o.order_status != 'Cart'
+                   AND o.order_status  IS NOT NULL
+                   AND YEAR(o.order_date)  = $year
+                   AND MONTH(o.order_date) = $month"
+            )[0] ?? null;
+
+            $byRate = $this->db->select(
+                "SELECT
+                     i.tax_percentage                    AS vat_rate,
+                     COUNT(DISTINCT o.user_order_id)     AS transaction_count,
+                     SUM(i.final_amt - i.tax_amt)        AS net_excl_vat,
+                     SUM(i.tax_amt)                      AS vat_amount,
+                     SUM(i.final_amt)                    AS gross_incl_vat
+                 FROM tbl_user_order_item i
+                 JOIN tbl_user_order o ON o.user_order_id = i.user_order_id
+                 WHERE o.order_type    = 'Order'
+                   AND i.item_status  = 'Active'
+                   AND YEAR(o.order_date)  = $year
+                   AND MONTH(o.order_date) = $month
+                 GROUP BY i.tax_percentage
+                 ORDER BY i.tax_percentage DESC"
+            );
+
+            $orders = $this->db->select(
+                "SELECT
+                     o.user_order_id,
+                     o.order_number,
+                     o.order_date,
+                     o.order_mode,
+                     o.order_status,
+                     o.payment_status,
+                     o.invoice_no,
+                     o.vat_number,
+                     o.customer_po_id,
+                     o.order_total_amt,
+                     o.tax_total_amount,
+                     o.discount_amt,
+                     o.shipping_amt,
+                     o.final_total_amt,
+                     u.name                           AS cust_name,
+                     u.communication_email_id         AS cust_email,
+                     u.company_name                   AS cust_company,
+                     COUNT(i.user_order_item_id)       AS item_count,
+                     GROUP_CONCAT(
+                         DISTINCT CONCAT(i.tax_percentage,'%')
+                         ORDER BY i.tax_percentage DESC
+                         SEPARATOR ', '
+                     )                                AS vat_rates
+                 FROM tbl_user_order o
+                 JOIN tbl_user u ON u.user_id = o.user_id
+                 LEFT JOIN tbl_user_order_item i
+                        ON i.user_order_id = o.user_order_id
+                       AND i.item_status   = 'Active'
+                 WHERE o.order_type    = 'Order'
+                   AND o.order_status != 'Cart'
+                   AND o.order_status  IS NOT NULL
+                   AND YEAR(o.order_date)  = $year
+                   AND MONTH(o.order_date) = $month
+                 GROUP BY o.user_order_id
+                 ORDER BY o.order_date ASC"
+            );
+
+            $ym     = sprintf('%04d-%02d', $year, $month);
+            $filing = $this->db->select(
+                "SELECT * FROM tbl_vat_filing
+                  WHERE filing_period = '$ym'
+                    AND filing_type   = 'Monthly'
+                  LIMIT 1"
+            )[0] ?? null;
+
+            return compact('summary', 'byRate', 'orders', 'filing');
+        } catch (Exception $e) {
+            error_log('getVatMonthlyData: ' . $e->getMessage());
+            return ['summary' => null, 'byRate' => [], 'orders' => [], 'filing' => null];
+        }
+    }
+
+    /**
+     * Full-year VAT data: 12 monthly rows, totals, rate breakdown,
+     * per-month filing map, and annual filing record.
+     */
+    public function getVatYearlyData(int $year): array
+    {
+        try {
+            $monthly = $this->db->select(
+                "SELECT
+                     MONTH(o.order_date)                                         AS month_num,
+                     MONTHNAME(o.order_date)                                     AS month_name,
+                     COUNT(DISTINCT o.user_order_id)                             AS order_count,
+                     SUM(o.order_total_amt)                                      AS gross_sales,
+                     SUM(o.tax_total_amount)                                     AS output_vat,
+                     SUM(o.discount_amt)                                         AS discounts,
+                     SUM(o.shipping_amt)                                         AS shipping,
+                     SUM(o.final_total_amt)                                      AS total_billed,
+                     SUM(o.final_total_amt - o.tax_total_amount)                 AS net_excl_vat,
+                     SUM(CASE WHEN o.payment_status='Payment Successful'
+                              THEN o.final_total_amt ELSE 0 END)                 AS collected
+                 FROM tbl_user_order o
+                 WHERE o.order_type    = 'Order'
+                   AND o.order_status != 'Cart'
+                   AND o.order_status  IS NOT NULL
+                   AND YEAR(o.order_date) = $year
+                 GROUP BY month_num
+                 ORDER BY month_num ASC"
+            );
+
+            $totals = $this->db->select(
+                "SELECT
+                     COUNT(DISTINCT o.user_order_id)                             AS order_count,
+                     SUM(o.order_total_amt)                                      AS gross_sales,
+                     SUM(o.tax_total_amount)                                     AS output_vat,
+                     SUM(o.discount_amt)                                         AS discounts,
+                     SUM(o.shipping_amt)                                         AS shipping,
+                     SUM(o.final_total_amt)                                      AS total_billed,
+                     SUM(o.final_total_amt - o.tax_total_amount)                 AS net_excl_vat,
+                     SUM(CASE WHEN o.payment_status='Payment Successful'
+                              THEN o.final_total_amt ELSE 0 END)                 AS collected
+                 FROM tbl_user_order o
+                 WHERE o.order_type    = 'Order'
+                   AND o.order_status != 'Cart'
+                   AND o.order_status  IS NOT NULL
+                   AND YEAR(o.order_date) = $year"
+            )[0] ?? null;
+
+            $byRate = $this->db->select(
+                "SELECT
+                     i.tax_percentage                    AS vat_rate,
+                     COUNT(DISTINCT o.user_order_id)     AS transaction_count,
+                     SUM(i.final_amt - i.tax_amt)        AS net_excl_vat,
+                     SUM(i.tax_amt)                      AS vat_amount,
+                     SUM(i.final_amt)                    AS gross_incl_vat
+                 FROM tbl_user_order_item i
+                 JOIN tbl_user_order o ON o.user_order_id = i.user_order_id
+                 WHERE o.order_type    = 'Order'
+                   AND i.item_status  = 'Active'
+                   AND YEAR(o.order_date) = $year
+                 GROUP BY i.tax_percentage
+                 ORDER BY i.tax_percentage DESC"
+            );
+
+            /* Per-month filing statuses */
+            $filingRows = $this->db->select(
+                "SELECT * FROM tbl_vat_filing
+                  WHERE filing_period LIKE '{$year}-%'
+                    AND filing_type = 'Monthly'"
+            );
+            $filingMap = [];
+            foreach ($filingRows as $fr) {
+                $mn = (int)substr((string)$fr->FILING_PERIOD, 5, 2);
+                $filingMap[$mn] = $fr;
+            }
+
+            $annualFiling = $this->db->select(
+                "SELECT * FROM tbl_vat_filing
+                  WHERE filing_period = '$year'
+                    AND filing_type   = 'Yearly'
+                  LIMIT 1"
+            )[0] ?? null;
+
+            return compact('monthly', 'totals', 'byRate', 'filingMap', 'annualFiling');
+        } catch (Exception $e) {
+            error_log('getVatYearlyData: ' . $e->getMessage());
+            return ['monthly' => [], 'totals' => null, 'byRate' => [], 'filingMap' => [], 'annualFiling' => null];
+        }
+    }
+
+    /**
+     * Upsert a VAT filing record (monthly or yearly).
+     */
+    public function saveVatFiling(
+        string $period,
+        string $type,
+        float  $outputVat,
+        float  $inputVat,
+        float  $netSales,
+        string $status,
+        string $refNo,
+        string $notes,
+        int    $adminUid
+    ): bool {
+        try {
+            $period    = addslashes($period);
+            $type      = addslashes($type);
+            $status    = addslashes($status);
+            $refNo     = addslashes($refNo);
+            $notes     = addslashes($notes);
+            $netVat    = round($outputVat - $inputVat, 2);
+            $filedAt   = ($status === 'Filed') ? 'NOW()' : 'NULL';
+            $filedBy   = ($status === 'Filed') ? $adminUid : 'NULL';
+
+            $existing = $this->db->select(
+                "SELECT vat_filing_id FROM tbl_vat_filing
+                  WHERE filing_period = '$period'
+                    AND filing_type   = '$type'
+                  LIMIT 1"
+            )[0] ?? null;
+
+            if ($existing) {
+                $affected = $this->db->update(
+                    "UPDATE tbl_vat_filing SET
+                         output_vat        = $outputVat,
+                         input_vat         = $inputVat,
+                         net_vat_liability = $netVat,
+                         total_net_sales   = $netSales,
+                         filing_status     = '$status',
+                         filed_by          = $filedBy,
+                         filed_at          = $filedAt,
+                         reference_no      = '$refNo',
+                         notes             = '$notes'
+                     WHERE filing_period = '$period'
+                       AND filing_type   = '$type'"
+                );
+                return $affected !== false;
+            } else {
+                $newId = (int)$this->db->insert(
+                    "INSERT INTO tbl_vat_filing
+                         (filing_period, filing_type, output_vat, input_vat,
+                          net_vat_liability, total_net_sales, filing_status,
+                          filed_by, filed_at, reference_no, notes)
+                     VALUES
+                         ('$period', '$type', $outputVat, $inputVat,
+                          $netVat, $netSales, '$status',
+                          $filedBy, $filedAt, '$refNo', '$notes')"
+                );
+                return $newId > 0;
+            }
+        } catch (Exception $e) {
+            error_log('saveVatFiling: ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    /* ═══════════════════════════════════════════════════════════
+       SALES & REVENUE REPORT
+    ═══════════════════════════════════════════════════════════ */
+
+    /**
+     * Build the shared WHERE clause for all sales-revenue queries.
+     * Only references tbl_user_order aliased as `o`.
+     */
+    private function srWhere(array $f): string
+    {
+        $conds = [
+            "o.order_type    = 'Order'",
+            "o.order_status != 'Cart'",
+            "o.order_status  IS NOT NULL",
+        ];
+
+        if (!empty($f['date_from']))
+            $conds[] = "DATE(o.order_date) >= '" . addslashes($f['date_from']) . "'";
+        if (!empty($f['date_to']))
+            $conds[] = "DATE(o.order_date) <= '" . addslashes($f['date_to'])   . "'";
+        if (!empty($f['order_mode']))
+            $conds[] = "o.order_mode = '" . addslashes($f['order_mode']) . "'";
+        if (!empty($f['payment_status']))
+            $conds[] = "o.payment_status = '" . addslashes($f['payment_status']) . "'";
+
+        /* Category filter — subquery so it works on any joining query */
+        if (!empty($f['category_id'])) {
+            $cid     = (int)$f['category_id'];
+            $conds[] = "o.user_order_id IN (
+                            SELECT DISTINCT i2.user_order_id
+                            FROM   tbl_user_order_item i2
+                            WHERE  i2.item_status = 'Active'
+                              AND  i2.product_category_id IN (
+                                       SELECT product_category_id
+                                       FROM   tbl_product_category
+                                       WHERE  product_category_id = $cid
+                                          OR  parent_category_id  = $cid
+                                   )
+                        )";
+        }
+
+        /* Search — order_number OR customer name/company via EXISTS */
+        if (!empty($f['search'])) {
+            $s       = addslashes($f['search']);
+            $conds[] = "(o.order_number LIKE '%$s%'
+                         OR EXISTS (
+                             SELECT 1 FROM tbl_user u2
+                             WHERE  u2.user_id = o.user_id
+                               AND  (u2.name          LIKE '%$s%'
+                                 OR  u2.company_name  LIKE '%$s%'
+                                 OR  u2.communication_email_id LIKE '%$s%')
+                         ))";
+        }
+
+        return 'WHERE ' . implode(' AND ', $conds);
+    }
+
+    /** Overall KPI summary for the selected period. */
+    public function getSalesRevenueSummary(array $f = []): ?object
+    {
+        $w = $this->srWhere($f);
+        try {
+            return $this->db->select(
+                "SELECT
+                     COUNT(DISTINCT o.user_order_id)                               AS total_orders,
+                     COUNT(DISTINCT o.user_id)                                     AS unique_customers,
+                     SUM(o.order_total_amt)                                        AS gross_product,
+                     SUM(o.tax_total_amount)                                       AS total_vat,
+                     SUM(o.discount_amt)                                           AS total_discounts,
+                     SUM(o.shipping_amt)                                           AS shipping_revenue,
+                     SUM(o.final_total_amt)                                        AS total_revenue,
+                     SUM(o.final_total_amt - o.tax_total_amount)                   AS net_revenue,
+                     COALESCE(AVG(o.final_total_amt), 0)                           AS avg_order_value,
+                     SUM(CASE WHEN o.payment_status = 'Payment Successful'
+                              THEN o.final_total_amt ELSE 0 END)                   AS collected,
+                     SUM(CASE WHEN o.payment_status = 'Payment Pending'
+                              THEN o.final_total_amt ELSE 0 END)                   AS pending,
+                     SUM(CASE WHEN o.payment_status = 'Payment Failed'
+                              THEN o.final_total_amt ELSE 0 END)                   AS failed,
+                     SUM(CASE WHEN o.payment_status IN ('Refund Initiated','Refund Completed')
+                              THEN o.final_total_amt ELSE 0 END)                   AS refunded,
+                     SUM(CASE WHEN o.order_status = 'Order Delivered'
+                              THEN o.final_total_amt ELSE 0 END)                   AS delivered_revenue,
+                     SUM(CASE WHEN o.order_status = 'Order Cancelled'
+                              THEN o.final_total_amt ELSE 0 END)                   AS cancelled_revenue,
+                     COUNT(DISTINCT CASE WHEN o.order_status = 'Order Delivered'
+                              THEN o.user_order_id END)                            AS delivered_count,
+                     COUNT(DISTINCT CASE WHEN o.order_status = 'Order Cancelled'
+                              THEN o.user_order_id END)                            AS cancelled_count
+                 FROM tbl_user_order o
+                 $w"
+            )[0] ?? null;
+        } catch (Exception $e) {
+            error_log('getSalesRevenueSummary: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Revenue trend data grouped by day / week / month depending on span.
+     * Returns array of rows with LABEL, ORDERS, REVENUE, NET_REVENUE, VAT, DISCOUNTS, SHIPPING, COLLECTED.
+     */
+    public function getSalesTrendData(array $f = []): array
+    {
+        $w = $this->srWhere($f);
+
+        /* Auto-granularity */
+        $gran = 'monthly';
+        if (!empty($f['date_from']) && !empty($f['date_to'])) {
+            $days = (int)((strtotime($f['date_to']) - strtotime($f['date_from'])) / 86400) + 1;
+            if      ($days <= 31) $gran = 'daily';
+            elseif  ($days <= 93) $gran = 'weekly';
+            else                  $gran = 'monthly';
+        }
+
+        [$groupExpr, $labelExpr, $sortExpr] = match($gran) {
+            'daily'  => [
+                "DATE(o.order_date)",
+                "DATE_FORMAT(o.order_date, '%d %b')",
+                "DATE(o.order_date)",
+            ],
+            'weekly' => [
+                "YEARWEEK(o.order_date, 1)",
+                "CONCAT('Wk ', WEEK(o.order_date,1), ' \\'', RIGHT(YEAR(o.order_date),2))",
+                "YEARWEEK(o.order_date, 1)",
+            ],
+            default  => [
+                "DATE_FORMAT(o.order_date, '%Y-%m')",
+                "DATE_FORMAT(o.order_date, '%b %Y')",
+                "DATE_FORMAT(o.order_date, '%Y-%m')",
+            ],
+        };
+
+        try {
+            return $this->db->select(
+                "SELECT
+                     $labelExpr                                                 AS label,
+                     COUNT(DISTINCT o.user_order_id)                           AS orders,
+                     SUM(o.final_total_amt)                                    AS revenue,
+                     SUM(o.final_total_amt - o.tax_total_amount)               AS net_revenue,
+                     SUM(o.tax_total_amount)                                   AS vat,
+                     SUM(o.discount_amt)                                       AS discounts,
+                     SUM(o.shipping_amt)                                       AS shipping,
+                     SUM(CASE WHEN o.payment_status='Payment Successful'
+                              THEN o.final_total_amt ELSE 0 END)               AS collected
+                 FROM tbl_user_order o
+                 $w
+                 GROUP BY $groupExpr
+                 ORDER BY $sortExpr ASC"
+            ) ?: [];
+        } catch (Exception $e) {
+            error_log('getSalesTrendData: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /** Revenue breakdown by product category. */
+    public function getSalesByCategory(array $f = []): array
+    {
+        $w = $this->srWhere($f);
+        try {
+            $rows = $this->db->select(
+                "SELECT
+                     pc.product_category_id,
+                     pc.product_category_name                                  AS category_name,
+                     COALESCE(pp.product_category_name, '—')                  AS parent_name,
+                     pc.parent_category_id,
+                     COUNT(DISTINCT o.user_order_id)                           AS order_count,
+                     SUM(i.quantity)                                           AS units_sold,
+                     SUM(i.final_amt - i.tax_amt)                              AS net_revenue,
+                     SUM(i.tax_amt)                                            AS vat_amount,
+                     SUM(i.final_amt)                                          AS gross_revenue,
+                     SUM(i.discount_amt)                                       AS discounts
+                 FROM tbl_user_order o
+                 JOIN tbl_user_order_item i  ON i.user_order_id = o.user_order_id
+                                            AND i.item_status   = 'Active'
+                 JOIN tbl_product_category pc ON pc.product_category_id = i.product_category_id
+                 LEFT JOIN tbl_product_category pp ON pp.product_category_id = pc.parent_category_id
+                 $w
+                 GROUP BY pc.product_category_id
+                 ORDER BY gross_revenue DESC"
+            ) ?: [];
+
+            $total = array_sum(array_map(fn($r) => (float)$r->GROSS_REVENUE, $rows));
+            foreach ($rows as $row) {
+                $row->PCT_SHARE = $total > 0
+                    ? round((float)$row->GROSS_REVENUE / $total * 100, 1) : 0;
+            }
+            return $rows;
+        } catch (Exception $e) {
+            error_log('getSalesByCategory: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /** Top-N products by revenue. */
+    public function getSalesTopProducts(array $f = [], int $limit = 15): array
+    {
+        $w = $this->srWhere($f);
+        try {
+            $rows = $this->db->select(
+                "SELECT
+                     p.product_id,
+                     p.product_name,
+                     p.product_code,
+                     pc.product_category_name                                  AS category_name,
+                     SUM(i.quantity)                                           AS units_sold,
+                     SUM(i.final_amt - i.tax_amt)                              AS net_revenue,
+                     SUM(i.tax_amt)                                            AS vat_amount,
+                     SUM(i.final_amt)                                          AS gross_revenue,
+                     ROUND(SUM(i.final_amt) / NULLIF(SUM(i.quantity), 0), 2)  AS avg_unit_price,
+                     SUM(i.discount_amt)                                       AS discounts
+                 FROM tbl_user_order o
+                 JOIN tbl_user_order_item i  ON i.user_order_id = o.user_order_id
+                                            AND i.item_status   = 'Active'
+                 JOIN tbl_product p          ON p.product_id    = i.product_id
+                 JOIN tbl_product_category pc ON pc.product_category_id = i.product_category_id
+                 $w
+                 GROUP BY i.product_id
+                 ORDER BY gross_revenue DESC
+                 LIMIT $limit"
+            ) ?: [];
+
+            $total = array_sum(array_map(fn($r) => (float)$r->GROSS_REVENUE, $rows));
+            foreach ($rows as $idx => $row) {
+                $row->RANK      = $idx + 1;
+                $row->PCT_SHARE = $total > 0
+                    ? round((float)$row->GROSS_REVENUE / $total * 100, 1) : 0;
+            }
+            return $rows;
+        } catch (Exception $e) {
+            error_log('getSalesTopProducts: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /** Top-N customers by revenue. */
+    public function getSalesTopCustomers(array $f = [], int $limit = 10): array
+    {
+        $w = $this->srWhere($f);
+        try {
+            $rows = $this->db->select(
+                "SELECT
+                     u.user_id,
+                     u.name                                                    AS cust_name,
+                     u.company_name                                            AS cust_company,
+                     u.communication_email_id                                  AS cust_email,
+                     COUNT(DISTINCT o.user_order_id)                           AS order_count,
+                     SUM(o.final_total_amt)                                    AS total_revenue,
+                     ROUND(AVG(o.final_total_amt), 2)                          AS avg_order_value,
+                     MAX(o.order_date)                                         AS last_order_date,
+                     SUM(CASE WHEN o.payment_status = 'Payment Successful'
+                              THEN o.final_total_amt ELSE 0 END)               AS collected,
+                     SUM(CASE WHEN o.payment_status = 'Payment Pending'
+                              THEN o.final_total_amt ELSE 0 END)               AS pending
+                 FROM tbl_user_order o
+                 JOIN tbl_user u ON u.user_id = o.user_id
+                 $w
+                 GROUP BY o.user_id
+                 ORDER BY total_revenue DESC
+                 LIMIT $limit"
+            ) ?: [];
+
+            $total = array_sum(array_map(fn($r) => (float)$r->TOTAL_REVENUE, $rows));
+            foreach ($rows as $idx => $row) {
+                $row->RANK      = $idx + 1;
+                $row->PCT_SHARE = $total > 0
+                    ? round((float)$row->TOTAL_REVENUE / $total * 100, 1) : 0;
+            }
+            return $rows;
+        } catch (Exception $e) {
+            error_log('getSalesTopCustomers: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /** Revenue split by payment mode. */
+    public function getSalesByMode(array $f = []): array
+    {
+        $w = $this->srWhere($f);
+        try {
+            return $this->db->select(
+                "SELECT
+                     COALESCE(o.order_mode, 'Unknown')                         AS order_mode,
+                     COUNT(DISTINCT o.user_order_id)                           AS order_count,
+                     SUM(o.final_total_amt)                                    AS revenue,
+                     SUM(CASE WHEN o.payment_status = 'Payment Successful'
+                              THEN o.final_total_amt ELSE 0 END)               AS collected,
+                     SUM(CASE WHEN o.payment_status = 'Payment Pending'
+                              THEN o.final_total_amt ELSE 0 END)               AS pending,
+                     SUM(CASE WHEN o.payment_status = 'Payment Failed'
+                              THEN o.final_total_amt ELSE 0 END)               AS failed
+                 FROM tbl_user_order o
+                 $w
+                 GROUP BY o.order_mode
+                 ORDER BY revenue DESC"
+            ) ?: [];
+        } catch (Exception $e) {
+            error_log('getSalesByMode: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /** Full order list for the transaction table (newest first). */
+    public function getSalesOrderList(array $f = []): array
+    {
+        $w = $this->srWhere($f);
+        try {
+            return $this->db->select(
+                "SELECT
+                     o.user_order_id,
+                     o.order_number,
+                     o.order_date,
+                     o.order_mode,
+                     o.order_status,
+                     o.payment_status,
+                     o.invoice_no,
+                     o.customer_po_id,
+                     o.order_total_amt,
+                     o.tax_total_amount,
+                     o.discount_amt,
+                     o.shipping_amt,
+                     o.final_total_amt,
+                     o.delivered_date,
+                     u.name                                                    AS cust_name,
+                     u.company_name                                            AS cust_company,
+                     u.communication_email_id                                  AS cust_email,
+                     COUNT(i.user_order_item_id)                               AS item_count,
+                     SUM(i.quantity)                                           AS total_qty
+                 FROM tbl_user_order o
+                 JOIN tbl_user u ON u.user_id = o.user_id
+                 LEFT JOIN tbl_user_order_item i
+                        ON i.user_order_id = o.user_order_id
+                       AND i.item_status   = 'Active'
+                 $w
+                 GROUP BY o.user_order_id
+                 ORDER BY o.order_date DESC"
+            ) ?: [];
+        } catch (Exception $e) {
+            error_log('getSalesOrderList: ' . $e->getMessage());
+            return [];
+        }
     }
 }
 ?>

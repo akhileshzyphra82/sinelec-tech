@@ -36,10 +36,11 @@ $orders      = $controller->getAllUserOrders([
     'date_from'      => $fFrom,
     'date_to'        => $fTo,
 ]);
-$customers   = $controller->getCustomersForQuote();
-$allProducts = $controller->getAllProducts(['status'=>'Active']);
-$allCats     = $controller->getAllCategories();
-$countries   = $controller->getAllCountries();
+$customers        = $controller->getCustomersForQuote();
+$allProducts      = $controller->getAllProducts(['status'=>'Active']);
+$allCats          = $controller->getAllCategories();
+$countries        = $controller->getAllCountries();
+$courierCompanies = $controller->getCourierCompanies();
 $pubBase     = rtrim(sinelec_env('PUBLIC_BASE_URL'), '/');
 
 /* ── Countries list for JS ── */
@@ -211,32 +212,46 @@ ob_start();
 
 <!-- ══════════════════ TABLE CARD ══════════════════ -->
 <div class="card" style="overflow:hidden;">
-  <div style="padding:12px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-    <span style="font-size:13px;font-weight:600;color:var(--text);">
-      Showing <span id="olCount"><?= count($orders) ?></span> order<?= count($orders)!==1?'s':'' ?>
-    </span>
-    <div style="display:flex;align-items:center;gap:6px;">
-      <span style="font-size:12px;color:var(--text-muted);">Per page:</span>
-      <select id="olPerPage" class="form-control" style="height:30px;font-size:12px;width:70px;" onchange="olRender()">
-        <option value="20">20</option><option value="30">30</option>
-        <option value="50">50</option><option value="100">100</option>
-      </select>
+  <!-- ── Pagination bar (top) ── -->
+  <div class="ol-pgbar">
+    <!-- Left: record range info -->
+    <div class="ol-pgbar__info">
+      Showing
+      <strong id="olRangeStart">1</strong>–<strong id="olRangeEnd">20</strong>
+      of
+      <strong id="olCount"><?= count($orders) ?></strong>
+      record<?= count($orders) !== 1 ? 's' : '' ?>
     </div>
+    <!-- Center: per-page control -->
+    <div class="ol-pgbar__perpage">
+      <span class="ol-pgbar__perpage-label">Records per page</span>
+      <div class="ol-pgbar__sel-wrap">
+        <select id="olPerPage" class="ol-pgbar__sel">
+          <option value="10">10</option>
+          <option value="20" selected>20</option>
+          <option value="30">30</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+        </select>
+        <svg class="ol-pgbar__sel-arrow" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <button type="button" class="ol-pgbar__apply" onclick="olApplyPerPage()">Apply</button>
+    </div>
+    <!-- Right: page buttons -->
+    <div id="olPager" class="ol-pgbar__pager"></div>
   </div>
   <div style="overflow-x:auto;">
     <table class="dt" id="olTable">
       <thead>
         <tr>
-          <th style="width:40px;">S.No.</th>
+          <th style="width:36px;">#</th>
           <th style="width:130px;">Order #</th>
           <th>Customer</th>
-          <th style="width:120px;">Source</th>
           <th style="width:60px;text-align:center;">Items</th>
           <th style="width:110px;text-align:right;">Total</th>
           <th style="width:140px;">Order Status</th>
           <th style="width:140px;">Payment</th>
-          <th style="width:110px;">Mode</th>
-          <th style="width:95px;">Date</th>
+          <th style="width:160px;">Source / Mode / Date</th>
           <th style="width:60px;text-align:center;">Actions</th>
         </tr>
       </thead>
@@ -249,6 +264,7 @@ ob_start();
           $mode     = (string)($o->ORDER_MODE       ?? '');
           $cName    = (string)($o->CUST_NAME        ?? '');
           $cEmail   = (string)($o->CUST_EMAIL       ?? '');
+          $cPhone   = (string)($o->CUST_PHONE       ?? '');
           $cCo      = (string)($o->CUST_COMPANY     ?? '');
           $qid      = (int)(float)($o->QUOTE_ID     ?? 0);
           $items    = (int)($o->ITEM_COUNT           ?? 0);
@@ -260,13 +276,14 @@ ob_start();
           $pClass   = olPayBadge($pStatus);
           $srcLabel = $qid > 0 ? 'QT-'.str_pad((string)$qid,6,'0',STR_PAD_LEFT) : 'Direct';
           $srcClass = $qid > 0 ? 'badge--violet' : 'badge--grey';
+          $modeIcon = match($mode) { 'Invoice' => '📄', 'Bank Transfer' => '🏦', 'Payment Gateway' => '💳', default => '' };
           $searchStr = strtolower($orderNo.' '.$cName.' '.$cEmail.' '.$cCo.' '.$srcLabel);
         ?>
         <tr class="ol-row" data-seq="<?= $i+1 ?>"
             data-search="<?= htmlspecialchars($searchStr) ?>"
             data-os="<?= htmlspecialchars($oStatus) ?>"
             data-ps="<?= htmlspecialchars($pStatus) ?>">
-          <td class="td-sm ol-sno"><?= $i+1 ?></td>
+          <td class="td-sm ol-sno" style="font-size:12px;color:var(--text-muted);font-weight:600;"><?= $i+1 ?></td>
           <td>
             <div style="font-weight:700;color:var(--primary);font-size:13px;"><?= htmlspecialchars($orderNo) ?></div>
             <div style="font-size:10px;color:var(--text-muted);margin-top:1px;font-family:monospace;">#<?= $oid ?></div>
@@ -274,16 +291,17 @@ ob_start();
           <td>
             <div style="font-weight:600;font-size:13px;color:var(--text);"><?= htmlspecialchars($cName) ?></div>
             <?php if ($cEmail): ?><div style="font-size:11px;color:var(--text-muted);"><?= htmlspecialchars($cEmail) ?></div><?php endif; ?>
-            <?php if ($cCo):    ?><div style="font-size:11px;color:var(--text-muted);"><?= htmlspecialchars($cCo) ?></div><?php endif; ?>
+            <?php if ($cPhone): ?><div style="font-size:11px;color:var(--text-muted);">📞 <?= htmlspecialchars($cPhone) ?></div><?php endif; ?>
+            <?php if ($cCo):    ?><div style="font-size:11px;color:var(--text-muted);font-style:italic;"><?= htmlspecialchars($cCo) ?></div><?php endif; ?>
           </td>
-          <td><span class="badge <?= $srcClass ?>" style="font-size:10px;"><?= htmlspecialchars($srcLabel) ?></span></td>
           <td style="text-align:center;font-size:13px;font-weight:600;"><?= $items ?></td>
           <td style="text-align:right;font-size:13px;font-weight:700;color:var(--text);">€<?= $total ?></td>
           <td><span class="badge <?= $oClass ?>"><?= htmlspecialchars($oStatus) ?></span></td>
           <td><span class="badge <?= $pClass ?>" style="font-size:10px;"><?= htmlspecialchars($pStatus) ?></span></td>
-          <td style="font-size:11px;color:var(--text-muted);"><?= htmlspecialchars($mode) ?></td>
           <td>
-            <div style="font-size:12px;color:var(--text-muted);"><?= $dateFmt ?></div>
+            <span class="badge <?= $srcClass ?>" style="font-size:10px;"><?= htmlspecialchars($srcLabel) ?></span>
+            <?php if ($mode): ?><div style="font-size:11px;color:var(--text-muted);margin-top:4px;"><?= $modeIcon ?> <?= htmlspecialchars($mode) ?></div><?php endif; ?>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:3px;"><?= $dateFmt ?></div>
             <?php if($timeFmt): ?><div style="font-size:10px;color:var(--text-muted);opacity:.7;"><?= $timeFmt ?></div><?php endif; ?>
           </td>
           <td style="text-align:center;">
@@ -304,6 +322,10 @@ ob_start();
                     View Details
                   </button>
                   <?php if ($canEdit): ?>
+                  <button class="kbm-item" onclick="closeKbm(this);olEditOrder(<?= $oid ?>)">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    Edit Order
+                  </button>
                   <button class="kbm-item" onclick="closeKbm(this);olOpenStatusModal(<?= $oid ?>,<?= htmlspecialchars(json_encode($oStatus),ENT_QUOTES) ?>,<?= htmlspecialchars(json_encode($pStatus),ENT_QUOTES) ?>)">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
                     Update Status
@@ -329,11 +351,6 @@ ob_start();
     <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#c0ccd8" stroke-width="1.3" style="margin:0 auto 10px;display:block;"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
     <div style="font-size:13px;color:var(--text-muted);">No orders match your filters.</div>
   </div>
-  <!-- Pagination -->
-  <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-    <span style="font-size:12px;color:var(--text-muted);margin-right:4px;" id="olPgInfo"></span>
-    <div id="olPager" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
-  </div>
 </div>
 
 <!-- ═══════════════════════════════════════════════════
@@ -344,8 +361,8 @@ ob_start();
 
     <div class="modal-hd" style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid var(--border);flex-shrink:0;">
       <div>
-        <div class="modal-title">Create Order</div>
-        <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Fill in customer info, address and products.</div>
+        <div class="modal-title" id="coModalTitle">Create Order</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="coModalSubtitle">Fill in customer info, address and products.</div>
       </div>
       <button onclick="closeModal('createOrderModal');_coResetForm()" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:26px;line-height:1;">×</button>
     </div>
@@ -360,6 +377,7 @@ ob_start();
 
     <div style="overflow-y:auto;flex:1;min-height:0;">
       <form id="createOrderForm" method="POST" action="service?urlstring=<?= EncryptURL('action=CreateDirectOrder') ?>">
+        <input type="hidden" name="user_order_id"      id="coEditOrderId" value="0">
         <input type="hidden" name="user_id"            id="coUserId"    value="0">
         <input type="hidden" name="user_address_id"    id="coAddrId"    value="0">
         <input type="hidden" name="billing_address_id" id="coBilAddrId" value="0">
@@ -592,7 +610,7 @@ ob_start();
         <button type="button" class="btn btn--outline" id="coNextBtn" onclick="coNextTab()">Next →</button>
         <button type="button" class="btn btn--primary" id="coSaveBtn" style="display:none;" onclick="coSubmitForm()">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Create Order
+          <span id="coSaveBtnTxt">Create Order</span>
         </button>
       </div>
     </div>
@@ -604,7 +622,7 @@ ob_start();
      VIEW ORDER MODAL
 ═══════════════════════════════════════════════════ -->
 <div id="viewOrderModal" class="modal-overlay" onclick="if(event.target===this)closeModal('viewOrderModal')">
-  <div class="modal" style="max-width:640px;max-height:92vh;display:flex;flex-direction:column;">
+  <div class="modal" style="max-width:860px;max-height:92vh;display:flex;flex-direction:column;">
     <div class="modal-header" style="flex-shrink:0;">
       <span class="modal-title">Order Details</span>
       <div style="display:flex;align-items:center;gap:8px;">
@@ -627,7 +645,7 @@ ob_start();
      UPDATE STATUS MODAL
 ═══════════════════════════════════════════════════ -->
 <div id="updateStatusModal" class="modal-overlay" onclick="if(event.target===this)closeModal('updateStatusModal')">
-  <div class="modal" style="max-width:420px;">
+  <div class="modal" style="max-width:480px;">
     <div class="modal-header">
       <span class="modal-title">Update Order Status</span>
       <button class="modal-close" onclick="closeModal('updateStatusModal')">
@@ -639,7 +657,7 @@ ob_start();
         <input type="hidden" name="user_order_id" id="usOrderId" value="0">
         <div class="fg" style="margin-bottom:12px;">
           <label>Order Status <span class="req">*</span></label>
-          <select name="order_status" id="usOrderStatus" class="form-control">
+          <select name="order_status" id="usOrderStatus" class="form-control" onchange="usOnStatusChange(this.value)">
             <?php foreach(['Order Pending','Order Confirmed','Order Packed','Order Dispatch','Order In Transit','Order Delivered','Order Cancelled'] as $s): ?>
             <option value="<?= $s ?>"><?= $s ?></option>
             <?php endforeach; ?>
@@ -653,13 +671,40 @@ ob_start();
             <?php endforeach; ?>
           </select>
         </div>
+
+        <!-- ── Dispatch panel (visible only when Order Dispatch is selected) ── -->
+        <div id="usDispatchPanel" style="display:none;background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:14px 16px;margin-bottom:12px;">
+          <div style="font-size:12px;font-weight:700;color:#0369a1;margin-bottom:12px;display:flex;align-items:center;gap:6px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13" rx="1"/><path d="M16 8h4l3 5v3h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+            Dispatch Details
+          </div>
+          <div class="fg" style="margin-bottom:10px;">
+            <label>Courier Company <span class="req">*</span></label>
+            <select name="courier_company_id" id="usCourierId" class="form-control" onchange="usOnCourierChange(this)">
+              <option value="0">— Select Courier —</option>
+              <?php foreach($courierCompanies as $cc): ?>
+              <option value="<?= (int)(float)($cc->COURIER_COMPANY_ID ?? 0) ?>"
+                      data-url="<?= htmlspecialchars((string)($cc->TRACKING_URL ?? ''), ENT_QUOTES) ?>">
+                <?= htmlspecialchars((string)($cc->COURIER_COMPANY_NAME ?? '')) ?>
+              </option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <div class="fg" style="margin-bottom:0;">
+            <label>Tracking ID <span style="font-size:11px;color:var(--text-muted);font-weight:400;">(optional)</span></label>
+            <input type="text" name="dispatch_courier_tracking_id" id="usTrackId" class="form-control"
+                   placeholder="Enter tracking number…" oninput="usOnTrackInput(this.value)">
+            <div id="usTrackLink" style="display:none;margin-top:6px;"></div>
+          </div>
+        </div>
+
         <div class="fg" style="margin-bottom:18px;">
           <label>Remark <span style="font-size:11px;color:var(--text-muted);font-weight:400;">(optional)</span></label>
           <textarea name="remark" class="form-control" rows="2" placeholder="e.g. Dispatched via DHL, tracking #12345…" style="resize:vertical;min-height:60px;"></textarea>
         </div>
         <div style="display:flex;justify-content:flex-end;gap:8px;">
           <button type="button" class="btn btn--ghost" onclick="closeModal('updateStatusModal')">Cancel</button>
-          <button type="submit" class="btn btn--primary">Update Status &amp; Notify</button>
+          <button type="submit" class="btn btn--primary" id="usSubmitBtn">Update Status &amp; Notify</button>
         </div>
       </form>
     </div>
@@ -741,6 +786,86 @@ ob_start();
 .co-qp-row .qp-lbl { font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px; }
 .co-qp-row .qp-amt { font-size:13px;font-weight:700;color:var(--primary);white-space:nowrap;margin-top:22px;display:block; }
 .co-qp-row .qp-rm  { margin-top:22px; }
+
+/* ══ Pagination bar ══ */
+.ol-pgbar {
+  display:flex;align-items:center;justify-content:space-between;
+  gap:12px;flex-wrap:wrap;
+  padding:14px 20px;
+  border-bottom:1px solid var(--border);
+  background:#fff;
+}
+/* Left — info text */
+.ol-pgbar__info {
+  font-size:13px;color:#64748b;white-space:nowrap;
+}
+.ol-pgbar__info strong { color:#1e293b;font-weight:700; }
+/* Center — per-page */
+.ol-pgbar__perpage {
+  display:flex;align-items:center;gap:10px;flex-shrink:0;
+}
+.ol-pgbar__perpage-label {
+  font-size:13px;font-weight:600;color:#374151;white-space:nowrap;
+}
+.ol-pgbar__sel-wrap {
+  position:relative;display:inline-flex;align-items:center;
+}
+.ol-pgbar__sel {
+  -webkit-appearance:none;appearance:none;
+  height:36px;padding:0 32px 0 14px;
+  border:1.5px solid #e2e8f0;border-radius:20px;
+  font-size:13px;font-weight:600;color:#1e293b;
+  background:#fff;cursor:pointer;outline:none;
+  transition:border-color .15s;
+}
+.ol-pgbar__sel:hover,.ol-pgbar__sel:focus { border-color:#6366f1; }
+.ol-pgbar__sel-arrow {
+  position:absolute;right:10px;top:50%;transform:translateY(-50%);
+  pointer-events:none;color:#64748b;
+}
+.ol-pgbar__apply {
+  height:36px;padding:0 20px;
+  background:#1e293b;color:#fff;
+  border:none;border-radius:20px;
+  font-size:13px;font-weight:600;
+  cursor:pointer;white-space:nowrap;
+  transition:background .15s;
+}
+.ol-pgbar__apply:hover { background:#0f172a; }
+/* Right — pager */
+.ol-pgbar__pager {
+  display:flex;align-items:center;gap:5px;flex-wrap:wrap;
+}
+/* Prev / Next buttons */
+.ol-pg-nav {
+  height:36px;padding:0 16px;
+  border:1.5px solid #e2e8f0;border-radius:20px;
+  background:#fff;font-size:13px;font-weight:600;color:#374151;
+  cursor:pointer;white-space:nowrap;
+  transition:border-color .15s,color .15s;
+}
+.ol-pg-nav:hover:not(:disabled) { border-color:#6366f1;color:#6366f1; }
+.ol-pg-nav--disabled,.ol-pg-nav:disabled {
+  color:#cbd5e1;border-color:#f1f5f9;cursor:default;
+}
+/* Number circle buttons */
+.ol-pg-num {
+  width:36px;height:36px;
+  border:1.5px solid #e2e8f0;border-radius:50%;
+  background:#fff;font-size:13px;font-weight:600;color:#374151;
+  cursor:pointer;display:inline-flex;align-items:center;justify-content:center;
+  transition:border-color .15s,color .15s,background .15s;flex-shrink:0;
+}
+.ol-pg-num:hover { border-color:#6366f1;color:#6366f1; }
+/* Ellipsis */
+.ol-pg-dots {
+  font-size:13px;color:#94a3b8;padding:0 2px;
+  display:inline-flex;align-items:center;
+}
+@media(max-width:640px){
+  .ol-pgbar { flex-direction:column;align-items:flex-start;gap:10px; }
+  .ol-pgbar__perpage,.ol-pgbar__pager { flex-wrap:wrap; }
+}
 </style>
 
 <!-- ═══════════════════════════════════════════════════
@@ -771,48 +896,136 @@ const OL_PRODUCTS  = <?= json_encode(array_map(fn($p) => [
     'disc'   => (float)($p->PRODUCT_DISCOUNT          ?? 0),
 ], $allProducts)) ?>;
 
-/* ── Table pagination ── */
-var _olPage = 1;
-var _olRows = [];
+/* ══════════════════════════════════════════
+   TABLE PAGINATION
+══════════════════════════════════════════ */
+var _olPage    = 1;
+var _olPerPage = 20;   /* applied value — only changes on Apply click */
+var _olRows    = [];
 
+/* Init on DOM ready */
 function olInit() {
   _olRows = Array.from(document.querySelectorAll('#olTbody .ol-row'));
   olRender();
 }
 
+/* Apply button handler */
+function olApplyPerPage() {
+  var v = parseInt(document.getElementById('olPerPage').value, 10) || 20;
+  _olPerPage = v;
+  _olPage    = 1;
+  olRender();
+}
+
+/* Main render */
 function olRender() {
-  var pp    = parseInt(document.getElementById('olPerPage').value, 10) || 20;
+  var pp    = _olPerPage;
   var total = _olRows.length;
   var pages = Math.max(1, Math.ceil(total / pp));
-  if (_olPage > pages) _olPage = 1;
+  if (_olPage > pages) _olPage = pages;
+  if (_olPage < 1)     _olPage = 1;
+
   var start = (_olPage - 1) * pp;
-  var end   = start + pp;
-  var shown = 0;
+  var end   = Math.min(start + pp, total);
+
+  /* Show / hide rows and update serial numbers */
   _olRows.forEach(function(r, i) {
-    var vis = i >= start && i < end;
+    var vis = (i >= start && i < end);
     r.style.display = vis ? '' : 'none';
-    if (vis) { shown++; r.querySelector('.ol-sno').textContent = i + 1; }
+    if (vis) r.querySelector('.ol-sno').textContent = i + 1;
   });
-  document.getElementById('olCount').textContent = total;
-  document.getElementById('olEmpty').style.display = total === 0 ? 'block' : 'none';
-  document.getElementById('olPgInfo').textContent = total > 0 ? 'Page ' + _olPage + ' of ' + pages : '';
+
+  /* Update info text */
+  document.getElementById('olCount').textContent      = total;
+  document.getElementById('olRangeStart').textContent = total > 0 ? start + 1 : 0;
+  document.getElementById('olRangeEnd').textContent   = end;
+  document.getElementById('olEmpty').style.display    = total === 0 ? 'block' : 'none';
+
+  /* Build pager */
+  _olBuildPager(pages);
+}
+
+/* Build page buttons */
+function _olBuildPager(pages) {
   var pager = document.getElementById('olPager');
   pager.innerHTML = '';
-  if (pages <= 1) return;
-  function pgBtn(lbl, pg, active, disabled) {
-    var b = document.createElement('button');
-    b.textContent = lbl;
-    b.className = 'pg-btn' + (active ? ' pg-active' : '');
-    b.disabled = disabled;
-    b.onclick = function() { _olPage = pg; olRender(); };
-    return b;
+
+  /* Prev button */
+  pager.appendChild(_olNavBtn('Prev', _olPage - 1, _olPage <= 1));
+
+  if (pages > 1) {
+    var nums = _olPageNums(_olPage, pages);
+    nums.forEach(function(n) {
+      if (n === -1) {
+        /* Ellipsis */
+        var dots = document.createElement('span');
+        dots.className   = 'ol-pg-dots';
+        dots.textContent = '...';
+        pager.appendChild(dots);
+      } else {
+        pager.appendChild(_olNumBtn(n));
+      }
+    });
   }
-  pager.appendChild(pgBtn('Prev', _olPage - 1, false, _olPage <= 1));
-  var lo = Math.max(1, _olPage - 2), hi = Math.min(pages, _olPage + 2);
-  if (lo > 1) { pager.appendChild(pgBtn('1', 1, false, false)); if (lo > 2) pager.innerHTML += '<span class="pg-dots">…</span>'; }
-  for (var p = lo; p <= hi; p++) pager.appendChild(pgBtn(String(p), p, p === _olPage, false));
-  if (hi < pages) { if (hi < pages - 1) pager.innerHTML += '<span class="pg-dots">…</span>'; pager.appendChild(pgBtn(String(pages), pages, false, false)); }
-  pager.appendChild(pgBtn('Next', _olPage + 1, false, _olPage >= pages));
+
+  /* Next button */
+  pager.appendChild(_olNavBtn('Next', _olPage + 1, _olPage >= pages));
+}
+
+/*
+ * Compute visible page numbers (current page is NOT included —
+ * position is conveyed by the "Showing X–Y of Z" text).
+ * Returns array where -1 means ellipsis.
+ */
+function _olPageNums(cur, total) {
+  if (total <= 1) return [];
+
+  var set = new Set();
+
+  /* Always show first and last (unless they are the current page) */
+  if (cur !== 1)     set.add(1);
+  if (cur !== total) set.add(total);
+
+  /* Build a window of up to 4 adjacent pages around cur, excluding cur */
+  var before = Math.min(2, cur - 1);
+  var after  = Math.min(2, total - cur);
+  /* Expand to fill 4 total when near the edges */
+  if (before + after < 4) {
+    if (cur <= 3)           after  = Math.min(4 - before, total - cur);
+    else if (cur >= total - 2) before = Math.min(4 - after,  cur - 1);
+  }
+  for (var p = cur - before; p <= cur + after; p++) {
+    if (p >= 1 && p <= total && p !== cur) set.add(p);
+  }
+
+  var arr = Array.from(set).sort(function(a, b) { return a - b; });
+
+  /* Insert -1 (ellipsis) wherever there is a gap > 1 */
+  var result = [];
+  for (var i = 0; i < arr.length; i++) {
+    if (i > 0 && arr[i] - arr[i - 1] > 1) result.push(-1);
+    result.push(arr[i]);
+  }
+  return result;
+}
+
+/* Prev / Next pill button */
+function _olNavBtn(label, pg, disabled) {
+  var b = document.createElement('button');
+  b.textContent = label;
+  b.className   = 'ol-pg-nav' + (disabled ? ' ol-pg-nav--disabled' : '');
+  b.disabled    = disabled;
+  if (!disabled) b.onclick = function() { _olPage = pg; olRender(); };
+  return b;
+}
+
+/* Numbered circle button */
+function _olNumBtn(pg) {
+  var b = document.createElement('button');
+  b.textContent = String(pg);
+  b.className   = 'ol-pg-num';
+  b.onclick     = function() { _olPage = pg; olRender(); };
+  return b;
 }
 
 document.addEventListener('DOMContentLoaded', olInit);
@@ -847,7 +1060,53 @@ function olOpenStatusModal(oid, os, ps) {
   var psSel = document.getElementById('usPaymentStatus');
   for (var i = 0; i < osSel.options.length; i++) { if (osSel.options[i].value === os) { osSel.selectedIndex = i; break; } }
   for (var j = 0; j < psSel.options.length; j++) { if (psSel.options[j].value === ps) { psSel.selectedIndex = j; break; } }
+  /* Reset dispatch panel */
+  document.getElementById('usCourierId').value  = '0';
+  document.getElementById('usTrackId').value    = '';
+  document.getElementById('usTrackLink').style.display  = 'none';
+  document.getElementById('usTrackLink').innerHTML      = '';
+  usOnStatusChange(os);
   openModal('updateStatusModal');
+}
+
+/* ── Dispatch panel visibility ── */
+function usOnStatusChange(val) {
+  var isDispatch = (val === 'Order Dispatch');
+  var panel = document.getElementById('usDispatchPanel');
+  if (panel) panel.style.display = isDispatch ? '' : 'none';
+  if (!isDispatch) {
+    document.getElementById('usCourierId').value       = '0';
+    document.getElementById('usTrackId').value         = '';
+    document.getElementById('usTrackLink').style.display = 'none';
+  }
+}
+
+/* ── Courier change → update preview link ── */
+function usOnCourierChange(sel) {
+  var urlTpl  = (sel.options[sel.selectedIndex] || {}).dataset ? (sel.options[sel.selectedIndex].dataset.url || '') : '';
+  var trackId = (document.getElementById('usTrackId').value || '').trim();
+  _usRenderTrackLink(urlTpl, trackId);
+}
+
+/* ── Track input → update preview link ── */
+function usOnTrackInput(val) {
+  var sel    = document.getElementById('usCourierId');
+  var urlTpl = (sel.options[sel.selectedIndex] || {}).dataset ? (sel.options[sel.selectedIndex].dataset.url || '') : '';
+  _usRenderTrackLink(urlTpl, val.trim());
+}
+
+function _usRenderTrackLink(urlTpl, trackId) {
+  var el = document.getElementById('usTrackLink');
+  if (!el) return;
+  if (!urlTpl || !trackId) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  var href = urlTpl.replace('{tracking_id}', encodeURIComponent(trackId));
+  el.innerHTML = '<a href="'+href+'" target="_blank" rel="noopener" '
+    +'style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#0369a1;font-weight:600;text-decoration:none;">'
+    +'<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">'
+    +'<path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>'
+    +'<polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>'
+    +'Preview tracking link</a>';
+  el.style.display = '';
 }
 
 /* ── Delete Modal ── */
@@ -897,25 +1156,252 @@ function olViewOrder(oid) {
           +'<td style="padding:7px 10px;text-align:right;">€'+it.unit_amt+'</td>'
           +'<td style="padding:7px 10px;text-align:right;font-weight:700;">€'+it.final_amt+'</td></tr>';
       });
-      html += '</tbody></table></div>'
-        +'<div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:14px;">'
+      html += '</tbody></table></div>';
+
+      /* ── Financial summary ── */
+      var sumRow = function(label, val, style) {
+        return '<tr style="border-bottom:1px solid #f1f5f9;">'
+          +'<td style="padding:9px 14px;font-size:13px;color:#64748b;">'+label+'</td>'
+          +'<td style="padding:9px 14px;font-size:13px;font-weight:600;text-align:right;'+(style||'color:#1e293b;')+'">'+val+'</td>'
+          +'</tr>';
+      };
+      html += '<div style="margin-bottom:14px;">'
+        +'<div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Order Summary</div>'
+        +'<table style="width:100%;border-collapse:collapse;border:1px solid var(--border);border-radius:8px;overflow:hidden;font-size:13px;">'
+        +'<tbody>';
+      html += sumRow('Subtotal', '€'+o.subtotal, '');
+      if (o.vat_number) {
+        html += '<tr style="border-bottom:1px solid #f1f5f9;">'
+          +'<td style="padding:9px 14px;font-size:13px;color:#64748b;">VAT Number</td>'
+          +'<td style="padding:9px 14px;font-size:12px;font-weight:600;text-align:right;font-family:monospace;color:#475569;">'+o.vat_number+'</td></tr>';
+      }
+      if (parseFloat(o.tax_amt) > 0) {
+        var taxLabel = 'VAT / Tax' + (o.tax_pct > 0 ? ' <span style="display:inline-block;background:#f3f0ff;color:#7c3aed;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:700;margin-left:4px;">'+o.tax_pct+'%</span>' : '');
+        html += '<tr style="border-bottom:1px solid #f1f5f9;">'
+          +'<td style="padding:9px 14px;font-size:13px;color:#64748b;">'+taxLabel+'</td>'
+          +'<td style="padding:9px 14px;font-size:13px;font-weight:600;text-align:right;color:#7c3aed;">€'+o.tax_amt+'</td></tr>';
+      }
+      if (parseFloat(o.shipping_amt) > 0) {
+        html += sumRow('Shipping', '€'+o.shipping_amt, 'color:#2563eb;');
+      }
+      if (parseFloat(o.discount_amt) > 0) {
+        html += sumRow('Total Discount', '−€'+o.discount_amt, 'color:#dc2626;');
+      }
+      html += '<tr style="background:#f8fafc;">'
+        +'<td style="padding:11px 14px;font-size:14px;font-weight:700;color:#1e293b;">Grand Total</td>'
+        +'<td style="padding:11px 14px;font-size:15px;font-weight:800;text-align:right;color:#2563eb;">€'+o.final_total+'</td>'
+        +'</tr>';
+      /* Payment mode row — highlighted */
+      var modeIcon = o.order_mode === 'Invoice' ? '📄' : (o.order_mode === 'Bank Transfer' ? '🏦' : '💳');
+      html += '<tr>'
+        +'<td colspan="2" style="padding:10px 14px;">'
+        +'<div style="display:inline-flex;align-items:center;gap:8px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:7px;padding:7px 14px;">'
+        +'<span style="font-size:15px;">'+modeIcon+'</span>'
+        +'<span style="font-size:12px;font-weight:700;color:#1d4ed8;">Payment Method:</span>'
+        +'<span style="font-size:13px;font-weight:700;color:#1e40af;">'+o.order_mode+'</span>'
+        +'</div></td></tr>'
+        +'</tbody></table></div>';
+
+      /* ── Status badges ── */
+      html += '<div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:14px;">'
         +'<div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;margin-bottom:8px;">Status</div>'
         +'<div style="display:flex;gap:8px;flex-wrap:wrap;"><span class="badge '+o.os_class+'">'+o.order_status+'</span><span class="badge '+o.ps_class+'" style="font-size:10px;">'+o.payment_status+'</span></div></div>';
+
+      /* ── Dispatch / Tracking (only when courier info is present) ── */
+      if (o.courier_name || o.courier_tracking_id) {
+        var trackingUrl = '';
+        if (o.courier_tracking_tpl && o.courier_tracking_id) {
+          trackingUrl = o.courier_tracking_tpl.replace('{tracking_id}', encodeURIComponent(o.courier_tracking_id));
+        }
+        html += '<div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:14px 16px;margin-bottom:14px;">'
+          +'<div style="font-size:11px;font-weight:700;color:#0369a1;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;display:flex;align-items:center;gap:6px;">'
+          +'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13" rx="1"/><path d="M16 8h4l3 5v3h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>'
+          +'Dispatch Info</div>'
+          +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">';
+        if (o.courier_name) {
+          html += '<div>'
+            +'<div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;margin-bottom:3px;">Courier</div>'
+            +'<div style="font-size:13px;font-weight:700;color:#0c4a6e;">'+o.courier_name+'</div>'
+            +'</div>';
+        }
+        if (o.dispatch_date && o.dispatch_date !== '0000-00-00 00:00:00') {
+          var dDate = new Date(o.dispatch_date);
+          var dFmt  = isNaN(dDate) ? o.dispatch_date : dDate.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
+          html += '<div>'
+            +'<div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;margin-bottom:3px;">Dispatch Date</div>'
+            +'<div style="font-size:13px;font-weight:600;color:#0369a1;">'+dFmt+'</div>'
+            +'</div>';
+        }
+        if (o.courier_tracking_id) {
+          html += '<div style="grid-column:1/-1;">'
+            +'<div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;margin-bottom:3px;">Tracking ID</div>'
+            +'<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
+            +'<span style="font-size:14px;font-weight:800;color:#0369a1;font-family:monospace;letter-spacing:.04em;">'+o.courier_tracking_id+'</span>';
+          if (trackingUrl) {
+            html += '<a href="'+trackingUrl+'" target="_blank" rel="noopener" '
+              +'style="display:inline-flex;align-items:center;gap:5px;background:#0369a1;color:#fff;font-size:11px;font-weight:700;padding:5px 14px;border-radius:6px;text-decoration:none;white-space:nowrap;">'
+              +'<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">'
+              +'<path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>'
+              +'<polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>'
+              +'Track Order</a>';
+          }
+          html += '</div></div>';
+        }
+        html += '</div></div>';
+      }
+
+      /* ── Address grid ── */
+      function fmtAddr(name, company, line1, line2, city, state, zip, country, phone) {
+        var parts = [];
+        if (name)    parts.push('<strong style="color:#1e293b;">'+name+'</strong>');
+        if (company) parts.push('<span style="color:#475569;">'+company+'</span>');
+        if (line1)   parts.push(line1);
+        if (line2)   parts.push(line2);
+        var cityLine = [city, state].filter(Boolean).join(', ') + (zip ? ' '+zip : '');
+        if (cityLine.trim()) parts.push(cityLine.trim());
+        if (country) parts.push(country);
+        if (phone)   parts.push('📞 '+phone);
+        return parts.length ? parts.join('<br>') : '<span style="color:#94a3b8;font-style:italic;">Not specified</span>';
+      }
+      var hasDelAddr = o.del_line1 || o.del_name || o.del_city;
+      var hasBilAddr = o.bil_line1 || o.bil_name || o.bil_city;
+      if (hasDelAddr || hasBilAddr) {
+        html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">';
+        html += '<div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:12px 14px;">'
+          +'<div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;">🚚 Delivery Address</div>'
+          +'<div style="font-size:12px;color:#475569;line-height:1.7;">'+fmtAddr(o.del_name,o.del_company,o.del_line1,o.del_line2,o.del_city,o.del_state,o.del_zip,o.del_country,o.del_phone)+'</div>'
+          +'</div>';
+        html += '<div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:12px 14px;">'
+          +'<div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;">🧾 Billing Address</div>'
+          +'<div style="font-size:12px;color:#475569;line-height:1.7;">'+fmtAddr(o.bil_name,o.bil_company,o.bil_line1,o.bil_line2,o.bil_city,o.bil_state,o.bil_zip,o.bil_country,o.bil_phone)+'</div>'
+          +'</div>';
+        html += '</div>';
+      }
       if (hist.length) {
-        html += '<div><div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;margin-bottom:8px;">History</div>'
-          +'<div style="display:flex;flex-direction:column;gap:6px;">';
-        hist.forEach(function(h) {
-          html += '<div style="display:flex;gap:8px;align-items:flex-start;font-size:12px;">'
-            +'<div style="width:6px;height:6px;border-radius:50%;background:#6366f1;margin-top:5px;flex-shrink:0;"></div>'
-            +'<div><span style="font-weight:600;color:#1e293b;">'+(h.status||'')+'</span>'
-            +(h.pay_status ? ' · <span style="color:#64748b;">'+h.pay_status+'</span>' : '')
-            +(h.remark ? '<div style="color:#94a3b8;font-size:11px;">'+h.remark+'</div>' : '')
-            +'<div style="color:#94a3b8;font-size:10px;">'+h.date+' · '+h.by+'</div></div></div>';
+        html += '<div>'
+          +'<div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.08em;margin-bottom:14px;">Order History</div>'
+          +'<div style="position:relative;padding-left:22px;">'
+          +'<div style="position:absolute;left:5px;top:0;bottom:0;width:2px;background:#e2e8f0;"></div>';
+        hist.forEach(function(h, idx) {
+          var dotColor = '#2563eb';
+          if (h.status === 'Order Delivered')  dotColor = '#16a34a';
+          else if (h.status === 'Order Cancelled') dotColor = '#dc2626';
+          else if (h.status === 'Order Pending')   dotColor = '#d97706';
+          var isLast = idx === hist.length - 1;
+          html += '<div style="position:relative;margin-bottom:'+(isLast?'0':'16px')+';">'
+            +'<div style="position:absolute;left:-18px;top:3px;width:12px;height:12px;border-radius:50%;background:'+dotColor+';border:2px solid #fff;box-shadow:0 0 0 2px #e2e8f0;"></div>'
+            +'<div style="font-size:11px;color:#94a3b8;margin-bottom:2px;">'+h.date+' &middot; '+h.by+'</div>'
+            +'<div style="font-size:13px;font-weight:700;color:#1e293b;">'+h.status+'</div>'
+            +(h.pay_status ? '<div style="font-size:11px;color:#64748b;margin-top:1px;">'+h.pay_status+'</div>' : '')
+            +(h.remark ? '<div style="font-size:11px;color:#475569;font-style:italic;margin-top:2px;">&ldquo;'+h.remark+'&rdquo;</div>' : '')
+            +'</div>';
         });
         html += '</div></div>';
       }
       document.getElementById('voBody').innerHTML = html;
     });
+}
+
+/* ── Edit mode flag ── */
+var _coEditMode = false;
+
+/* ── Edit Order — pre-fill form from existing order ── */
+async function olEditOrder(oid) {
+  /* Fetch full order data */
+  var data;
+  try {
+    var r = await fetch('service?urlstring=<?= EncryptURL('action=GetOrderDetails') ?>&id=' + oid);
+    data  = await r.json();
+  } catch(e) { alert('Failed to load order details. Please try again.'); return; }
+  if (!data || !data.order) { alert('Failed to load order details.'); return; }
+
+  var o     = data.order;
+  var items = data.items || [];
+
+  /* Reset form to clean state first */
+  _coResetForm();
+
+  /* Switch to edit mode */
+  _coEditMode = true;
+  document.getElementById('coEditOrderId').value         = oid;
+  document.getElementById('coModalTitle').textContent    = 'Edit Order';
+  document.getElementById('coModalSubtitle').textContent = 'Update the existing order details.';
+  document.getElementById('coSaveBtnTxt').textContent    = 'Save Changes';
+
+  /* ── Customer ── */
+  _coSelUserId = o.user_id;
+  document.getElementById('coUserId').value              = o.user_id;
+  document.getElementById('coCustomerInput').value       = o.cust_name || '';
+  document.getElementById('coCustomerName').textContent  = (o.cust_name || '') + (o.cust_company ? ' · ' + o.cust_company : '');
+  document.getElementById('coCustomerEmail').textContent = o.cust_email || '';
+  document.getElementById('coCustomerCard').style.display = 'flex';
+
+  /* ── PO # / Supplier Ref ── */
+  var poEl  = document.querySelector('#createOrderForm input[name="customer_po_id"]');
+  var supEl = document.querySelector('#createOrderForm input[name="customer_supplier_no"]');
+  if (poEl)  poEl.value  = o.customer_po_id       || '';
+  if (supEl) supEl.value = o.customer_supplier_no  || '';
+
+  /* ── Addresses (async) ── */
+  if (o.user_id > 0) {
+    await coLoadAddresses(o.user_id, {
+      del: o.user_address_id    || 0,
+      bil: o.billing_address_id || 0
+    });
+  }
+
+  /* ── Products ── */
+  document.getElementById('coProductRows').innerHTML = '';
+  _coProdRowIdx = 0;
+  if (items.length > 0) {
+    items.forEach(function(it) {
+      var idx = _coProdRowIdx;           /* capture before increment */
+      coAddProductRow();
+      /* set category */
+      var lastRow = document.querySelector('#coProductRows .co-qp-row:last-child');
+      var catSel  = lastRow ? lastRow.querySelector('select[name="cat_ids[]"]') : null;
+      var prodSel = document.getElementById('co-prod-' + idx);
+      if (catSel && it.cat_id) {
+        catSel.value = String(it.cat_id);
+        if (prodSel) {
+          _coFillProdSel(prodSel, String(it.cat_id));
+          if (it.product_id) prodSel.value = String(it.product_id);
+        }
+      }
+      var qtyEl   = document.getElementById('co-qty-'   + idx);
+      var priceEl = document.getElementById('co-price-' + idx);
+      var discEl  = document.getElementById('co-disc-'  + idx);
+      if (qtyEl)   qtyEl.value   = it.qty;
+      if (priceEl) priceEl.value = it.unit_amt;
+      if (discEl)  discEl.value  = parseFloat(it.disc_pct || 0);
+    });
+  } else {
+    coAddProductRow(); /* ensure at least one blank row */
+  }
+
+  /* ── VAT / Tax / Shipping ── */
+  var vatNumEl = document.getElementById('coVatNumber');
+  var vatPctEl = document.getElementById('coVatPct');
+  var shipEl   = document.getElementById('coShipping');
+  var badgeEl  = document.getElementById('coVatNumBadge');
+  if (vatNumEl) vatNumEl.value = o.vat_number || '';
+  if (vatPctEl) { vatPctEl.readOnly = false; vatPctEl.value = o.tax_pct > 0 ? o.tax_pct : 19; }
+  if (shipEl)   shipEl.value   = parseFloat(o.shipping_amt) || 0;
+  if (o.vat_number && o.vat_number.trim().length > 3) {
+    coOnVatInput(o.vat_number);
+  } else {
+    if (badgeEl) badgeEl.style.display = 'none';
+  }
+
+  /* ── Payment mode ── */
+  var modeVal = o.order_mode || 'Invoice';
+  document.querySelectorAll('#coPayModeGroup input[type="radio"]').forEach(function(r) {
+    r.checked = (r.value === modeVal);
+  });
+
+  coRecalc();
+  coSwitchTab('customer');
+  openModal('createOrderModal');
 }
 
 /* ── Tab system ── */
@@ -1007,7 +1493,8 @@ function _coResetAddrPanels() {
   document.getElementById('coBilAddrId').value = 0;
 }
 
-async function coLoadAddresses(uid) {
+async function coLoadAddresses(uid, presel) {
+  /* presel (optional) = { del: deliveryAddrId, bil: billingAddrId } */
   document.getElementById('coAddrNoCustomer').style.display = 'none';
   document.getElementById('coAddrPanels').style.display     = '';
   var mlink = document.getElementById('coAddrManageLink');
@@ -1017,10 +1504,18 @@ async function coLoadAddresses(uid) {
     var res = await fetch(_CO_SVC_GET_ADDR, {method:'POST', body: new URLSearchParams({user_id: uid})});
     _coAddrData = await res.json();
   } catch(e) { _coAddrData = []; }
-  _coRenderAddrSelector('coDel', _coAddrData, 0);
-  _coRenderAddrSelector('coBil', _coAddrData, 0);
+  var preDelId = presel ? (presel.del || 0) : 0;
+  var preBilId = presel ? (presel.bil || 0) : 0;
+  _coRenderAddrSelector('coDel', _coAddrData, preDelId);
+  _coRenderAddrSelector('coBil', _coAddrData, preBilId);
   document.getElementById('coDelAddNewBtn').style.display = '';
   document.getElementById('coBilAddNewBtn').style.display = '';
+  /* If billing differs from delivery, expand billing section */
+  if (presel && preBilId > 0 && preDelId > 0 && preBilId !== preDelId) {
+    document.getElementById('coBilSameAsDel').checked  = false;
+    document.getElementById('coBilAddrWrap').style.display = '';
+    document.getElementById('coBilSameNote').style.display = 'none';
+  }
 }
 
 function _coRenderAddrSelector(panel, addrs, preSelId) {
@@ -1510,6 +2005,13 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function _coResetForm() {
+  /* Reset edit mode */
+  _coEditMode = false;
+  document.getElementById('coEditOrderId').value = 0;
+  document.getElementById('coModalTitle').textContent    = 'Create Order';
+  document.getElementById('coModalSubtitle').textContent = 'Fill in customer info, address and products.';
+  document.getElementById('coSaveBtnTxt').textContent    = 'Create Order';
+
   _coSelUserId = 0;
   document.getElementById('coUserId').value = 0;
   document.getElementById('coCustomerInput').value = '';

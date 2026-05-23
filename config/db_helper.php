@@ -7,17 +7,17 @@ class MySQLDB {
 
         $serverName = "localhost";
 
-        // if ($_SERVER['HTTP_HOST'] === 'localhost') {
-           $serverName = "162.241.15.242";
-        //     $username = "root";
-        //     $password = "";
-        //     $database = "sinelect_panel_productdb";
-        // } else {
-        //     $serverName = "localhost";
+        if ($_SERVER['HTTP_HOST'] === 'localhost') {
+           //$serverName = "162.241.15.242";
+            $username = "root";
+            $password = "";
+            $database = "sinelect_panel_productdb";
+        } else {
+            $serverName = "localhost";
             $username = "sinelect_db";
             $password = "0W@IdwHzWxE&";
             $database = "sinelect_panel_productdb";
-        // }
+        }
 
 
         $this->conn = new mysqli($serverName, $username, $password, $database);

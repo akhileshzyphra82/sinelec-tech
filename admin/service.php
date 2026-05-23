@@ -1733,6 +1733,8 @@ switch ($action) {
         $cdoShip    = (float)($_POST['shipping_amt'] ?? 0);
         $cdoDisc    = (float)($_POST['discount_amt'] ?? 0);
         $cdoTax     = (float)($_POST['tax_amt']      ?? 0);
+        $cdoEditId  = (int)($_POST['user_order_id']  ?? 0);   /* >0 = edit existing */
+        $cdoVatNum  = trim($_POST['vat_number']       ?? '');
 
         $validModes = ['Payment Gateway','Bank Transfer','Invoice'];
         if ($cdoCustId <= 0)                          adminRedirectWithFlash('order-list', 'warn', 'Please select a customer.');
@@ -1757,6 +1759,76 @@ switch ($action) {
             $cdoItems[] = ['prod_id'=>$prodId,'cat_id'=>$catId,'qty'=>$qty,'unit_amt'=>$unitAmt,'disc_pct'=>$discPct,'tax_pct'=>$taxPct];
         }
         if (empty($cdoItems)) adminRedirectWithFlash('order-list', 'warn', 'Please add at least one product.');
+
+        /* ═══════════════════════════════════════════
+           EDIT EXISTING ORDER  (user_order_id > 0)
+        ═══════════════════════════════════════════ */
+        if ($cdoEditId > 0) {
+            $updOk = $controller->updateDirectOrder([
+                'order_id'             => $cdoEditId,
+                'user_address_id'      => $cdoAddrId,
+                'billing_address_id'   => $cdoBilId,
+                'order_mode'           => $cdoMode,
+                'customer_po_id'       => $cdoPoId,
+                'customer_supplier_no' => $cdoSupNo,
+                'vat_number'           => $cdoVatNum,
+                'shipping_amt'         => $cdoShip,
+                'discount_amt'         => $cdoDisc,
+                'tax_amt'              => $cdoTax,
+                'changed_by_user_id'   => $cdoUid,
+                'items'                => $cdoItems,
+            ]);
+            if (!$updOk) adminRedirectWithFlash('order-list', 'err', 'Failed to update order. Please try again.');
+
+            /* ── Send update notification email ── */
+            $updComp     = $controller->getCompanyDetails();
+            $updQ        = $controller->getUserOrderById($cdoEditId);
+            $updOrderNo  = (string)($updQ->ORDER_NUMBER   ?? '');
+            $updCustName = htmlspecialchars((string)($updQ->CUST_NAME  ?? 'Customer'));
+            $updCustEm   = (string)($updQ->CUST_EMAIL     ?? '');
+            $updRecEm    = (string)($updQ->RECIPIENT_EMAIL ?? '');
+            $updTotalFmt = '€' . number_format((float)($updQ->FINAL_TOTAL_AMT ?? 0), 2);
+            $updPayMode  = (string)($updQ->ORDER_MODE     ?? $cdoMode);
+            $updOsText   = (string)($updQ->ORDER_STATUS   ?? '');
+            $updCoName   = $updComp ? htmlspecialchars((string)($updComp->NAME ?? 'Our Company')) : 'Our Company';
+            $updCoEmail  = $updComp ? (string)($updComp->EMAIL ?? '') : '';
+            $updCoPhone  = $updComp ? (string)($updComp->CONTACT_NUMBER ?? '') : '';
+            $updSupEmails = [];
+            if ($updComp) {
+                $updRaw = trim((string)($updComp->SUPPORT_MAIL_ID ?? ''));
+                if ($updRaw !== '') $updSupEmails = array_filter(array_map('trim', explode(',', $updRaw)));
+            }
+            $updModeIcon = match($updPayMode) { 'Invoice'=>'&#128196;', 'Bank Transfer'=>'&#127968;', default=>'&#128179;' };
+            $updOsBadge  = '<span style="display:inline-block;background:#ede9fe;color:#6d28d9;border:1px solid #c4b5fd;font-size:12px;font-weight:700;padding:4px 14px;border-radius:20px;">'.$updOsText.'</span>';
+            $updCoContactHtml = '';
+            if ($updCoEmail) $updCoContactHtml .= '<a href="mailto:'.htmlspecialchars($updCoEmail).'" style="color:#6366f1;">'.htmlspecialchars($updCoEmail).'</a>';
+            if ($updCoEmail && $updCoPhone) $updCoContactHtml .= ' | ';
+            if ($updCoPhone) $updCoContactHtml .= htmlspecialchars($updCoPhone);
+
+            $updBodyCust = '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="margin:0;padding:0;background:#f1f5f9;font-family:\'Segoe UI\',Arial,sans-serif;"><table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:32px 16px;"><tr><td align="center"><table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;"><tr><td style="background:linear-gradient(135deg,#4f46e5 0%,#6366f1 100%);border-radius:12px 12px 0 0;padding:32px 40px;text-align:center;"><div style="color:#fff;font-size:22px;font-weight:700;">'.$updCoName.'</div><div style="color:rgba(255,255,255,.8);font-size:13px;margin-top:4px;">&#9998; Order Updated</div></td></tr><tr><td style="background:#fff;padding:36px 40px 28px;"><p style="margin:0 0 20px;font-size:16px;font-weight:700;color:#1e293b;">Dear '.$updCustName.',</p><p style="margin:0 0 20px;font-size:14px;color:#475569;line-height:1.7;">Your order has been updated. Please find the revised details below.</p><table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;margin:0 0 20px;"><tr><td style="padding:16px 24px;border-bottom:1px solid #e2e8f0;"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:4px;">Order Number</div><div style="font-size:20px;font-weight:800;color:#4f46e5;">'.$updOrderNo.'</div></td><td style="padding:16px 24px;border-bottom:1px solid #e2e8f0;text-align:right;"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:4px;">Updated Total</div><div style="font-size:20px;font-weight:800;color:#4f46e5;">'.$updTotalFmt.'</div></td></tr><tr><td style="padding:14px 24px;border-bottom:1px solid #e2e8f0;"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:6px;">Order Status</div>'.$updOsBadge.'</td><td style="padding:14px 24px;border-bottom:1px solid #e2e8f0;"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:4px;">Payment Method</div><div style="font-size:13px;font-weight:600;color:#1e293b;">'.$updModeIcon.' '.$updPayMode.'</div></td></tr></table><p style="margin:0;font-size:13px;color:#64748b;line-height:1.7;">If you have any questions about the changes, please contact us.</p></td></tr><tr><td style="background:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;"><p style="margin:0 0 4px;font-size:13px;color:#475569;">Warm regards,</p><p style="margin:0 0 4px;font-size:14px;font-weight:700;color:#1e293b;">'.$updCoName.'</p>'.($updCoContactHtml ? '<p style="margin:0;font-size:12px;color:#94a3b8;">'.$updCoContactHtml.'</p>' : '').'</td></tr><tr><td style="background:#e2e8f0;border-radius:0 0 12px 12px;padding:12px 40px;text-align:center;"><p style="margin:0;font-size:11px;color:#94a3b8;">Automated notification from '.$updCoName.' | Order: <strong>'.$updOrderNo.'</strong></p></td></tr></table></td></tr></table></body></html>';
+            $updBodyInt  = '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="margin:0;padding:0;background:#f1f5f9;font-family:\'Segoe UI\',Arial,sans-serif;"><table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 16px;"><tr><td align="center"><table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#fff;border-radius:10px;overflow:hidden;border:1px solid #e2e8f0;"><tr><td style="background:#4f46e5;padding:16px 24px;"><div style="color:#fff;font-size:15px;font-weight:700;">&#9998; Order Updated &#8212; '.$updOrderNo.'</div></td></tr><tr><td style="padding:20px 24px;"><table width="100%" cellpadding="0" cellspacing="0"><tr><td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;padding-bottom:6px;width:40%;">Customer</td><td style="font-size:13px;font-weight:700;color:#1e293b;padding-bottom:6px;">'.$updCustName.'</td></tr><tr><td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;padding-bottom:6px;">Order No</td><td style="font-size:13px;color:#4f46e5;font-weight:700;padding-bottom:6px;">'.$updOrderNo.'</td></tr><tr><td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;padding-bottom:6px;">Payment</td><td style="font-size:13px;font-weight:600;color:#1e293b;padding-bottom:6px;">'.$updModeIcon.' '.$updPayMode.'</td></tr><tr><td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;padding-bottom:6px;">Total</td><td style="font-size:14px;font-weight:700;color:#4f46e5;padding-bottom:6px;">'.$updTotalFmt.'</td></tr></table></td></tr><tr><td style="background:#f8fafc;padding:10px 24px;border-top:1px solid #e2e8f0;"><p style="margin:0;font-size:11px;color:#94a3b8;">Internal — '.$updCoName.' Order System</p></td></tr></table></td></tr></table></body></html>';
+
+            $updSentTo = []; $updRecips = [];
+            $updCustSubj = 'Your Order '.$updOrderNo.' has been updated | '.$updCoName;
+            $updIntSubj  = '[Order Updated] '.$updOrderNo.' — '.$updCustName.' | '.$updCoName;
+            if ($updCustEm !== '' && !in_array(strtolower($updCustEm), $updSentTo)) {
+                $updSentTo[] = strtolower($updCustEm);
+                $updRecips[] = ['to_mail_id'=>$updCustEm,'subject'=>$updCustSubj,'body'=>$updBodyCust];
+            }
+            if ($updRecEm !== '' && !in_array(strtolower($updRecEm), $updSentTo)) {
+                $updSentTo[] = strtolower($updRecEm);
+                $updRecips[] = ['to_mail_id'=>$updRecEm,'subject'=>$updCustSubj,'body'=>$updBodyCust];
+            }
+            foreach ($updSupEmails as $sm) {
+                if ($sm !== '' && !in_array(strtolower($sm), $updSentTo)) {
+                    $updSentTo[] = strtolower($sm);
+                    $updRecips[] = ['to_mail_id'=>$sm,'subject'=>$updIntSubj,'body'=>$updBodyInt];
+                }
+            }
+            if (!empty($updRecips)) sinelec_send_mail($updRecips);
+            adminRedirectWithFlash('order-list', 'ok', 'Order <strong>'.$updOrderNo.'</strong> updated successfully.');
+        }
+        /* (falls through to create logic when $cdoEditId === 0) */
 
         $cdoNewId = $controller->createDirectOrder([
             'user_id'              => $cdoCustId,
@@ -1823,14 +1895,20 @@ switch ($action) {
 
     case 'UpdateUserOrderStatus':
         adminRequireAuth();
-        $uosId       = (int)($_POST['user_order_id']   ?? 0);
-        $uosStatus   = trim($_POST['order_status']      ?? '');
-        $uosPayment  = trim($_POST['payment_status']    ?? '');
-        $uosRemark   = trim($_POST['remark']            ?? '');
-        $uosAdminUid = (int)($_SESSION['sinelec_admin']['USER_ID'] ?? 0);
+        $uosId         = (int)($_POST['user_order_id']               ?? 0);
+        $uosStatus     = trim($_POST['order_status']                  ?? '');
+        $uosPayment    = trim($_POST['payment_status']                ?? '');
+        $uosRemark     = trim($_POST['remark']                        ?? '');
+        $uosAdminUid   = (int)($_SESSION['sinelec_admin']['USER_ID']  ?? 0);
+        $uosCourierId  = (int)($_POST['courier_company_id']           ?? 0);
+        $uosTrackId    = trim($_POST['dispatch_courier_tracking_id']  ?? '');
         if ($uosId <= 0 || $uosStatus === '' || $uosPayment === '') adminRedirectWithFlash('order-list', 'warn', 'Invalid request.');
+        if ($uosStatus === 'Order Dispatch' && $uosCourierId <= 0)  adminRedirectWithFlash('order-list', 'warn', 'Please select a courier company for dispatch.');
 
-        if (!$controller->updateUserOrderStatus($uosId, $uosStatus, $uosPayment, $uosRemark, $uosAdminUid)) {
+        if (!$controller->updateUserOrderStatus($uosId, $uosStatus, $uosPayment, $uosRemark, $uosAdminUid, [
+            'courier_company_id'           => $uosCourierId,
+            'dispatch_courier_tracking_id' => $uosTrackId,
+        ])) {
             adminRedirectWithFlash('order-list', 'err', 'Failed to update order status.');
         }
 
@@ -1854,21 +1932,53 @@ switch ($action) {
             $uosRaw = trim((string)($uosComp->SUPPORT_MAIL_ID ?? ''));
             if ($uosRaw !== '') $uosSupEmails = array_filter(array_map('trim', explode(',', $uosRaw)));
         }
-        $uosIsCancel = str_contains(strtolower($uosStatus), 'cancel');
-        $uosIsDeliv  = str_contains(strtolower($uosStatus), 'deliver');
-        $uosHdrBg = $uosIsCancel ? 'background:linear-gradient(135deg,#b91c1c 0%,#dc2626 100%)' : ($uosIsDeliv ? 'background:linear-gradient(135deg,#059669 0%,#10b981 100%)' : 'background:linear-gradient(135deg,#4f46e5 0%,#6366f1 100%)');
+        $uosIsCancel   = str_contains(strtolower($uosStatus), 'cancel');
+        $uosIsDeliv    = str_contains(strtolower($uosStatus), 'deliver');
+        $uosIsDispatch = ($uosStatus === 'Order Dispatch');
+        $uosHdrBg = $uosIsCancel ? 'background:linear-gradient(135deg,#b91c1c 0%,#dc2626 100%)' : ($uosIsDeliv ? 'background:linear-gradient(135deg,#059669 0%,#10b981 100%)' : ($uosIsDispatch ? 'background:linear-gradient(135deg,#0369a1 0%,#0ea5e9 100%)' : 'background:linear-gradient(135deg,#4f46e5 0%,#6366f1 100%)'));
         $uosOsColor = match(true) {
             str_contains(strtolower($uosStatus),'deliver') => ['bg'=>'#dcfce7','t'=>'#15803d','b'=>'#86efac'],
             str_contains(strtolower($uosStatus),'cancel')  => ['bg'=>'#fee2e2','t'=>'#b91c1c','b'=>'#fca5a5'],
             str_contains(strtolower($uosStatus),'confirm') => ['bg'=>'#dcfce7','t'=>'#15803d','b'=>'#86efac'],
             str_contains(strtolower($uosStatus),'transit') => ['bg'=>'#dbeafe','t'=>'#1d4ed8','b'=>'#93c5fd'],
-            str_contains(strtolower($uosStatus),'dispatch')=> ['bg'=>'#dbeafe','t'=>'#1d4ed8','b'=>'#93c5fd'],
+            str_contains(strtolower($uosStatus),'dispatch')=> ['bg'=>'#e0f2fe','t'=>'#0369a1','b'=>'#7dd3fc'],
             default                                         => ['bg'=>'#fef3c7','t'=>'#92400e','b'=>'#fcd34d'],
         };
         $uosBadge = '<span style="display:inline-block;background:'.$uosOsColor['bg'].';color:'.$uosOsColor['t'].';border:1px solid '.$uosOsColor['b'].';font-size:12px;font-weight:700;padding:4px 14px;border-radius:20px;">'.$uosStatus.'</span>';
         $uosRemarkHtml = $uosRemark !== '' ? '<div style="background:#f8fafc;border-left:3px solid #6366f1;padding:10px 14px;border-radius:0 6px 6px 0;font-size:13px;color:#475569;margin-top:16px;line-height:1.6;"><strong>Note:</strong> '.htmlspecialchars($uosRemark).'</div>' : '';
-        $uosBodyCust = '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="margin:0;padding:0;background:#f1f5f9;font-family:\'Segoe UI\',Arial,sans-serif;"><table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:32px 16px;"><tr><td align="center"><table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;"><tr><td style="'.$uosHdrBg.';border-radius:12px 12px 0 0;padding:32px 40px;text-align:center;"><div style="color:#fff;font-size:22px;font-weight:700;">'.$uosCoName.'</div><div style="color:rgba(255,255,255,.8);font-size:13px;margin-top:4px;">Order Status Update</div></td></tr><tr><td style="background:#fff;padding:36px 40px 28px;"><p style="margin:0 0 20px;font-size:16px;font-weight:700;color:#1e293b;">Dear '.$uosCustN.',</p><p style="margin:0 0 20px;font-size:14px;color:#475569;line-height:1.7;">Your order status has been updated. Please find the details below.</p><table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;margin:0 0 16px;"><tr><td style="padding:16px 24px;border-bottom:1px solid #e2e8f0;"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:4px;">Order Number</div><div style="font-size:18px;font-weight:800;color:#4f46e5;">'.$uosOrderNo.'</div></td><td style="padding:16px 24px;border-bottom:1px solid #e2e8f0;text-align:right;"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:4px;">Total Amount</div><div style="font-size:18px;font-weight:800;color:#059669;">'.$uosTotal.'</div></td></tr><tr><td colspan="2" style="padding:16px 24px;"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:8px;">Current Order Status</div>'.$uosBadge.'</td></tr></table>'.$uosRemarkHtml.'<p style="margin:16px 0 0;font-size:13px;color:#64748b;line-height:1.7;">If you have any questions, please contact us at any time.</p></td></tr><tr><td style="background:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;"><p style="margin:0 0 4px;font-size:13px;color:#475569;">Warm regards,</p><p style="margin:0 0 4px;font-size:14px;font-weight:700;color:#1e293b;">'.$uosCoName.'</p>'.($uosCoContactHtml ? '<p style="margin:0;font-size:12px;color:#94a3b8;">'.$uosCoContactHtml.'</p>' : '').'</td></tr><tr><td style="background:#e2e8f0;border-radius:0 0 12px 12px;padding:12px 40px;text-align:center;"><p style="margin:0;font-size:11px;color:#94a3b8;">Order: <strong>'.$uosOrderNo.'</strong></p></td></tr></table></td></tr></table></body></html>';
-        $uosBodyInt  = '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="margin:0;padding:0;background:#f1f5f9;font-family:\'Segoe UI\',Arial,sans-serif;"><table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 16px;"><tr><td align="center"><table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#fff;border-radius:10px;overflow:hidden;border:1px solid #e2e8f0;"><tr><td style="background:#4f46e5;padding:16px 24px;"><div style="color:#fff;font-size:15px;font-weight:700;">&#128204; Status Updated — '.$uosOrderNo.'</div></td></tr><tr><td style="padding:20px 24px;"><table width="100%" cellpadding="0" cellspacing="0"><tr><td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;padding-bottom:6px;width:40%;">Customer</td><td style="font-size:13px;font-weight:700;color:#1e293b;padding-bottom:6px;">'.$uosCustN.'</td></tr><tr><td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;padding-bottom:6px;">Order No</td><td style="font-size:13px;color:#4f46e5;font-weight:700;padding-bottom:6px;">'.$uosOrderNo.'</td></tr><tr><td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;padding-bottom:6px;">New Status</td><td style="padding-bottom:6px;">'.$uosBadge.'</td></tr><tr><td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;padding-bottom:6px;">Payment Status</td><td style="font-size:13px;color:#1e293b;padding-bottom:6px;">'.htmlspecialchars($uosPayment).'</td></tr>'.($uosRemark !== '' ? '<tr><td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;padding-bottom:6px;">Remark</td><td style="font-size:13px;color:#475569;padding-bottom:6px;">'.htmlspecialchars($uosRemark).'</td></tr>' : '').'</table></td></tr><tr><td style="background:#f8fafc;padding:10px 24px;border-top:1px solid #e2e8f0;"><p style="margin:0;font-size:11px;color:#94a3b8;">Internal — '.$uosCoName.' Order System</p></td></tr></table></td></tr></table></body></html>';
+
+        /* ── Dispatch tracking block ── */
+        $uosDispatchHtmlCust = '';
+        $uosDispatchHtmlInt  = '';
+        if ($uosIsDispatch && $uosCourierId > 0) {
+            $uosCourierRow = $controller->getCourierCompanyById($uosCourierId);
+            $uosCourierName = $uosCourierRow ? htmlspecialchars((string)($uosCourierRow->COURIER_COMPANY_NAME ?? '')) : '';
+            $uosTplUrl      = $uosCourierRow ? trim((string)($uosCourierRow->TRACKING_URL ?? '')) : '';
+            $uosTrackUrl    = ($uosTplUrl !== '' && $uosTrackId !== '') ? str_replace('{tracking_id}', urlencode($uosTrackId), $uosTplUrl) : '';
+            $uosTrackHtml = '';
+            if ($uosTrackId !== '') {
+                $uosTrackHtml = '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:4px;">Tracking ID</div>'
+                    .'<div style="font-size:14px;font-weight:700;color:#0369a1;font-family:monospace;">'.htmlspecialchars($uosTrackId).'</div>';
+                if ($uosTrackUrl !== '') {
+                    $uosTrackHtml .= '<div style="margin-top:8px;"><a href="'.htmlspecialchars($uosTrackUrl).'" style="display:inline-block;background:#0369a1;color:#fff;font-size:12px;font-weight:700;padding:7px 18px;border-radius:7px;text-decoration:none;">&#128269; Track Your Order</a></div>';
+                }
+            }
+            $uosDispatchHtmlCust = '<table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;margin:16px 0 0;">'
+                .'<tr><td style="padding:14px 20px;border-bottom:1px solid #bae6fd;">'
+                .'<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:4px;">Courier Company</div>'
+                .'<div style="font-size:14px;font-weight:700;color:#0c4a6e;">&#128666; '.$uosCourierName.'</div>'
+                .'</td></tr>'
+                .($uosTrackId !== '' ? '<tr><td style="padding:14px 20px;">'.$uosTrackHtml.'</td></tr>' : '')
+                .'</table>';
+            $uosDispatchHtmlInt = '<tr><td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;padding-bottom:6px;">Courier</td>'
+                .'<td style="font-size:13px;font-weight:700;color:#0369a1;padding-bottom:6px;">&#128666; '.$uosCourierName.'</td></tr>'
+                .($uosTrackId !== '' ? '<tr><td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;padding-bottom:6px;">Tracking ID</td>'
+                .'<td style="font-size:13px;font-family:monospace;color:#0369a1;font-weight:700;padding-bottom:6px;">'.htmlspecialchars($uosTrackId).'</td></tr>'
+                .($uosTrackUrl !== '' ? '<tr><td colspan="2" style="padding-bottom:8px;"><a href="'.htmlspecialchars($uosTrackUrl).'" style="display:inline-block;background:#0369a1;color:#fff;font-size:11px;font-weight:700;padding:5px 14px;border-radius:6px;text-decoration:none;">Track Order</a></td></tr>' : '') : '');
+        }
+
+        $uosBodyCust = '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="margin:0;padding:0;background:#f1f5f9;font-family:\'Segoe UI\',Arial,sans-serif;"><table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:32px 16px;"><tr><td align="center"><table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;"><tr><td style="'.$uosHdrBg.';border-radius:12px 12px 0 0;padding:32px 40px;text-align:center;"><div style="color:#fff;font-size:22px;font-weight:700;">'.$uosCoName.'</div><div style="color:rgba(255,255,255,.8);font-size:13px;margin-top:4px;">'.($uosIsDispatch ? '&#128666; Your Order Has Been Dispatched' : 'Order Status Update').'</div></td></tr><tr><td style="background:#fff;padding:36px 40px 28px;"><p style="margin:0 0 20px;font-size:16px;font-weight:700;color:#1e293b;">Dear '.$uosCustN.',</p><p style="margin:0 0 20px;font-size:14px;color:#475569;line-height:1.7;">'.($uosIsDispatch ? 'Great news! Your order has been dispatched and is on its way.' : 'Your order status has been updated. Please find the details below.').'</p><table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;margin:0 0 0;"><tr><td style="padding:16px 24px;border-bottom:1px solid #e2e8f0;"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:4px;">Order Number</div><div style="font-size:18px;font-weight:800;color:#4f46e5;">'.$uosOrderNo.'</div></td><td style="padding:16px 24px;border-bottom:1px solid #e2e8f0;text-align:right;"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:4px;">Total Amount</div><div style="font-size:18px;font-weight:800;color:#059669;">'.$uosTotal.'</div></td></tr><tr><td colspan="2" style="padding:16px 24px;"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:8px;">Current Order Status</div>'.$uosBadge.'</td></tr></table>'.$uosDispatchHtmlCust.$uosRemarkHtml.'<p style="margin:16px 0 0;font-size:13px;color:#64748b;line-height:1.7;">If you have any questions, please contact us at any time.</p></td></tr><tr><td style="background:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;"><p style="margin:0 0 4px;font-size:13px;color:#475569;">Warm regards,</p><p style="margin:0 0 4px;font-size:14px;font-weight:700;color:#1e293b;">'.$uosCoName.'</p>'.($uosCoContactHtml ? '<p style="margin:0;font-size:12px;color:#94a3b8;">'.$uosCoContactHtml.'</p>' : '').'</td></tr><tr><td style="background:#e2e8f0;border-radius:0 0 12px 12px;padding:12px 40px;text-align:center;"><p style="margin:0;font-size:11px;color:#94a3b8;">Order: <strong>'.$uosOrderNo.'</strong></p></td></tr></table></td></tr></table></body></html>';
+        $uosBodyInt  = '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="margin:0;padding:0;background:#f1f5f9;font-family:\'Segoe UI\',Arial,sans-serif;"><table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 16px;"><tr><td align="center"><table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#fff;border-radius:10px;overflow:hidden;border:1px solid #e2e8f0;"><tr><td style="background:#4f46e5;padding:16px 24px;"><div style="color:#fff;font-size:15px;font-weight:700;">&#128204; Status Updated — '.$uosOrderNo.'</div></td></tr><tr><td style="padding:20px 24px;"><table width="100%" cellpadding="0" cellspacing="0"><tr><td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;padding-bottom:6px;width:40%;">Customer</td><td style="font-size:13px;font-weight:700;color:#1e293b;padding-bottom:6px;">'.$uosCustN.'</td></tr><tr><td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;padding-bottom:6px;">Order No</td><td style="font-size:13px;color:#4f46e5;font-weight:700;padding-bottom:6px;">'.$uosOrderNo.'</td></tr><tr><td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;padding-bottom:6px;">New Status</td><td style="padding-bottom:6px;">'.$uosBadge.'</td></tr><tr><td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;padding-bottom:6px;">Payment Status</td><td style="font-size:13px;color:#1e293b;padding-bottom:6px;">'.htmlspecialchars($uosPayment).'</td></tr>'.$uosDispatchHtmlInt.($uosRemark !== '' ? '<tr><td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;padding-bottom:6px;">Remark</td><td style="font-size:13px;color:#475569;padding-bottom:6px;">'.htmlspecialchars($uosRemark).'</td></tr>' : '').'</table></td></tr><tr><td style="background:#f8fafc;padding:10px 24px;border-top:1px solid #e2e8f0;"><p style="margin:0;font-size:11px;color:#94a3b8;">Internal — '.$uosCoName.' Order System</p></td></tr></table></td></tr></table></body></html>';
 
         $uosSentTo = []; $uosRecips = [];
         $uosCustSubj = 'Order Status Update: '.$uosOrderNo.' | '.$uosCoName;
@@ -1902,6 +2012,138 @@ switch ($action) {
             adminRedirectWithFlash('order-list', 'ok', 'Order deleted successfully.');
         }
         adminRedirectWithFlash('order-list', 'err', 'Failed to delete order.');
+    break;
+
+    /* ─────────────────────────────────────────────────────────────
+       GET ORDER DETAILS (AJAX — JSON response)
+    ───────────────────────────────────────────────────────────── */
+    case 'GetOrderDetails':
+        adminRequireAuth();
+        header('Content-Type: application/json');
+        $godId = (int)($_GET['id'] ?? 0);
+        if ($godId <= 0) { echo json_encode(['error' => 'Invalid ID']); exit(); }
+
+        $godOrder   = $controller->getUserOrderById($godId);
+        $godItems   = $controller->getUserOrderItems($godId);
+        $godHistory = $controller->getUserOrderHistory($godId);
+
+        if (!$godOrder) { echo json_encode(['error' => 'Order not found']); exit(); }
+
+        /* ── Status badge CSS classes ── */
+        $godOsClass = match((string)($godOrder->ORDER_STATUS ?? '')) {
+            'Order Pending'    => 'badge--amber',
+            'Order Confirmed'  => 'badge--blue',
+            'Order Packed'     => 'badge--violet',
+            'Order Dispatch'   => 'badge--violet',
+            'Order In Transit' => 'badge--blue',
+            'Order Delivered'  => 'badge--green',
+            'Order Cancelled'  => 'badge--red',
+            default            => 'badge--grey',
+        };
+        $godPsClass = match((string)($godOrder->PAYMENT_STATUS ?? '')) {
+            'Payment Successful' => 'badge--green',
+            'Payment Failed'     => 'badge--red',
+            'Payment Pending'    => 'badge--amber',
+            'Refund Initiated'   => 'badge--violet',
+            'Refund Completed'   => 'badge--blue',
+            default              => 'badge--grey',
+        };
+
+        $godFinal    = (float)($godOrder->FINAL_TOTAL_AMT   ?? 0);
+        $godSubTotal = 0;
+        foreach ($godItems as $_gi) { $godSubTotal += (float)($_gi->FINAL_AMT ?? 0); }
+        $godShip     = (float)($godOrder->SHIPPING_AMT      ?? 0);
+        $godDisc     = (float)($godOrder->DISCOUNT_AMT      ?? 0);
+        $godTax      = (float)($godOrder->TAX_TOTAL_AMOUNT  ?? 0);
+        $godVatNum   = trim((string)($godOrder->VAT_NUMBER  ?? ''));
+        /* derive VAT % from tax amount and (subtotal - discount) */
+        $godNetSub   = $godSubTotal - $godDisc;
+        $godTaxPct   = ($godNetSub > 0 && $godTax > 0) ? round($godTax / $godNetSub * 100, 2) : 0;
+
+        $godOrderOut = [
+            'order_number'         => (string)($godOrder->ORDER_NUMBER           ?? ''),
+            'quote_id'             => (int)(float)($godOrder->ENQUIRY_QUOTE_ID   ?? 0),
+            'subtotal'             => number_format($godSubTotal, 2),
+            'shipping_amt'         => number_format($godShip, 2),
+            'discount_amt'         => number_format($godDisc, 2),
+            'tax_amt'              => number_format($godTax, 2),
+            'tax_pct'              => $godTaxPct,
+            'vat_number'           => $godVatNum,
+            'final_total'          => number_format($godFinal > 0 ? $godFinal : ($godSubTotal + $godShip - $godDisc + $godTax), 2),
+            'order_mode'           => (string)($godOrder->ORDER_MODE             ?? ''),
+            'cust_name'            => (string)($godOrder->CUST_NAME              ?? ''),
+            'cust_email'           => (string)($godOrder->CUST_EMAIL             ?? ''),
+            'cust_company'         => (string)($godOrder->CUST_COMPANY           ?? ''),
+            'order_status'         => (string)($godOrder->ORDER_STATUS           ?? ''),
+            'payment_status'       => (string)($godOrder->PAYMENT_STATUS         ?? ''),
+            'order_date'           => (string)($godOrder->ORDER_DATE             ?? ''),
+            'customer_po_id'       => (string)($godOrder->CUSTOMER_PO_ID        ?? ''),
+            'customer_supplier_no' => (string)($godOrder->CUSTOMER_SUPPLIER_NO  ?? ''),
+            'user_id'              => (int)(float)($godOrder->USER_ID            ?? 0),
+            'user_address_id'      => (int)(float)($godOrder->USER_ADDRESS_ID    ?? 0),
+            'billing_address_id'   => (int)(float)($godOrder->BILLING_USER_ADDRESS_ID ?? 0),
+            /* Courier / dispatch */
+            'courier_name'         => (string)($godOrder->COURIER_COMPANY_NAME        ?? ''),
+            'courier_tracking_id'  => (string)($godOrder->DISPATCH_COURIER_TRACKING_ID ?? ''),
+            'courier_tracking_tpl' => (string)($godOrder->COURIER_TRACKING_URL        ?? ''),
+            'dispatch_date'        => (string)($godOrder->DISPATCH_DATE               ?? ''),
+            'os_class'             => $godOsClass,
+            'ps_class'             => $godPsClass,
+            /* Delivery address */
+            'del_name'    => (string)($godOrder->RECIPIENT_NAME   ?? ''),
+            'del_company' => (string)($godOrder->ADDR_COMPANY     ?? ''),
+            'del_line1'   => (string)($godOrder->ADDRESS_LINE_ONE ?? $godOrder->ADDRESS ?? ''),
+            'del_line2'   => (string)($godOrder->ADDRESS_LINE_TWO ?? ''),
+            'del_city'    => (string)($godOrder->CITY             ?? ''),
+            'del_state'   => (string)($godOrder->STATE            ?? ''),
+            'del_zip'     => (string)($godOrder->ZIP              ?? ''),
+            'del_country' => (string)($godOrder->COUNTRY          ?? ''),
+            'del_phone'   => (string)($godOrder->DELIVERY_PHONE_NO ?? ''),
+            /* Billing address */
+            'bil_name'    => (string)($godOrder->BIL_RECIPIENT_NAME ?? ''),
+            'bil_company' => (string)($godOrder->BIL_COMPANY        ?? ''),
+            'bil_line1'   => (string)($godOrder->BIL_LINE1          ?? $godOrder->BIL_ADDRESS ?? ''),
+            'bil_line2'   => (string)($godOrder->BIL_LINE2          ?? ''),
+            'bil_city'    => (string)($godOrder->BIL_CITY           ?? ''),
+            'bil_state'   => (string)($godOrder->BIL_STATE          ?? ''),
+            'bil_zip'     => (string)($godOrder->BIL_ZIP            ?? ''),
+            'bil_country' => (string)($godOrder->BIL_COUNTRY        ?? ''),
+            'bil_phone'   => (string)($godOrder->BIL_PHONE          ?? ''),
+        ];
+
+        $godItemsOut = [];
+        foreach ($godItems as $it) {
+            $godItemsOut[] = [
+                'product_name' => (string)($it->PRODUCT_NAME ?? '—'),
+                'product_code' => (string)($it->PRODUCT_CODE ?? ''),
+                'qty'          => rtrim(rtrim(number_format((float)($it->QUANTITY ?? 0), 2), '0'), '.'),
+                'unit_amt'     => number_format((float)($it->PRODUCT_AMT ?? 0), 2),
+                'final_amt'    => number_format((float)($it->FINAL_AMT   ?? 0), 2),
+                'product_id'   => (int)(float)($it->PRODUCT_ID             ?? 0),
+                'cat_id'       => (int)(float)($it->PRODUCT_CATEGORY_ID    ?? 0),
+                'disc_pct'     => (float)($it->DISCOUNT_PERCENTAGE         ?? 0),
+            ];
+        }
+
+        $godHistOut = [];
+        foreach ($godHistory as $h) {
+            /* timestamp column may be named created_at, history_date, or added_date */
+            $hDt = (string)($h->CREATED_AT   ?? $h->HISTORY_DATE ?? $h->ADDED_DATE ?? $h->UPDATED_AT ?? '');
+            $godHistOut[] = [
+                'status'     => (string)($h->HISTORY_ORDER_STATUS   ?? ''),
+                'pay_status' => (string)($h->HISTORY_PAYMENT_STATUS ?? ''),
+                'remark'     => (string)($h->HISTORY_REMARKS        ?? ''),
+                'date'       => ($hDt !== '' && $hDt !== '0000-00-00 00:00:00') ? date('d M Y, H:i', strtotime($hDt)) : '—',
+                'by'         => (string)($h->CHANGED_BY_NAME        ?? 'System'),
+            ];
+        }
+
+        echo json_encode([
+            'order'   => $godOrderOut,
+            'items'   => $godItemsOut,
+            'history' => $godHistOut,
+        ]);
+        exit();
     break;
 
     case 'ResendQuotation':
@@ -2077,12 +2319,184 @@ switch ($action) {
         adminRedirectWithFlash('quotation', 'ok', 'Quotation re-sent' . ($notified ? ' to ' . $notified : '') . '.');
     break;
 
+    /* ───────────────────────────────────────────────────
+       REFUND — Get full detail (AJAX / JSON)
+    ___________________________________________________ */
+    case 'GetRefundOrderDetail':
+        adminRequireAuth();
+        header('Content-Type: application/json');
+        $grdId = (int)($_GET['id'] ?? $_POST['id'] ?? 0);
+        if ($grdId <= 0) { echo json_encode(['ok'=>false,'msg'=>'Invalid ID.']); exit; }
+
+        $grdData = $controller->getRefundOrderDetail($grdId);
+        if (empty($grdData)) { echo json_encode(['ok'=>false,'msg'=>'Refund order not found.']); exit; }
+
+        $grdO  = $grdData['order'];
+        $grdIs = $grdData['items']   ?? [];
+        $grdHs = $grdData['history'] ?? [];
+
+        $grdItemsOut = [];
+        foreach ($grdIs as $it) {
+            $grdItemsOut[] = [
+                'product_name'         => (string)($it->PRODUCT_NAME          ?? ''),
+                'product_code'         => (string)($it->PRODUCT_CODE          ?? ''),
+                'product_category_name'=> (string)($it->PRODUCT_CATEGORY_NAME ?? ''),
+                'quantity'             => (float) ($it->QUANTITY               ?? 0),
+                'product_amt'          => (float) ($it->PRODUCT_AMT            ?? 0),
+                'final_amt'            => (float) ($it->FINAL_AMT              ?? 0),
+            ];
+        }
+        $grdHistOut = [];
+        foreach ($grdHs as $h) {
+            $grdHistOut[] = [
+                'status'     => (string)($h->HISTORY_ORDER_RETURN_REPLACEMENT_STATUS ?? ''),
+                'pay_status' => (string)($h->HISTORY_PAYMENT_STATUS                  ?? ''),
+                'remark'     => (string)($h->HISTORY_REMARKS                         ?? ''),
+                'by'         => (string)($h->CHANGED_BY                              ?? 'System'),
+                'date'       => (string)($h->CREATED_AT                              ?? ''),
+            ];
+        }
+
+        echo json_encode([
+            'ok'    => true,
+            'order' => [
+                'order_number'      => (string)($grdO->ORDER_NUMBER                        ?? ''),
+                'order_date'        => (string)($grdO->ORDER_DATE                          ?? ''),
+                'return_status'     => (string)($grdO->ORDER_RETURN_REPLACEMENT_STATUS     ?? ''),
+                'payment_status'    => (string)($grdO->PAYMENT_STATUS                      ?? ''),
+                'cust_name'         => (string)($grdO->CUST_NAME                           ?? ''),
+                'cust_email'        => (string)($grdO->CUST_EMAIL                          ?? ''),
+                'cust_company'      => (string)($grdO->CUST_COMPANY                        ?? ''),
+                'cust_phone'        => (string)($grdO->CUST_PHONE                          ?? ''),
+                'return_reason'     => (string)($grdO->USER_RETURN_REASON                  ?? ''),
+                'reject_reason'     => (string)($grdO->ADMIN_RETURN_REJECT_REASON          ?? ''),
+                'final_total'       => (float) ($grdO->FINAL_TOTAL_AMT                     ?? 0),
+                'handling_fee'      => (float) ($grdO->RETURN_HANDLING_FEE                 ?? 0),
+                'orig_order_number' => (string)($grdO->ORIG_ORDER_NUMBER                   ?? ''),
+                'orig_order_date'   => (string)($grdO->ORIG_ORDER_DATE                     ?? ''),
+                'orig_order_amt'    => (float) ($grdO->ORIG_ORDER_AMT                      ?? 0),
+            ],
+            'items'   => $grdItemsOut,
+            'history' => $grdHistOut,
+        ]);
+        exit;
+    break;
+
+    /* ───────────────────────────────────────────────────
+       REFUND — Update return/refund status (POST)
+    ___________________________________________________ */
+    case 'UpdateReturnStatus':
+        adminRequireAuth();
+        $ursId       = (int)($_POST['refund_order_id']   ?? 0);
+        $ursRS       = trim($_POST['return_status']      ?? '');
+        $ursPS       = trim($_POST['payment_status']     ?? '');
+        $ursRemark   = trim($_POST['remark']             ?? '');
+        $ursReject   = trim($_POST['reject_reason']      ?? '');
+        $ursAdminUid = (int)($_SESSION['sinelec_admin']['USER_ID'] ?? 0);
+
+        $validRS = [
+            'Return Requested','Return Request Approved','Return Request Cancelled',
+            'Pickup Scheduled','Pickup Completed','QC Approved','Return Completed',
+        ];
+        $validPS = ['Payment Pending','Refund Initiated','Refund Completed','Not Required'];
+
+        if ($ursId <= 0 || !in_array($ursRS, $validRS) || !in_array($ursPS, $validPS)) {
+            adminRedirectWithFlash('refund', 'err', 'Invalid status values.');
+        }
+        if (!$controller->updateReturnStatus($ursId, $ursRS, $ursPS, $ursRemark, $ursReject, $ursAdminUid)) {
+            adminRedirectWithFlash('refund', 'err', 'Failed to update refund status.');
+        }
+        adminRedirectWithFlash('refund', 'ok', 'Refund status updated successfully.');
+    break;
+
+    /* ───────────────────────────────────────────────────
+       VAT FILING — Save / update filing record (POST)
+    ___________________________________________________ */
+    case 'SaveVatFiling':
+        adminRequireAuth();
+        sinelec_can('edit') || adminRedirectWithFlash('monthly-vat-filling-document', 'err', 'No permission to save VAT filing.');
+
+        $svfPeriod  = trim($_POST['filing_period'] ?? '');
+        $svfType    = trim($_POST['filing_type']   ?? 'Monthly');
+        $svfStatus  = trim($_POST['filing_status'] ?? 'Draft');
+        $svfRefNo   = trim($_POST['reference_no']  ?? '');
+        $svfNotes   = trim($_POST['notes']         ?? '');
+        $svfOutput  = (float)($_POST['output_vat'] ?? 0);
+        $svfInput   = (float)($_POST['input_vat']  ?? 0);
+        $svfNet     = (float)($_POST['net_sales']  ?? 0);
+        $svfUid     = (int)($_SESSION['sinelec_admin']['USER_ID'] ?? 0);
+
+        $svfValidTypes    = ['Monthly', 'Yearly'];
+        $svfValidStatuses = ['Draft', 'Filed', 'Overdue'];
+
+        /* Basic validation */
+        if (!preg_match('/^\d{4}(-\d{2})?$/', $svfPeriod)
+            || !in_array($svfType,   $svfValidTypes)
+            || !in_array($svfStatus, $svfValidStatuses)) {
+            adminRedirectWithFlash('monthly-vat-filling-document', 'err', 'Invalid filing data submitted.');
+        }
+
+        $svfOk = $controller->saveVatFiling(
+            $svfPeriod, $svfType, $svfOutput, $svfInput,
+            $svfNet, $svfStatus, $svfRefNo, $svfNotes, $svfUid
+        );
+
+        if (!$svfOk) {
+            adminRedirectWithFlash('monthly-vat-filling-document', 'err', 'Failed to save VAT filing record.');
+        }
+
+        /* Redirect back to the correct view */
+        $svfView = ($svfType === 'Yearly') ? 'yearly' : 'monthly';
+        if ($svfType === 'Yearly') {
+            adminRedirectWithFlash(
+                'monthly-vat-filling-document?view=yearly&year=' . substr($svfPeriod, 0, 4),
+                'ok', 'Yearly VAT filing saved successfully.'
+            );
+        } else {
+            [$svfY, $svfM] = explode('-', $svfPeriod);
+            adminRedirectWithFlash(
+                'monthly-vat-filling-document?month=' . ltrim($svfM, '0') . '&year=' . $svfY,
+                'ok', 'Monthly VAT filing saved successfully.'
+            );
+        }
+    break;
+
     case 'UpdateCompany':
         adminRequireAuth();
         if (!$controller->updateCompanyDetails($_POST)) {
             adminRedirectWithFlash('company', 'err', 'Failed to save company details.');
         }
         adminRedirectWithFlash('company', 'ok', 'Company details updated successfully.');
+    break;
+
+    /* ───────────────────────────────────────────────────
+       INVENTORY — Product Movement Ledger (AJAX / JSON)
+    ___________________________________________________ */
+    case 'GetProductMovementLedger':
+        adminRequireAuth();
+        header('Content-Type: application/json');
+        $gplPid      = (int)($_GET['product_id'] ?? $_POST['product_id'] ?? 0);
+        $gplFrom     = trim($_GET['date_from']   ?? $_POST['date_from']   ?? '');
+        $gplTo       = trim($_GET['date_to']     ?? $_POST['date_to']     ?? '');
+        if ($gplPid <= 0) { echo json_encode(['ok'=>false,'msg'=>'Invalid product.']); exit; }
+
+        $gplRows     = $controller->getProductMovementLedger($gplPid, $gplFrom, $gplTo);
+        $gplOut      = [];
+        foreach ($gplRows as $r) {
+            $gplOut[] = [
+                'type'            => (string)($r->MOVEMENT_TYPE  ?? ''),
+                'date'            => (string)($r->MOVEMENT_DATE  ?? ''),
+                'qty'             => (float) ($r->QUANTITY        ?? 0),
+                'reference_name'  => (string)($r->REFERENCE_NAME ?? ''),
+                'reference_no'    => (string)($r->REFERENCE_NO   ?? ''),
+                'unit_cost'       => (float) ($r->UNIT_COST       ?? 0),
+                'order_id'        => (int)   ($r->ORDER_ID        ?? 0),
+                'order_number'    => (string)($r->ORDER_NUMBER    ?? ''),
+                'running_balance' => (float) ($r->RUNNING_BALANCE ?? 0),
+            ];
+        }
+        echo json_encode(['ok' => true, 'movements' => $gplOut]);
+        exit;
     break;
 
     default:
