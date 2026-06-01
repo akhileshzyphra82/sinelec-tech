@@ -4,7 +4,20 @@ if (!isset($company)) {
     if (!class_exists('WebsiteController')) require_once __DIR__ . '/../controller/website_controller.php';
     $_wc = new WebsiteController();
     $company = $_wc->getCompanyInfo();
-    unset($_wc);
+    /* ── Load search categories for dropdown ── */
+    $_searchCatRows = $_wc->getSearchCategories();
+    /* Group by parent_name */
+    $_searchCatGroups = [];
+    foreach ($_searchCatRows as $_scr) {
+        $_grp  = (string)($_scr->PARENT_NAME ?? '');
+        $_name = (string)($_scr->PRODUCT_CATEGORY_NAME ?? '');
+        $_id   = (int)(float)($_scr->PRODUCT_CATEGORY_ID ?? 0);
+        $_pid  = (int)(float)($_scr->PARENT_CATEGORY_ID ?? 0);
+        /* If no parent, the category itself is a top-level group entry */
+        $key = $_grp !== '' ? $_grp : $_name;
+        $_searchCatGroups[$key][] = ['id' => $_id, 'name' => $_name, 'is_parent' => $_pid === 0];
+    }
+    unset($_wc, $_searchCatRows, $_scr, $_grp, $_name, $_id, $_pid, $key);
 }
 $flashToast = sinelec_consume_flash();
 $msg = (string)($flashToast['message'] ?? '');
@@ -22,58 +35,42 @@ function navClass(string $page, string $current): string {
     return $page === $current ? 'nav-link active' : 'nav-link';
 }
 
-$productMegaMenu = [
-    [
-        'id' => 'mcu',
-        'name' => 'Microcontrollers',
-        'subcategories' => ['ARM Cortex', 'AVR', 'PIC', 'ESP32'],
-    ],
-    [
-        'id' => 'logic',
-        'name' => 'Logic ICs',
-        'subcategories' => ['Shift Registers', 'Gates', 'Flip-Flops', 'Counters'],
-    ],
-    [
-        'id' => 'opamp',
-        'name' => 'Op-Amps & Comparators',
-        'subcategories' => ['General Purpose', 'Dual Op-Amp', 'Comparators', 'Low Noise'],
-    ],
-    [
-        'id' => 'power',
-        'name' => 'Power Management',
-        'subcategories' => ['Linear Regulators', 'LDO Regulators', 'Buck Converters', 'Converters'],
-    ],
-    [
-        'id' => 'transistor',
-        'name' => 'Transistors & MOSFETs',
-        'subcategories' => ['NPN Transistors', 'Power MOSFETs', 'IGBT', 'Switching'],
-    ],
-    [
-        'id' => 'sensor',
-        'name' => 'Sensors & Modules',
-        'subcategories' => ['Temperature & Humidity', 'IMU', 'Ultrasonic', 'Motion'],
-    ],
-    [
-        'id' => 'comm',
-        'name' => 'Communication ICs',
-        'subcategories' => ['RS-232', 'RF 2.4GHz', 'UART/SPI/I2C', 'Wireless Modules'],
-    ],
-    [
-        'id' => 'memory',
-        'name' => 'Memory',
-        'subcategories' => ['EEPROM', 'Flash', 'SRAM', 'Non-Volatile'],
-    ],
-    [
-        'id' => 'passive',
-        'name' => 'Passive Components',
-        'subcategories' => ['Resistors', 'Capacitors', 'Inductors', 'Through-Hole Packs'],
-    ],
-    [
-        'id' => 'display',
-        'name' => 'Display & LED',
-        'subcategories' => ['OLED', 'Character LCD', 'Display Modules', 'LED Drivers'],
-    ],
-];
+/* ── Build category tree for mega menu ── */
+$_wc2 = new WebsiteController();
+$_catRows2 = $_wc2->getCatalogCategories();
+$_megaParents  = [];   // keyed by parent cat id
+$_megaChildren = [];   // keyed by parent cat id => [child, ...]
+foreach ($_catRows2 as $_cr) {
+    $_cid  = (int)(float)($_cr->PRODUCT_CATEGORY_ID ?? 0);
+    $_cname = (string)($_cr->PRODUCT_CATEGORY_NAME ?? '');
+    $_pid  = (int)(float)($_cr->PARENT_CATEGORY_ID ?? 0);
+    $_pname = (string)($_cr->PARENT_NAME ?? '');
+    if ($_pid === 0) {
+        if (!isset($_megaParents[$_cid]))
+            $_megaParents[$_cid] = ['id' => $_cid, 'name' => $_cname, 'children' => []];
+    } else {
+        $_megaChildren[$_pid][] = ['id' => $_cid, 'name' => $_cname];
+        if (!isset($_megaParents[$_pid]))
+            $_megaParents[$_pid] = ['id' => $_pid, 'name' => $_pname, 'children' => []];
+    }
+}
+foreach ($_megaChildren as $_pid => $_kids) {
+    if (isset($_megaParents[$_pid]))
+        $_megaParents[$_pid]['children'] = $_kids;
+}
+$_megaParents = array_values($_megaParents);
+
+/* ── Manufacturers for mega menu ── */
+$_navMfrs = [];
+foreach ($_wc2->getCatalogManufacturers() as $_mr) {
+    $_mfrCatIds = trim((string)($_mr->PRODUCT_CATEGORY_IDS ?? ''));
+    $_navMfrs[] = [
+        'id'      => (int)($_mr->MANUFACTURER_ID ?? 0),
+        'name'    => (string)($_mr->NAME ?? ''),
+        'cat_ids' => $_mfrCatIds,
+    ];
+}
+unset($_wc2, $_catRows2, $_cr, $_cid, $_cname, $_pid, $_pname, $_kids, $_mr, $_mfrCatIds);
 ?>
 <!DOCTYPE html> 
 <html lang="en">
@@ -94,11 +91,32 @@ $productMegaMenu = [
 <?php if ($turnstileSiteKey !== ''): ?>
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 <?php endif; ?>
+<?php
+/* ── Build STORE_DATA from DB (replaces removed data/store_data.php) ── */
+if (!class_exists('WebsiteController')) require_once __DIR__ . '/../controller/website_controller.php';
+$_sdCtrl = new WebsiteController();
+$_sdCats = $_sdCtrl->getAllCategoriesFlat();
+$_sdMfrs = $_sdCtrl->getAllManufacturers();
+$_dynCategories = array_map(fn($c) => [
+    'id'   => (int)(float)($c->PRODUCT_CATEGORY_ID ?? 0),
+    'name' => (string)($c->PRODUCT_CATEGORY_NAME ?? ''),
+], $_sdCats);
+$_dynManufacturers = array_map(fn($m) => (string)($m->NAME ?? ''), $_sdMfrs);
+unset($_sdCtrl, $_sdCats, $_sdMfrs);
+?>
 <script>
-window.STORE_DATA   = <?= json_encode($storeData ?? [], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG) ?>;
+window.STORE_DATA = <?= json_encode([
+    'categories'   => $_dynCategories,
+    'manufacturers'=> $_dynManufacturers,
+    'products'     => [],
+    'services'     => [],
+    'testimonials' => [],
+    'banners'      => [],
+], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG) ?>;
 window.CURRENT_PAGE = '<?= htmlspecialchars($currentPage) ?>';
 window.SINELEC_AUTH = {
-  isSignedIn: <?= $isSignedIn ? 'true' : 'false' ?>
+  isSignedIn: <?= $isSignedIn ? 'true' : 'false' ?>,
+  userId: <?= (int)($signedInUser['USER_ID'] ?? 0) ?>
 };
 window.FLASH_TOAST  = {
   message: <?= json_encode($msg ?? '', JSON_UNESCAPED_UNICODE | JSON_HEX_TAG) ?>,
@@ -129,31 +147,48 @@ window.FLASH_TOAST  = {
       </a>
 
       <!-- Search -->
-      <div class="header-search">
-        <form action="products" method="GET" autocomplete="off" class="search-form-contents">
-          <select class="search-cat-btn" name="cat" id="searchCat">
-            <option value="">All</option>
-            <option value="mcu">Microcontrollers</option>
-            <option value="logic">Logic ICs</option>
-            <option value="opamp">Op-Amps</option>
-            <option value="power">Power ICs</option>
-            <option value="transistor">Transistors</option>
-            <option value="sensor">Sensors</option>
-            <option value="comm">Comm ICs</option>
-            <option value="memory">Memory</option>
-            <option value="display">Display &amp; LED</option>
-            <option value="passive">Passives</option>
+      <!-- Outer wrapper: position:relative, NO overflow:hidden — dropdown must escape -->
+      <div class="header-search-wrap" id="headerSearch">
+        <div class="header-search">
+        <form action="products" method="GET" autocomplete="off" class="search-form-contents" id="searchForm">
+          <?php
+          /* ── Dynamic category select ── */
+          $selCatId = (int)($_GET['cat_id'] ?? 0);
+          ?>
+          <select class="search-cat-btn" name="cat_id" id="searchCat" onchange="onSearchCatChange()">
+            <option value="0">All</option>
+            <?php if (!empty($_searchCatGroups)): ?>
+              <?php foreach ($_searchCatGroups as $_groupLabel => $_groupItems): ?>
+                <?php
+                /* If only one item and it IS the parent, render flat option */
+                if (count($_groupItems) === 1 && $_groupItems[0]['is_parent']) {
+                    $opt = $_groupItems[0];
+                    $sel = $opt['id'] === $selCatId ? ' selected' : '';
+                    echo '<option value="' . $opt['id'] . '"' . $sel . '>' . htmlspecialchars($opt['name']) . '</option>';
+                } else {
+                    echo '<optgroup label="' . htmlspecialchars($_groupLabel) . '">';
+                    foreach ($_groupItems as $opt) {
+                        $sel = $opt['id'] === $selCatId ? ' selected' : '';
+                        echo '<option value="' . $opt['id'] . '"' . $sel . '>' . htmlspecialchars($opt['name']) . '</option>';
+                    }
+                    echo '</optgroup>';
+                }
+                ?>
+              <?php endforeach; ?>
+            <?php endif; ?>
           </select>
           <input class="search-field" id="searchField" type="text" name="q"
                  placeholder="Search part number, description or manufacturer…"
-                 oninput="onSearchInput(event)"
+                 autocomplete="off" spellcheck="false"
                  value="<?= htmlspecialchars($_GET['q'] ?? '') ?>">
           <button class="search-go" type="submit" aria-label="Search">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           </button>
         </form>
-        <div class="search-drop" id="searchDrop"></div>
-      </div>
+        </div><!-- /.header-search -->
+        <!-- Suggestion dropdown — OUTSIDE the overflow:hidden container -->
+        <div class="search-drop" id="searchDrop" role="listbox" aria-label="Search suggestions"></div>
+      </div><!-- /.header-search-wrap -->
 
       <!-- Delivery Location -->
       <div class="header-delivery" id="headerDeliveryBtn" title="Change delivery location" role="button" tabindex="0" aria-haspopup="dialog" aria-controls="deliveryModal">
@@ -217,8 +252,7 @@ window.FLASH_TOAST  = {
 
         <!-- Products mega menu -->
         <div class="nav-item" id="productsNavItem">
-          <a href="products" class="nav-link nav-link-drop <?= in_array($currentPage, ['products', 'product', 'new-arrivals']) ? 'active' : '' ?>"
-             onclick="toggleProductsMenu(event)">
+          <a href="products" class="nav-link nav-link-drop <?= in_array($currentPage, ['products', 'product', 'new-arrivals']) ? 'active' : '' ?>">
             Products
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
@@ -226,19 +260,19 @@ window.FLASH_TOAST  = {
 
             <!-- LEFT: Category list -->
             <div class="mega-cats-col">
-              <a href="products" class="mega-cat mega-cat-new active" data-cat-id="newest">
-                Newest Products
+              <a href="products?is_new=1" class="mega-cat mega-cat-new active" data-cat-id="newest">
+                New Products
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
               </a>
               <div class="mega-cats-divider"></div>
-              <?php foreach ($productMegaMenu as $menuCategory): ?>
-              <a
-                href="products?cat=<?= urlencode($menuCategory['id']) ?>"
-                class="mega-cat"
-                data-cat-id="<?= htmlspecialchars($menuCategory['id']) ?>"
-              >
-                <?= htmlspecialchars($menuCategory['name']) ?>
+              <?php foreach ($_megaParents as $_mp): ?>
+              <a href="products?cat_id=<?= $_mp['id'] ?>"
+                 class="mega-cat"
+                 data-cat-id="<?= $_mp['id'] ?>">
+                <?= htmlspecialchars($_mp['name']) ?>
+                <?php if (!empty($_mp['children'])): ?>
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+                <?php endif; ?>
               </a>
               <?php endforeach; ?>
               <a href="products" class="mega-see-all">SEE ALL</a>
@@ -247,37 +281,42 @@ window.FLASH_TOAST  = {
             <!-- RIGHT: Dynamic content panels -->
             <div class="mega-content-col">
 
+              <!-- New Products panel: show parent categories as cards -->
               <div class="mega-panel active" data-panel-id="newest">
                 <div class="mega-panel-head">
-                  <span>Shop Newest Products <strong>By Category</strong></span>
-                  <a href="new-arrivals" class="mega-panel-viewall">View All Newest →</a>
+                  <span>New Products <strong>By Category</strong></span>
+                  <a href="products?is_new=1" class="mega-panel-viewall">View All New →</a>
                 </div>
                 <div class="mega-cat-imgrid">
-                  <?php foreach (array_slice($storeData['categories'] ?? [], 0, 6) as $idx => $categoryCard): ?>
-                  <a href="products?cat=<?= urlencode($categoryCard['id']) ?>" class="mega-cat-card">
-                    <div class="mega-cat-card-img <?= $idx % 3 === 0 ? 'mega-cat-card-img--blue' : ($idx % 3 === 1 ? 'mega-cat-card-img--green' : 'mega-cat-card-img--orange') ?>">
-                      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
-                        <rect x="3" y="3" width="18" height="18" rx="3"/>
-                        <rect x="8" y="8" width="8" height="8" rx="1.5"/>
+                  <?php foreach (array_slice($_megaParents, 0, 6) as $_idx => $_pc): ?>
+                  <a href="products?cat_id=<?= $_pc['id'] ?>&is_new=1" class="mega-cat-card">
+                    <div class="mega-cat-card-img <?= $_idx % 3 === 0 ? 'mega-cat-card-img--blue' : ($_idx % 3 === 1 ? 'mega-cat-card-img--green' : 'mega-cat-card-img--orange') ?>">
+                      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+                        <rect x="3" y="3" width="18" height="18" rx="3"/><rect x="8" y="8" width="8" height="8" rx="1.5"/>
                       </svg>
                     </div>
-                    <div class="mega-cat-card-name"><?= htmlspecialchars($categoryCard['name']) ?></div>
+                    <div class="mega-cat-card-name"><?= htmlspecialchars($_pc['name']) ?></div>
                   </a>
                   <?php endforeach; ?>
                 </div>
               </div>
 
-              <?php foreach ($productMegaMenu as $menuCategory): ?>
-              <div class="mega-panel" data-panel-id="<?= htmlspecialchars($menuCategory['id']) ?>">
+              <!-- Panel per parent category: show child categories -->
+              <?php foreach ($_megaParents as $_mp): ?>
+              <div class="mega-panel" data-panel-id="<?= $_mp['id'] ?>">
                 <div class="mega-panel-head">
-                  <strong>Types of <?= htmlspecialchars($menuCategory['name']) ?></strong>
-                  <a href="products?cat=<?= urlencode($menuCategory['id']) ?>" class="mega-panel-viewall">View all <?= htmlspecialchars($menuCategory['name']) ?> →</a>
+                  <strong><?= htmlspecialchars($_mp['name']) ?></strong>
+                  <a href="products?cat_id=<?= $_mp['id'] ?>" class="mega-panel-viewall">View all →</a>
                 </div>
+                <?php if (!empty($_mp['children'])): ?>
                 <div class="mega-sub-2col">
-                  <?php foreach ($menuCategory['subcategories'] as $subCategory): ?>
-                  <a href="products?cat=<?= urlencode($menuCategory['id']) ?>&subcat=<?= urlencode($subCategory) ?>" class="mega-sub-link"><?= htmlspecialchars($subCategory) ?></a>
+                  <?php foreach ($_mp['children'] as $_ch): ?>
+                  <a href="products?cat_id=<?= $_ch['id'] ?>" class="mega-sub-link"><?= htmlspecialchars($_ch['name']) ?></a>
                   <?php endforeach; ?>
                 </div>
+                <?php else: ?>
+                <p class="mega-panel-empty">Browse all <?= htmlspecialchars($_mp['name']) ?> products</p>
+                <?php endif; ?>
               </div>
               <?php endforeach; ?>
 
@@ -293,9 +332,21 @@ window.FLASH_TOAST  = {
           </a>
           <div class="mega-menu mega-simple">
             <div class="mega-simple-title">Our Manufacturers</div>
-            <?php foreach ($storeData['manufacturers'] as $mfr): ?>
-            <a href="products?mfr=<?= urlencode($mfr['name']) ?>" class="mega-simple-link"><?= htmlspecialchars($mfr['name']) ?></a>
-            <?php endforeach; ?>
+            <?php if (!empty($_navMfrs)): ?>
+              <?php foreach ($_navMfrs as $_mfr):
+                /* Always pass cat_ids; use 'none' sentinel when no categories set so products page shows 0 results */
+                $_mfrCatParam = $_mfr['cat_ids'] !== '' ? $_mfr['cat_ids'] : 'none';
+                $_mfrUrl = 'products?mfr=' . urlencode($_mfr['name']) . '&cat_ids=' . urlencode($_mfrCatParam);
+              ?>
+              <a href="<?= htmlspecialchars($_mfrUrl) ?>" class="mega-simple-link">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg>
+                <?= htmlspecialchars($_mfr['name']) ?>
+              </a>
+              <?php endforeach; ?>
+            <?php else: ?>
+              <span class="mega-panel-empty">No manufacturers listed.</span>
+            <?php endif; ?>
+            <a href="manufacturers" class="mega-see-all" style="margin-top:10px;">View All →</a>
           </div>
         </div>
 
@@ -406,9 +457,9 @@ window.FLASH_TOAST  = {
 	        </summary>
 	        <div class="mob-accordion-body">
 	          <a href="products" class="mob-sub-link">All Products</a>
-	          <a href="products" class="mob-sub-link">Newest Products</a>
-	          <?php foreach ($productMegaMenu as $menuCategory): ?>
-	          <a href="products?cat=<?= urlencode($menuCategory['id']) ?>" class="mob-sub-link"><?= htmlspecialchars($menuCategory['name']) ?></a>
+	          <a href="products?is_new=1" class="mob-sub-link">New Products</a>
+	          <?php foreach ($_megaParents as $_mp): ?>
+	          <a href="products?cat_id=<?= $_mp['id'] ?>" class="mob-sub-link"><?= htmlspecialchars($_mp['name']) ?></a>
 	          <?php endforeach; ?>
 	        </div>
 	      </details>
@@ -424,8 +475,11 @@ window.FLASH_TOAST  = {
 	        </summary>
 	        <div class="mob-accordion-body mob-accordion-body--chips">
 	          <a href="manufacturers" class="mob-sub-link">All Manufacturers</a>
-	          <?php foreach ($storeData['manufacturers'] as $mfr): ?>
-	          <a href="products?mfr=<?= urlencode($mfr['name']) ?>" class="mob-sub-link"><?= htmlspecialchars($mfr['name']) ?></a>
+	          <?php foreach ($_navMfrs as $_mfr):
+	            $_mobCatParam = $_mfr['cat_ids'] !== '' ? $_mfr['cat_ids'] : 'none';
+	            $_mobMfrUrl = 'products?mfr=' . urlencode($_mfr['name']) . '&cat_ids=' . urlencode($_mobCatParam);
+	          ?>
+	          <a href="<?= htmlspecialchars($_mobMfrUrl) ?>" class="mob-sub-link"><?= htmlspecialchars($_mfr['name']) ?></a>
 	          <?php endforeach; ?>
 	        </div>
 	      </details>

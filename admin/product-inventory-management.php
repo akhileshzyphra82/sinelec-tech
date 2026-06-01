@@ -391,7 +391,7 @@ ob_start();
 <!-- ═══════════════════════════════════════════════════
      MOVEMENT LEDGER MODAL
 ═══════════════════════════════════════════════════ -->
-<div id="ledgerModal" class="modal-overlay" onclick="if(event.target===this)closeModal('ledgerModal')">
+<div id="ledgerModal" class="modal-overlay">
   <div class="modal" style="max-width:860px;width:96%;max-height:92vh;display:flex;flex-direction:column;">
 
     <div class="modal-hd" style="display:flex;align-items:flex-start;justify-content:space-between;padding:18px 22px;border-bottom:1px solid var(--border);flex-shrink:0;">

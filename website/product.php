@@ -1,15 +1,14 @@
 <?php
-require_once '../data/store_data.php';
+require_once '../common/functions.php';
+require_once '../controller/website_controller.php';
 
+$ctrl      = new WebsiteController();
 $productId = isset($_GET['id']) ? (int)$_GET['id'] : 0;
+$row       = $ctrl->getProductById($productId);
 
-$product = null;
-foreach ($storeData['products'] as $p) {
-    if ((int)$p['id'] === $productId) { $product = $p; break; }
-}
-
-if (!$product) {
-    header('HTTP/1.1 404 Not Found');
+/* ── 404 if not found ─────────────────────────────────────────── */
+if (!$row) {
+    http_response_code(404);
     $currentPage = 'products';
     $pageTitle   = 'Product Not Found — Sinelec Tech';
     require_once 'header.php';
@@ -28,21 +27,71 @@ if (!$product) {
     exit;
 }
 
-$currentPage = 'product';
-$pageTitle   = htmlspecialchars($product['name']) . ' — Sinelec Tech';
+/* ── Normalise DB row → template variables ────────────────────── */
+$BASE_URL    = rtrim((string)sinelec_env('PUBLIC_BASE_URL', ''), '/');
 
-$basePrice       = $product['priceBreaks'][0]['price'] ?? $product['price'] ?? 0;
-$originalPrice   = $product['originalPrice'] ?? $product['oldPrice'] ?? null;
-$inStock         = ($product['stock'] ?? 0) > 0;
-$manufacturer    = $product['manufacturer'] ?? $product['brand'] ?? '';
-$description     = $product['description'] ?? $product['desc'] ?? '';
-$reviews         = $product['reviews'] ?? $product['reviewCount'] ?? 0;
-$features        = $product['features'] ?? [];
-$priceBreaks     = $product['priceBreaks'] ?? [];
-$specs           = $product['specs'] ?? [];
-$savePct         = ($originalPrice && $originalPrice > $basePrice)
-                   ? round((($originalPrice - $basePrice) / $originalPrice) * 100)
-                   : 0;
+/*
+ * Price logic:
+ *   product_amt  = the FINAL price shown to the customer (already discounted)
+ *   If offer_percentage > 0: original (crossed-out) = product_amt * (1 + offer_percentage/100)
+ *   If offer_percentage is 0/null: no crossed-out price shown
+ */
+$baseEUR  = (float)($row->PRODUCT_AMT       ?? 0);
+$offerPct = (float)($row->OFFER_PERCENTAGE  ?? 0);
+$origEUR  = $offerPct > 0 ? round($baseEUR * (1 + $offerPct / 100), 2) : 0;
+$savePct  = $offerPct > 0 ? (int)round($offerPct) : 0;
+
+$stock     = (int)(float)($row->TOTAL_REMAINING ?? 0);
+$label     = strtolower(trim((string)($row->LABEL ?? '')));
+$sku       = (string)($row->PRODUCT_CODE ?? '');
+$name      = (string)($row->PRODUCT_NAME ?? '');
+$catId     = (int)(float)($row->PRODUCT_CATEGORY_ID   ?? 0);
+$catName   = (string)($row->PRODUCT_CATEGORY_NAME     ?? '');
+$parentCat = (string)($row->PARENT_CATEGORY_NAME      ?? '');
+$rating    = (float)($row->RATING    ?? 0);
+$totalSold = (int)(float)($row->TOTAL_SOLD ?? 0);
+
+/* Short description shown under heading (product_description) */
+$shortDesc = trim((string)($row->PRODUCT_DESCRIPTION ?? ''));
+
+/* Tab content */
+$tabDesc    = trim((string)($row->PRODUCT_DETAILS       ?? ''));   /* Description tab */
+$tabSpec    = trim((string)($row->PRODUCT_SPECIFICATION ?? ''));   /* Specifications tab */
+
+/* ── Product images ───────────────────────────────────────────── */
+$imgRows  = $ctrl->getProductImages($productId);
+$images   = array_map(fn($r) => $BASE_URL . '/' . ltrim((string)($r->PRODUCT_IMAGE_PATH ?? ''), '/'), $imgRows);
+$hasImgs  = count($images) > 0;
+$mainImg  = $hasImgs ? $images[0] : '';
+
+/* ── Downloads (Product Manuals) ──────────────────────────────── */
+$manualRows = $ctrl->getProductManuals($productId);
+
+/* ── Sample Code ──────────────────────────────────────────────── */
+$sampleRows = $ctrl->getProductSampleCode($productId);
+
+$currentPage = 'product';
+$pageTitle   = htmlspecialchars($name) . ' — Sinelec Tech';
+
+/* Build a product object for CURRENT_PRODUCT JS bridge */
+$jsProduct = [
+    'id'            => $productId,
+    'sku'           => $sku,
+    'name'          => $name,
+    'category'      => (string)$catId,
+    'categoryName'  => $catName,
+    'image'         => $mainImg,
+    'price'         => $baseEUR,
+    'originalPrice' => $origEUR > 0 ? $origEUR : null,
+    'stock'         => $stock,
+    'rating'        => $rating,
+    'reviews'       => $totalSold,
+    'label'         => $label,
+    'badge'         => $label,
+    'isNew'         => $label === 'new',
+    'isFeatured'    => in_array($label, ['featured','bestseller','hot']),
+    'description'   => $shortDesc,
+];
 
 require_once 'header.php';
 ?>
@@ -55,18 +104,16 @@ require_once 'header.php';
     <a href="index">Home</a>
     <span class="bc-sep">›</span>
     <a href="products">Products</a>
-    <?php if (!empty($product['category'])): ?>
+    <?php if ($parentCat && $parentCat !== $catName): ?>
     <span class="bc-sep">›</span>
-    <a href="products?cat=<?= urlencode($product['category']) ?>">
-      <?php
-      foreach ($storeData['categories'] as $c) {
-          if ($c['id'] === $product['category']) { echo htmlspecialchars($c['name']); break; }
-      }
-      ?>
-    </a>
+    <a href="products?cat_id=<?= $catId ?>"><?= htmlspecialchars($parentCat) ?></a>
+    <?php endif; ?>
+    <?php if ($catName): ?>
+    <span class="bc-sep">›</span>
+    <a href="products?cat_id=<?= $catId ?>"><?= htmlspecialchars($catName) ?></a>
     <?php endif; ?>
     <span class="bc-sep">›</span>
-    <span><?= htmlspecialchars($product['name']) ?></span>
+    <span><?= htmlspecialchars($name) ?></span>
   </nav>
 
   <!-- ── Top 2-col grid ───────────────────────────────────────── -->
@@ -74,412 +121,319 @@ require_once 'header.php';
 
     <!-- Left: Image panel -->
     <div class="pdp-img-card">
-      <?php if (!empty($product['image'])): ?>
+
+      <?php if ($hasImgs): ?>
+      <!-- Main image -->
       <div class="pdp-main-image-wrap">
-        <img src="<?= htmlspecialchars($product['image']) ?>"
-             alt="<?= htmlspecialchars($product['name']) ?>"
-             class="pdp-main-image pdp-view-0"
+        <img src="<?= htmlspecialchars($mainImg) ?>"
+             alt="<?= htmlspecialchars($name) ?>"
+             class="pdp-main-image"
              id="pdpMainImg"
-             data-view-index="0">
+             onerror="this.style.display='none';document.getElementById('pdpImgPlaceholder').style.display='flex'">
+        <div class="pdp-img-placeholder" id="pdpImgPlaceholder" style="display:none;">
+          <svg width="72" height="72" viewBox="0 0 38 38" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="9" y="9" width="20" height="20" rx="2"/>
+            <line x1="9" y1="14.5" x2="5" y2="14.5"/><line x1="9" y1="19" x2="3" y2="19"/><line x1="9" y1="23.5" x2="5" y2="23.5"/>
+            <line x1="29" y1="14.5" x2="33" y2="14.5"/><line x1="29" y1="19" x2="35" y2="19"/><line x1="29" y1="23.5" x2="33" y2="23.5"/>
+            <line x1="14.5" y1="9" x2="14.5" y2="5"/><line x1="19" y1="9" x2="19" y2="3"/><line x1="23.5" y1="9" x2="23.5" y2="5"/>
+            <line x1="14.5" y1="29" x2="14.5" y2="33"/><line x1="19" y1="29" x2="19" y2="35"/><line x1="23.5" y1="29" x2="23.5" y2="33"/>
+            <rect x="15" y="15" width="8" height="8" rx="1" fill="currentColor" fill-opacity=".15"/>
+          </svg>
+        </div>
+        <?php if (count($images) > 1): ?>
         <button type="button" class="pdp-image-nav pdp-image-nav--prev" onclick="pdpStepThumb(-1)" aria-label="Previous image">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
         </button>
         <button type="button" class="pdp-image-nav pdp-image-nav--next" onclick="pdpStepThumb(1)" aria-label="Next image">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
         </button>
+        <?php endif; ?>
       </div>
-      <?php else: ?>
-      <div class="pdp-main-image pdp-img-placeholder">
-        <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
-          <rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/>
-        </svg>
-      </div>
-      <?php endif; ?>
 
       <!-- Thumbnail strip -->
+      <?php if (count($images) > 1): ?>
       <div class="pdp-thumbs-strip">
-        <?php
-        $thumbSrc = !empty($product['image']) ? htmlspecialchars($product['image']) : '';
-        for ($ti = 0; $ti < 4; $ti++):
-        ?>
-        <img src="<?= $thumbSrc ?>"
-             alt="<?= htmlspecialchars($product['name']) ?> view <?= $ti + 1 ?>"
+        <?php foreach ($images as $ti => $imgUrl): ?>
+        <img src="<?= htmlspecialchars($imgUrl) ?>"
+             alt="<?= htmlspecialchars($name) ?> view <?= $ti + 1 ?>"
              class="pdp-thumb-img<?= $ti === 0 ? ' active' : '' ?>"
-             data-view-index="<?= $ti ?>"
-             onclick="pdpSetThumb(this, '<?= $thumbSrc ?>', <?= $ti ?>)">
-        <?php endfor; ?>
+             data-full="<?= htmlspecialchars($imgUrl) ?>"
+             onclick="pdpSetThumb(this, '<?= htmlspecialchars($imgUrl, ENT_QUOTES) ?>', <?= $ti ?>)"
+             onerror="this.style.display='none'">
+        <?php endforeach; ?>
       </div>
-
-      <?php if (!empty($product['datasheet'])): ?>
-      <a href="<?= htmlspecialchars($product['datasheet']) ?>" target="_blank" rel="noopener" class="pdp-datasheet-btn">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-        </svg>
-        Download Datasheet
-      </a>
       <?php endif; ?>
+
+      <?php else: ?>
+      <!-- No images — placeholder -->
+      <div class="pdp-main-image pdp-img-placeholder" id="pdpMainImg">
+        <svg width="80" height="80" viewBox="0 0 38 38" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="9" y="9" width="20" height="20" rx="2"/>
+          <line x1="9" y1="14.5" x2="5" y2="14.5"/><line x1="9" y1="19" x2="3" y2="19"/><line x1="9" y1="23.5" x2="5" y2="23.5"/>
+          <line x1="29" y1="14.5" x2="33" y2="14.5"/><line x1="29" y1="19" x2="35" y2="19"/><line x1="29" y1="23.5" x2="33" y2="23.5"/>
+          <line x1="14.5" y1="9" x2="14.5" y2="5"/><line x1="19" y1="9" x2="19" y2="3"/><line x1="23.5" y1="9" x2="23.5" y2="5"/>
+          <line x1="14.5" y1="29" x2="14.5" y2="33"/><line x1="19" y1="29" x2="19" y2="35"/><line x1="23.5" y1="29" x2="23.5" y2="33"/>
+          <rect x="15" y="15" width="8" height="8" rx="1" fill="currentColor" fill-opacity=".15"/>
+        </svg>
+        <?php if ($sku): ?>
+        <span><?= htmlspecialchars($sku) ?></span>
+        <?php endif; ?>
+      </div>
+      <?php endif; ?>
+
     </div>
 
     <!-- Right: Purchase card -->
     <div class="pdp-info-card">
 
-      <!-- Badge + SKU -->
-      <div class="pdp-badge-sku-row">
-        <?php if (!empty($product['badge'])): ?>
-        <span class="pbadge pbadge-<?= htmlspecialchars($product['badge']) ?>"><?= strtoupper(htmlspecialchars($product['badge'])) ?></span>
+      <!-- Share button — top right corner -->
+      <button class="pdp2-share-corner" id="copyLinkBtn" onclick="copyLink()" title="Copy link">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/>
+          <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
+        </svg>
+        <span>Share</span>
+      </button>
+
+      <!-- ① Meta row: badge + SKU + category -->
+      <div class="pdp2-meta">
+        <?php if ($label): ?>
+        <span class="pdp2-badge pdp2-badge--<?= htmlspecialchars($label) ?>"><?= strtoupper(htmlspecialchars($label)) ?></span>
         <?php endif; ?>
-        <?php if (!empty($product['sku'])): ?>
-        <span class="pdp-sku-tag">SKU: <?= htmlspecialchars($product['sku']) ?></span>
+        <?php if ($catName): ?>
+        <a class="pdp2-cat-link" href="products?cat_id=<?= $catId ?>">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="2" y="3" width="7" height="7"/><rect x="15" y="3" width="7" height="7"/><rect x="15" y="14" width="7" height="7"/><rect x="2" y="14" width="7" height="7"/></svg>
+          <?= htmlspecialchars($catName) ?>
+        </a>
+        <?php endif; ?>
+        <?php if ($sku): ?>
+        <span class="pdp2-sku">SKU: <strong><?= htmlspecialchars($sku) ?></strong></span>
         <?php endif; ?>
       </div>
 
-      <!-- Product name -->
-      <h1 class="pdp-name"><?= htmlspecialchars($product['name']) ?></h1>
+      <!-- ② Product name -->
+      <h1 class="pdp2-name"><?= htmlspecialchars($name) ?></h1>
 
-      <!-- Manufacturer row -->
-      <div class="pdp-mfr-row">
-        <?php if ($manufacturer): ?>
-        <span>by <strong><?= htmlspecialchars($manufacturer) ?></strong></span>
-        <?php endif; ?>
-        <?php if (!empty($product['sku'])): ?>
-        <span class="pdp-mfr-sep">|</span>
-        <span>Part: <strong><?= htmlspecialchars($product['sku']) ?></strong></span>
+      <!-- ③ Short description with Read More -->
+      <?php if ($shortDesc): ?>
+      <div class="pdp2-short-desc-wrap">
+        <div class="pdp2-short-desc" id="pdpShortDesc"><?= $shortDesc ?></div>
+        <button class="pdp2-read-more-btn" id="pdpReadMoreBtn" onclick="pdpToggleDesc()">Read more</button>
+      </div>
+      <?php endif; ?>
+
+      <!-- ④ Rating -->
+      <div class="pdp2-rating-row">
+        <div class="pdp2-stars" id="pdpStars"></div>
+        <?php if ($rating > 0): ?>
+        <span class="pdp2-rating-val"><?= number_format($rating, 1) ?></span>
         <?php endif; ?>
       </div>
 
-      <!-- Rating bar -->
-      <div class="pdp-rating-bar">
-        <div class="star-row" id="pdpStars"></div>
-        <span class="pdp-review-link">
-          <?= (int)$reviews ?> review<?= (int)$reviews !== 1 ? 's' : '' ?>
-        </span>
-      </div>
-
-      <!-- Price block -->
-      <div class="pdp-price-block">
-        <div class="pdp-price-row">
-          <span class="pdp-price-current">₹<?= number_format($basePrice, 2) ?></span>
-          <?php if ($originalPrice && $originalPrice > $basePrice): ?>
-          <span class="pdp-orig-price">₹<?= number_format($originalPrice, 2) ?></span>
-          <span class="pdp-save-pct">Save <?= $savePct ?>%</span>
-          <?php endif; ?>
+      <!-- ⑤ Price block (price left, qty right) -->
+      <div class="pdp2-price-block">
+        <div class="pdp2-price-qty-row">
+          <!-- Left: price + strikethrough + delivery -->
+          <div class="pdp2-price-left">
+            <div class="pdp2-price-row">
+              <span class="pdp2-price">€<?= number_format($baseEUR, 2) ?></span>
+              <?php if ($origEUR > 0): ?>
+              <span class="pdp2-orig">€<?= number_format($origEUR, 2) ?></span>
+              <span class="pdp2-save-badge">
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                Save <?= $savePct ?>%
+              </span>
+              <?php endif; ?>
+            </div>
+            <div class="pdp2-delivery-row">
+              <span class="pdp2-delivery-chip">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+                Expected delivery in <strong>7 days</strong>
+              </span>
+            </div>
+          </div>
+          <!-- Right: qty control -->
+          <div class="pdp2-qty-right">
+            <span class="pdp2-qty-label">Qty</span>
+            <div class="pdp2-qty">
+              <button class="pdp2-qty-btn" onclick="pdpQtyChange(-1)" aria-label="Decrease">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              </button>
+              <input type="number" class="pdp2-qty-inp" id="pdpQty" value="1" min="1" max="9999" aria-label="Quantity">
+              <button class="pdp2-qty-btn" onclick="pdpQtyChange(1)" aria-label="Increase">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              </button>
+            </div>
+          </div>
         </div>
-        <div class="pdp-gst-note">+ GST applicable</div>
       </div>
 
-      <!-- Volume pricing table -->
-      <?php if (count($priceBreaks) > 1): ?>
-      <div class="pdp-vol-wrap">
-        <div class="pdp-vol-label">Volume Pricing</div>
-        <table class="pdp-vol-table">
-          <thead>
-            <tr><th>Qty</th><th>Unit Price</th><th>You Save</th></tr>
-          </thead>
-          <tbody>
-          <?php
-          $bestIdx = count($priceBreaks) - 1;
-          foreach ($priceBreaks as $idx => $pb):
-            $isBest = ($idx === $bestIdx);
-            $savePb = ($pb['price'] < $basePrice)
-                      ? round((($basePrice - $pb['price']) / $basePrice) * 100)
-                      : 0;
-          ?>
-          <tr<?= $isBest ? ' class="pdp-vol-best"' : '' ?>>
-            <td><?= (int)$pb['qty'] ?>+</td>
-            <td>₹<?= number_format($pb['price'], 2) ?></td>
-            <td><?= $savePb > 0 ? '<span class="pdp-pb-save">-' . $savePb . '%</span>' : '—' ?></td>
-          </tr>
-          <?php endforeach; ?>
-          </tbody>
-        </table>
-      </div>
-      <?php endif; ?>
-
-      <!-- Stock status -->
-      <div class="pdp-stock-row">
-        <?php if ($inStock): ?>
-        <span class="pdp-stock-chip pdp-stock-in">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-            <polyline points="20 6 9 17 4 12"/>
-          </svg>
-          In Stock — <?= number_format((int)$product['stock']) ?> units
-        </span>
-        <?php else: ?>
-        <span class="pdp-stock-chip pdp-stock-out">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-          </svg>
-          Out of Stock
-        </span>
-        <?php endif; ?>
-      </div>
-
-      <!-- Quick spec chips -->
-      <?php
-      $chips = [];
-      if (!empty($product['package']))   $chips[] = $product['package'];
-      if (!empty($product['voltage']))   $chips[] = $product['voltage'];
-      if (!empty($product['frequency'])) $chips[] = $product['frequency'];
-      ?>
-      <?php if ($chips): ?>
-      <div class="pdp-spec-chips">
-        <?php foreach ($chips as $chip): ?>
-        <span class="pdp-spec-chip"><?= htmlspecialchars($chip) ?></span>
-        <?php endforeach; ?>
-      </div>
-      <?php endif; ?>
-
-      <!-- Key features -->
-      <?php if (!empty($features)): ?>
-      <ul class="pdp-features-list">
-        <?php foreach ($features as $feat): ?>
-        <li><?= htmlspecialchars($feat) ?></li>
-        <?php endforeach; ?>
-      </ul>
-      <?php endif; ?>
-
-      <!-- Actions: qty + buttons -->
-      <div class="pdp-actions">
-        <div class="pdp-qty">
-          <button class="pdp-qty-btn" onclick="pdpQtyChange(-1)" aria-label="Decrease quantity">−</button>
-          <input type="number" class="pdp-qty-inp" id="pdpQty" value="1" min="1" max="<?= (int)($product['stock'] ?? 999) ?>" aria-label="Quantity">
-          <button class="pdp-qty-btn" onclick="pdpQtyChange(1)" aria-label="Increase quantity">+</button>
+      <!-- ⑥ Action buttons -->
+      <div class="pdp2-action-block">
+        <div class="pdp2-btn-row">
+          <button class="pdp2-cart-btn" id="pdpAtcBtn" onclick="pdpAddToCart()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
+              <path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6"/>
+            </svg>
+            Add to Cart
+          </button>
+          <button class="pdp2-buynow-btn" onclick="pdpBuyNow()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            Buy Now
+          </button>
+          <button class="pdp2-wish-btn" id="pdpWishBtn" onclick="pdpToggleWish()" title="Wishlist" aria-label="Add to Wishlist">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>
+          </button>
         </div>
-        <button class="btn btn-yellow pdp-cart-btn" onclick="pdpAddToCart()" <?= $inStock ? '' : 'disabled' ?>>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
-            <path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6"/>
-          </svg>
-          <?= $inStock ? 'Add to Cart' : 'Out of Stock' ?>
-        </button>
-        <button class="btn pdp-buynow-btn" onclick="pdpAddToCart()" <?= $inStock ? '' : 'disabled' ?>>Buy Now</button>
-        <button class="pdp-wish-btn" id="pdpWishBtn" onclick="pdpToggleWish()" title="Add to Wishlist" aria-label="Add to wishlist">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
-            <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
-          </svg>
-        </button>
       </div>
 
-      <!-- Share row -->
-      <div class="pdp-share-row">
-        <span class="pdp-share-label">Share:</span>
-        <button class="pdp-share-btn" id="copyLinkBtn" onclick="copyLink()">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/>
-            <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
-          </svg>
-          Copy Link
-        </button>
+      <!-- ⑦ Trust badges -->
+      <div class="pdp2-trust">
+        <div class="pdp2-trust-item">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+          <span>Secure Checkout</span>
+        </div>
+        <div class="pdp2-trust-item">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+          <span>Fast Delivery</span>
+        </div>
+        <div class="pdp2-trust-item">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>
+          <span>Easy Returns</span>
+        </div>
       </div>
 
     </div><!-- /pdp-info-card -->
   </div><!-- /pdp-top -->
 
   <!-- ── Tab section ──────────────────────────────────────────── -->
-  <div class="pdp-tab-section" id="tab-reviews">
+  <div class="pdp-tab-section">
     <div class="pdp-tab-bar" role="tablist">
-      <button class="pdp-tab-btn active" data-tab="description" onclick="pdpTab('description')" role="tab">Description</button>
-      <button class="pdp-tab-btn" data-tab="specifications" onclick="pdpTab('specifications')" role="tab">Specifications</button>
-      <button class="pdp-tab-btn" data-tab="downloads" onclick="pdpTab('downloads')" role="tab">Downloads</button>
-      <button class="pdp-tab-btn" data-tab="samplecode" onclick="pdpTab('samplecode')" role="tab">Sample Code</button>
+      <button class="pdp-tab-btn active" data-tab="description"    onclick="pdpTab('description')"    role="tab">Description</button>
+      <button class="pdp-tab-btn"        data-tab="specifications" onclick="pdpTab('specifications')" role="tab">Specifications</button>
+      <button class="pdp-tab-btn"        data-tab="downloads"      onclick="pdpTab('downloads')"      role="tab">Downloads</button>
+      <button class="pdp-tab-btn"        data-tab="samplecode"     onclick="pdpTab('samplecode')"     role="tab">Sample Code</button>
     </div>
 
-    <!-- Description tab -->
+    <!-- Description tab — product_details -->
     <div class="pdp-tab-panel active" data-tab="description">
-      <?php if ($description): ?>
-      <div class="pdp-desc-body"><?= nl2br(htmlspecialchars($description)) ?></div>
+      <?php if ($tabDesc): ?>
+      <div class="pdp-desc-body"><?= $tabDesc ?></div>
       <?php else: ?>
       <p class="pdp-desc-empty">No description available for this product.</p>
       <?php endif; ?>
     </div>
 
-    <!-- Specifications tab -->
+    <!-- Specifications tab — product_specification -->
     <div class="pdp-tab-panel" data-tab="specifications">
-      <table class="pdp-specs-tbl">
-        <tbody>
-        <?php if (!empty($specs)): ?>
-          <?php foreach ($specs as $k => $v): ?>
-          <tr>
-            <td class="pdp-spec-key"><?= htmlspecialchars($k) ?></td>
-            <td class="pdp-spec-val"><?= htmlspecialchars($v) ?></td>
-          </tr>
-          <?php endforeach; ?>
-        <?php endif; ?>
-        <?php if (!empty($product['package'])): ?>
-        <tr><td class="pdp-spec-key">Package</td><td class="pdp-spec-val"><?= htmlspecialchars($product['package']) ?></td></tr>
-        <?php endif; ?>
-        <?php if (!empty($product['voltage'])): ?>
-        <tr><td class="pdp-spec-key">Voltage</td><td class="pdp-spec-val"><?= htmlspecialchars($product['voltage']) ?></td></tr>
-        <?php endif; ?>
-        <?php if (!empty($product['frequency'])): ?>
-        <tr><td class="pdp-spec-key">Frequency</td><td class="pdp-spec-val"><?= htmlspecialchars($product['frequency']) ?></td></tr>
-        <?php endif; ?>
-        <?php if ($manufacturer): ?>
-        <tr><td class="pdp-spec-key">Manufacturer</td><td class="pdp-spec-val"><?= htmlspecialchars($manufacturer) ?></td></tr>
-        <?php endif; ?>
-        </tbody>
-      </table>
+      <?php if ($tabSpec): ?>
+      <div class="pdp-desc-body"><?= $tabSpec ?></div>
+      <?php else: ?>
+      <p class="pdp-desc-empty">No specifications available for this product.</p>
+      <?php endif; ?>
     </div>
 
-    <!-- Downloads tab -->
+    <!-- Downloads tab — Product Manuals from tbl_product_img -->
     <div class="pdp-tab-panel" data-tab="downloads">
+      <?php if (!empty($manualRows)): ?>
       <div class="pdp-downloads-list">
-        <?php if (!empty($product['datasheet'])): ?>
-        <div class="pdp-download-row">
-          <div class="pdp-dl-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
-              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
-              <polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/>
-              <polyline points="9 15 12 18 15 15"/>
-            </svg>
-          </div>
-          <div class="pdp-dl-info">
-            <div class="pdp-dl-name">Datasheet PDF</div>
-            <div class="pdp-dl-desc">Official technical datasheet for <?= htmlspecialchars($product['name']) ?></div>
-          </div>
-          <a href="<?= htmlspecialchars($product['datasheet']) ?>" target="_blank" rel="noopener" class="btn btn-blue pdp-dl-btn">Download</a>
-        </div>
-        <?php endif; ?>
-        <?php
-        $extraDocs = [
-          ['Application Notes',  'Usage examples and application guidance'],
-          ['Reference Manual',   'Complete reference documentation'],
-          ['Errata Sheet',       'Known issues and corrections'],
-        ];
-        foreach ($extraDocs as $doc):
+        <?php foreach ($manualRows as $doc):
+          $docPath = (string)($doc->PRODUCT_IMAGE_PATH ?? '');
+          $docUrl  = $docPath !== '' ? $BASE_URL . '/' . ltrim($docPath, '/') : '#';
+          $docName = (string)($doc->IMAGE_NAME ?? '');
+          if (!$docName) $docName = basename($docPath) ?: 'Document';
+          /* Detect file extension for icon hint */
+          $ext = strtolower(pathinfo($docPath, PATHINFO_EXTENSION));
         ?>
         <div class="pdp-download-row">
           <div class="pdp-dl-icon">
+            <?php if ($ext === 'pdf'): ?>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#e53e3e" stroke-width="1.75">
+              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="12" y2="17"/>
+            </svg>
+            <?php else: ?>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
               <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
               <polyline points="14 2 14 8 20 8"/>
             </svg>
+            <?php endif; ?>
           </div>
           <div class="pdp-dl-info">
-            <div class="pdp-dl-name"><?= $doc[0] ?></div>
-            <div class="pdp-dl-desc"><?= $doc[1] ?></div>
+            <div class="pdp-dl-name"><?= htmlspecialchars($docName) ?></div>
+            <?php if ($ext): ?>
+            <div class="pdp-dl-desc"><?= strtoupper($ext) ?> file</div>
+            <?php endif; ?>
           </div>
-          <a href="#" class="btn btn-outline pdp-dl-btn">Download</a>
+          <a href="<?= htmlspecialchars($docUrl) ?>" target="_blank" rel="noopener" class="btn btn-outline pdp-dl-btn">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Download
+          </a>
         </div>
         <?php endforeach; ?>
       </div>
+      <?php else: ?>
+      <p class="pdp-desc-empty">No downloads available for this product.</p>
+      <?php endif; ?>
     </div>
 
-    <!-- Sample Code tab -->
+    <!-- Sample Code tab — tbl_product_sample_code -->
     <div class="pdp-tab-panel" data-tab="samplecode">
-      <div class="pdp-code-header">
-        <span class="pdp-code-lang">Arduino / C</span>
-        <button class="pdp-copy-btn" id="copyCodeBtn" onclick="copyCode()">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
-          </svg>
-          Copy
-        </button>
-      </div>
-      <pre class="pdp-code-block"><code>/*
- * <?= htmlspecialchars($product['name']) ?> — Basic Arduino Example
- * Manufacturer: <?= htmlspecialchars($manufacturer ?: 'N/A') ?>
-
- * SKU: <?= htmlspecialchars($product['sku'] ?? 'N/A') ?>
-
- */
-
-#include &lt;Arduino.h&gt;
-
-// Pin definitions
-const int DEVICE_PIN = 2;
-
-void setup() {
-  Serial.begin(9600);
-  pinMode(DEVICE_PIN, OUTPUT);
-
-  Serial.println("<?= htmlspecialchars($product['name']) ?> initialized");
-}
-
-void loop() {
-  // Main control loop
-  digitalWrite(DEVICE_PIN, HIGH);
-  delay(1000);
-  digitalWrite(DEVICE_PIN, LOW);
-  delay(1000);
-
-  Serial.println("Cycle complete");
-}</code></pre>
-    </div>
-
-    <!-- Reviews tab -->
-    <div class="pdp-tab-panel" data-tab="reviews">
-      <div class="pdp-review-summary">
-        <div class="pdp-review-score">
-          <div class="pdp-review-big-num"><?= number_format($product['rating'] ?? 4.5, 1) ?></div>
-          <div class="pdp-review-big-stars">
-            <?php
-            $rating = $product['rating'] ?? 4.5;
-            for ($s = 1; $s <= 5; $s++) {
-                echo $s <= round($rating) ? '★' : '☆';
-            }
-            ?>
-          </div>
-          <div class="pdp-review-total"><?= (int)$reviews ?> reviews</div>
-        </div>
-        <div class="pdp-review-bars">
-          <?php
-          $bars = [5 => 60, 4 => 25, 3 => 10, 2 => 3, 1 => 2];
-          foreach ($bars as $star => $pct):
-          ?>
-          <div class="pdp-review-bar-row">
-            <span class="pdp-review-bar-label"><?= $star ?>★</span>
-            <div class="pdp-review-bar-track">
-              <div class="pdp-review-bar-fill" style="width:<?= $pct ?>%"></div>
-            </div>
-            <span class="pdp-review-bar-pct"><?= $pct ?>%</span>
-          </div>
-          <?php endforeach; ?>
-        </div>
-      </div>
-
-      <div class="pdp-review-cards">
-        <?php
-        $placeholderReviews = [
-          ['name' => 'Rahul S.', 'date' => 'March 2025',   'stars' => 5, 'text' => 'Excellent component. Works perfectly with our design. Fast shipping and well-packaged. Highly recommend for production use.'],
-          ['name' => 'Priya M.', 'date' => 'February 2025','stars' => 4, 'text' => 'Good quality part, matches the datasheet specs. Delivery was prompt. Dropped one star only because the packaging could be improved.'],
-          ['name' => 'Arjun K.', 'date' => 'January 2025', 'stars' => 5, 'text' => 'Used this in an industrial control project. Performs reliably under continuous operation. Will order again in larger quantities.'],
-        ];
-        foreach ($placeholderReviews as $rev):
+      <?php if (!empty($sampleRows)): ?>
+      <div class="pdp-sample-list">
+        <?php foreach ($sampleRows as $sc):
+          $scUrl  = trim((string)($sc->EXT ?? ''));
+          $scLang = trim((string)($sc->LANGUAGE_TECHNOLOGY ?? ''));
+          $scIde  = trim((string)($sc->IDE_COMPILER ?? ''));
+          $scType = trim((string)($sc->TYPE ?? ''));
+          $scOs   = trim((string)($sc->OS ?? ''));
+          $scDate = trim((string)($sc->DATE ?? ''));
+          $label  = $scLang ?: ($scType ?: 'Sample Code');
         ?>
-        <div class="pdp-review-card">
-          <div class="pdp-rv-header">
-            <div class="pdp-rv-avatar"><?= $rev['name'][0] ?></div>
-            <div class="pdp-rv-meta">
-              <div class="pdp-rv-name"><?= $rev['name'] ?></div>
-              <div class="pdp-rv-date"><?= $rev['date'] ?></div>
-            </div>
-            <div class="pdp-rv-stars">
-              <?php for ($s = 1; $s <= 5; $s++) echo $s <= $rev['stars'] ? '★' : '☆'; ?>
+        <div class="pdp-sample-row">
+          <div class="pdp-sample-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+              <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
+            </svg>
+          </div>
+          <div class="pdp-sample-info">
+            <div class="pdp-sample-title"><?= htmlspecialchars($label) ?></div>
+            <div class="pdp-sample-meta">
+              <?php if ($scIde):  ?><span class="pdp-sample-tag"><?= htmlspecialchars($scIde) ?></span><?php endif; ?>
+              <?php if ($scType): ?><span class="pdp-sample-tag"><?= htmlspecialchars($scType) ?></span><?php endif; ?>
+              <?php if ($scOs):   ?><span class="pdp-sample-tag"><?= htmlspecialchars($scOs) ?></span><?php endif; ?>
             </div>
           </div>
-          <p class="pdp-rv-text"><?= $rev['text'] ?></p>
+          <?php if ($scUrl): ?>
+          <a href="<?= htmlspecialchars($scUrl) ?>" target="_blank" rel="noopener" class="btn btn-outline pdp-dl-btn">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            Open
+          </a>
+          <?php endif; ?>
         </div>
         <?php endforeach; ?>
       </div>
-
-      <button class="btn btn-outline pdp-write-review-btn">Write a Review</button>
+      <?php else: ?>
+      <p class="pdp-desc-empty">No sample code available for this product.</p>
+      <?php endif; ?>
     </div>
 
   </div><!-- /pdp-tab-section -->
 
   <!-- ── Related Products ──────────────────────────────────────── -->
-  <div class="home-section-wrap">
+  <div class="home-section-wrap" id="relatedSection">
     <div class="sec-head">
       <div>
         <div class="sec-title">Related Products</div>
-        <div class="sec-subtitle">Customers also viewed</div>
+        <div class="sec-subtitle">From the same category</div>
       </div>
       <div class="carousel-nav-btns">
-        <button class="car-btn car-btn-inline" onclick="carouselScroll('relatedTrack', 1)" aria-label="Previous related products">
+        <button class="car-btn car-btn-inline" onclick="carouselScroll('relatedTrack', 1)"  aria-label="Previous">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
         </button>
-        <button class="car-btn car-btn-inline" onclick="carouselScroll('relatedTrack', -1)" aria-label="Next related products">
+        <button class="car-btn car-btn-inline" onclick="carouselScroll('relatedTrack', -1)" aria-label="Next">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
         </button>
       </div>
@@ -495,7 +449,32 @@ void loop() {
 </main>
 
 <script>
-window.CURRENT_PRODUCT = <?= json_encode($product, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG) ?>;
+window.CURRENT_PRODUCT = <?= json_encode($jsProduct, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG) ?>;
+
+/* ── Image gallery ─────────────────────────────────────────────── */
+var _pdpImgs = <?= json_encode(array_values($images)) ?>;
+var _pdpIdx  = 0;
+
+function pdpSetThumb(el, src, index) {
+  document.querySelectorAll('.pdp-thumb-img').forEach(function(t) { t.classList.remove('active'); });
+  if (el) el.classList.add('active');
+  var main = document.getElementById('pdpMainImg');
+  if (main && src) {
+    main.style.display = '';
+    main.src = src;
+    var ph = document.getElementById('pdpImgPlaceholder');
+    if (ph) ph.style.display = 'none';
+  }
+  _pdpIdx = typeof index === 'number' ? index : 0;
+}
+
+function pdpStepThumb(step) {
+  if (!_pdpImgs.length) return;
+  _pdpIdx = (_pdpIdx + step + _pdpImgs.length) % _pdpImgs.length;
+  var thumbs = document.querySelectorAll('.pdp-thumb-img');
+  var thumb  = thumbs[_pdpIdx] || null;
+  pdpSetThumb(thumb, _pdpImgs[_pdpIdx], _pdpIdx);
+}
 
 function pdpTab(name) {
   document.querySelectorAll('.pdp-tab-btn').forEach(function(b) {
@@ -506,35 +485,13 @@ function pdpTab(name) {
   });
 }
 
-function pdpSetThumb(el, src, index) {
-  document.querySelectorAll('.pdp-thumb-img').forEach(function(t) { t.classList.remove('active'); });
-  el.classList.add('active');
-  var main = document.getElementById('pdpMainImg');
-  if (main) {
-    if (src) main.src = src;
-    var nextIndex = typeof index === 'number' ? index : Number(el.dataset.viewIndex || 0);
-    main.dataset.viewIndex = String(nextIndex);
-    main.classList.remove('pdp-view-0', 'pdp-view-1', 'pdp-view-2', 'pdp-view-3');
-    main.classList.add('pdp-view-' + nextIndex);
-  }
-}
-
-function pdpStepThumb(step) {
-  var thumbs = Array.from(document.querySelectorAll('.pdp-thumb-img'));
-  if (!thumbs.length) return;
-  var current = thumbs.findIndex(function(t) { return t.classList.contains('active'); });
-  if (current < 0) current = 0;
-  var next = (current + step + thumbs.length) % thumbs.length;
-  var thumb = thumbs[next];
-  pdpSetThumb(thumb, thumb.getAttribute('src') || '', Number(thumb.dataset.viewIndex || next));
-}
-
-function copyCode() {
-  var code = document.querySelector('.pdp-code-block code');
-  if (code) navigator.clipboard.writeText(code.textContent).then(function() {
-    var btn = document.getElementById('copyCodeBtn');
-    if (btn) { btn.textContent = 'Copied!'; setTimeout(function() { btn.textContent = 'Copy'; }, 2000); }
-  });
+/* ── Read More toggle ──────────────────────────────────────────── */
+function pdpToggleDesc() {
+  var wrap = document.getElementById('pdpShortDesc');
+  var btn  = document.getElementById('pdpReadMoreBtn');
+  if (!wrap || !btn) return;
+  var expanded = wrap.classList.toggle('pdp2-short-desc--expanded');
+  btn.textContent = expanded ? 'Read less' : 'Read more';
 }
 
 function copyLink() {

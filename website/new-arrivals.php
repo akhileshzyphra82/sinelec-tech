@@ -1,5 +1,4 @@
 <?php
-require_once '../data/store_data.php';
 $currentPage = 'new-arrivals';
 $pageTitle   = 'New Arrivals — Sinelec Tech';
 require_once 'header.php';
@@ -44,7 +43,7 @@ require_once 'header.php';
           </div>
           <div class="filter-group">
             <div class="filter-group-title">
-              Price (₹)
+              Price (€)
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
             </div>
             <div class="price-row">

@@ -1,5 +1,4 @@
 <?php
-require_once '../data/store_data.php';
 $currentPage = 'chip-programming';
 $pageTitle   = 'Chip Programming Services — Sinelec Tech';
 require_once 'header.php';

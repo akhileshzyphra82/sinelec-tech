@@ -5,11 +5,16 @@ $currentPage = 'my-list';
 $pageTitle = 'My List | Sinelec Technologies';
 require_once __DIR__ . '/header.php';
 
-/* ── Real quotes from DB ── */
 require_once __DIR__ . '/../controller/website_controller.php';
 $_wc    = new WebsiteController();
 $userId = (int)($user['USER_ID'] ?? 0);
+
+/* ── Real quotes from DB ── */
 $quotes = $_wc->getCustomerQuotes($userId);
+
+/* ── Wishlist products from DB ── */
+$_pubBase        = rtrim((string)sinelec_env('PUBLIC_BASE_URL', ''), '/');
+$wishlistProducts = $_wc->getWishlistProducts($userId);
 
 /* Status display map (DB value → display meta) */
 $statusMeta = [
@@ -41,7 +46,7 @@ $statusDefault = ['key' => 'pending', 'label' => 'In Review', 'color' => '#2563e
             <button type="button" class="ml-tab-btn is-active" data-ml-tab="wishlist" role="tab" aria-selected="true">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
               My Wishlist
-              <span class="ml-tab-count" id="mlWishlistCount">0</span>
+              <span class="ml-tab-count" id="mlWishlistCount"><?= count($wishlistProducts) ?></span>
             </button>
             <button type="button" class="ml-tab-btn" data-ml-tab="quotes" role="tab" aria-selected="false">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
@@ -53,12 +58,83 @@ $statusDefault = ['key' => 'pending', 'label' => 'In Review', 'color' => '#2563e
 
           <!-- ── Wishlist Panel ── -->
           <div class="ml-panel is-active" id="mlWishlistPanel" data-ml-panel="wishlist">
-            <div id="mlWishlistGrid" class="ml-wl-grid"></div>
-            <div id="mlWishlistEmpty" class="ml-empty" hidden>
+            <?php if (empty($wishlistProducts)): ?>
+            <div class="ml-empty">
               <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
               <p>Your wishlist is empty.</p>
               <a href="products" class="ml-empty-btn">Browse Products</a>
             </div>
+            <?php else: ?>
+            <div class="ml-wl-grid" id="mlWishlistGrid">
+              <?php foreach ($wishlistProducts as $_wp):
+                $_wpId      = (int)(float)($_wp->PRODUCT_ID ?? 0);
+                $_wpName    = (string)($_wp->PRODUCT_NAME ?? '');
+                $_wpCode    = (string)($_wp->PRODUCT_CODE ?? '');
+                $_wpCat     = (string)($_wp->PRODUCT_CATEGORY_NAME ?? '');
+                $_wpAmt     = (float)($_wp->PRODUCT_AMT ?? 0);
+                $_wpOffer   = (float)($_wp->OFFER_PERCENTAGE ?? 0);
+                $_wpOrigAmt = $_wpOffer > 0 ? round($_wpAmt * (1 + $_wpOffer / 100), 2) : 0;
+                $_wpStock   = (int)(float)($_wp->TOTAL_REMAINING ?? 0);
+                $_wpRating  = (float)($_wp->RATING ?? 0);
+                $_wpThumb   = trim((string)($_wp->THUMB_PATH ?? ''));
+                $_wpImgUrl  = $_wpThumb !== '' ? $_pubBase . '/' . ltrim($_wpThumb, '/') : '';
+                $_wpDate    = (string)($_wp->WISHLISTED_AT ?? '');
+              ?>
+              <article class="ml-wl-card" id="ml-wl-card-<?= $_wpId ?>" data-product-id="<?= $_wpId ?>">
+                <!-- Image -->
+                <div class="ml-wl-img-wrap" onclick="openPDP(<?= $_wpId ?>)" style="cursor:pointer;">
+                  <img src="<?= htmlspecialchars($_wpImgUrl ?: 'https://placehold.co/120x120/f0f4f9/2563eb?text='.urlencode($_wpCode)) ?>"
+                       alt="<?= htmlspecialchars($_wpName) ?>" loading="lazy"
+                       onerror="this.src='https://placehold.co/120x120/f0f4f9/2563eb?text=<?= urlencode($_wpCode) ?>'">
+                </div>
+                <!-- Info -->
+                <div class="ml-wl-info" onclick="openPDP(<?= $_wpId ?>)" style="cursor:pointer;">
+                  <?php if ($_wpCat): ?>
+                  <div style="font-size:11px;color:#5f728b;font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;">
+                    <?= htmlspecialchars($_wpCat) ?>
+                  </div>
+                  <?php endif; ?>
+                  <div class="ml-wl-name"><?= htmlspecialchars($_wpName) ?></div>
+                  <div class="ml-wl-meta">
+                    <?php if ($_wpCode): ?>
+                    <span>SKU: <strong><?= htmlspecialchars($_wpCode) ?></strong></span>
+                    <?php endif; ?>
+                    <?php if ($_wpRating > 0): ?>
+                    <span>Rating: <strong><?= number_format($_wpRating, 1) ?> ★</strong></span>
+                    <?php endif; ?>
+                    <span><?= $_wpStock > 0 ? '<strong style="color:#16a34a;">In Stock</strong>' : '<strong style="color:#dc2626;">Out of Stock</strong>' ?></span>
+                  </div>
+                  <?php if ($_wpDate): ?>
+                  <div style="font-size:10.5px;color:#9baab8;margin-top:5px;">
+                    Saved on <?= date('d M Y', strtotime($_wpDate)) ?>
+                  </div>
+                  <?php endif; ?>
+                </div>
+                <!-- Actions -->
+                <div class="ml-wl-actions">
+                  <div>
+                    <div class="ml-wl-price">
+                      <?= '€' . number_format($_wpAmt, 2) ?>
+                      <?php if ($_wpOrigAmt > 0): ?>
+                      <small style="text-decoration:line-through;color:#9baab8;">€<?= number_format($_wpOrigAmt, 2) ?></small>
+                      <?php endif; ?>
+                    </div>
+                  </div>
+                  <button type="button" class="ml-wl-btn-cart"
+                          onclick="mlWlAddToCart(<?= $_wpId ?>, this)">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
+                    Add to Cart
+                  </button>
+                  <button type="button" class="ml-wl-btn-remove"
+                          onclick="mlWlRemove(<?= $_wpId ?>, this)">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+                    Remove
+                  </button>
+                </div>
+              </article>
+              <?php endforeach; ?>
+            </div>
+            <?php endif; ?>
           </div>
 
           <!-- ── Quotes Panel ── -->
@@ -601,98 +677,55 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
 
-  /* ── Wishlist (localStorage) ── */
-  var WISHLIST_KEY  = 'sinelec_wishlist';
-  var grid          = document.getElementById('mlWishlistGrid');
-  var emptyMsg      = document.getElementById('mlWishlistEmpty');
-  var countBadge    = document.getElementById('mlWishlistCount');
+  /* ── Wishlist: AJAX remove ── */
+  window.mlWlRemove = function (productId, btn) {
+    btn.disabled = true;
+    btn.textContent = 'Removing…';
+    var fd = new FormData();
+    fd.append('action', 'toggle');
+    fd.append('product_id', productId);
+    fetch('ajax/wishlist', { method: 'POST', body: fd })
+      .then(function(r){ return r.json(); })
+      .then(function(data) {
+        if (!data.ok) { btn.disabled = false; btn.textContent = 'Remove'; return; }
+        /* Animate card out */
+        var card = document.getElementById('ml-wl-card-' + productId);
+        if (card) {
+          card.style.transition = 'opacity .25s, transform .25s';
+          card.style.opacity = '0';
+          card.style.transform = 'translateX(20px)';
+          setTimeout(function () {
+            card.remove();
+            /* Update count badge */
+            var badge = document.getElementById('mlWishlistCount');
+            if (badge) badge.textContent = Math.max(0, parseInt(badge.textContent, 10) - 1);
+            /* Show empty state if no cards left */
+            var grid = document.getElementById('mlWishlistGrid');
+            if (grid && !grid.querySelector('.ml-wl-card')) {
+              grid.innerHTML = '<div class="ml-empty"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg><p>Your wishlist is empty.</p><a href="products" class="ml-empty-btn">Browse Products</a></div>';
+            }
+          }, 260);
+        }
+        /* Sync global wishIds in app.js if available */
+        if (window.S && Array.isArray(window.S.wishIds)) {
+          var idx = window.S.wishIds.indexOf(productId);
+          if (idx > -1) window.S.wishIds.splice(idx, 1);
+        }
+        if (typeof toast === 'function') toast('Removed from wishlist', 'warn');
+      })
+      .catch(function() { btn.disabled = false; btn.textContent = 'Remove'; });
+  };
 
-  var DEMO_WISHLIST = [
-    {
-      id: 'wl_001',
-      name: 'STM32F103C8T6 — ARM Cortex-M3 MCU, LQFP-48',
-      partNo: 'STM32F103C8T6',
-      brand: 'STMicroelectronics',
-      price: '€2.45',
-      priceNote: 'per unit, MOQ 10',
-      image: 'https://via.placeholder.com/120x120/f0f4f9/2563eb?text=STM32'
-    },
-    {
-      id: 'wl_002',
-      name: 'ESP32-WROOM-32E — Wi-Fi + BT Module, SMD',
-      partNo: 'ESP32-WROOM-32E',
-      brand: 'Espressif Systems',
-      price: '€3.90',
-      priceNote: 'per unit, MOQ 5',
-      image: 'https://via.placeholder.com/120x120/f0f4f9/2563eb?text=ESP32'
-    },
-    {
-      id: 'wl_003',
-      name: 'LM317T — Adjustable Voltage Regulator, TO-220',
-      partNo: 'LM317T',
-      brand: 'Texas Instruments',
-      price: '€0.68',
-      priceNote: 'per unit, MOQ 25',
-      image: 'https://via.placeholder.com/120x120/f0f4f9/2563eb?text=LM317'
+  /* ── Wishlist: Add to cart from my-list ── */
+  window.mlWlAddToCart = function (productId, btn) {
+    /* Delegate to app.js atcClick via product lookup, or direct API call */
+    if (typeof openPDP === 'function') {
+      openPDP(productId);
+    } else {
+      btn.textContent = 'Opening…';
+      window.location.href = 'product?id=' + productId;
     }
-  ];
-
-  function esc(v) {
-    return String(v || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
-
-  function loadWishlist() {
-    try {
-      var s = JSON.parse(localStorage.getItem(WISHLIST_KEY) || '[]');
-      return Array.isArray(s) ? s : [];
-    } catch(e) { return []; }
-  }
-  function saveWishlist(list) {
-    localStorage.setItem(WISHLIST_KEY, JSON.stringify(list));
-  }
-  function removeItem(id) {
-    var list = loadWishlist().filter(function(i){ return i.id !== id; });
-    saveWishlist(list);
-    renderWishlist();
-  }
-
-  function renderWishlist() {
-    var list = loadWishlist();
-    if (!list.length) {
-      list = DEMO_WISHLIST.map(function(d){ return Object.assign({}, d); });
-      saveWishlist(list);
-    }
-    if (countBadge) countBadge.textContent = list.length;
-    if (!list.length) {
-      grid.innerHTML = '';
-      emptyMsg.hidden = false;
-      return;
-    }
-    emptyMsg.hidden = true;
-    grid.innerHTML = list.map(function(item) {
-      return '<article class="ml-wl-card">'
-        + '<div class="ml-wl-img-wrap"><img src="' + esc(item.image || '') + '" alt="' + esc(item.name) + '" loading="lazy" onerror="this.src=\'../assets/no-image.png\'"></div>'
-        + '<div class="ml-wl-info">'
-        +   '<div class="ml-wl-name">' + esc(item.name) + '</div>'
-        +   '<div class="ml-wl-meta">'
-        +     '<span>Part No: <strong>' + esc(item.partNo || '') + '</strong></span>'
-        +     (item.brand ? '<span>Brand: <strong>' + esc(item.brand) + '</strong></span>' : '')
-        +   '</div>'
-        + '</div>'
-        + '<div class="ml-wl-actions">'
-        +   '<div><div class="ml-wl-price">' + esc(item.price || '—') + (item.priceNote ? '<small>' + esc(item.priceNote) + '</small>' : '') + '</div></div>'
-        +   '<button type="button" class="ml-wl-btn-cart" onclick="if(typeof addToCart===\'function\')addToCart(' + JSON.stringify(item.id) + ')else alert(\'Added to cart!\')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg> Add to Cart</button>'
-        +   '<button type="button" class="ml-wl-btn-remove" data-remove-id="' + esc(item.id) + '"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg> Remove</button>'
-        + '</div>'
-        + '</article>';
-    }).join('');
-
-    grid.querySelectorAll('[data-remove-id]').forEach(function(btn) {
-      btn.addEventListener('click', function(){ removeItem(btn.dataset.removeId); });
-    });
-  }
-
-  renderWishlist();
+  };
 });
 </script>
 

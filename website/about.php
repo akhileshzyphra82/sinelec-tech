@@ -1,5 +1,4 @@
 <?php
-require_once '../data/store_data.php';
 $currentPage = 'about';
 $pageTitle   = 'About Sinelec - Sinelec Tech';
 $teamProfiles = [

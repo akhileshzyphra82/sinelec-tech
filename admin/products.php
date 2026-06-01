@@ -217,7 +217,7 @@ ob_start();
           </td>
           <td style="font-size:12px;color:var(--text-muted);"><?= $catName ? htmlspecialchars($catName) : '<span style="color:var(--text-muted);">—</span>' ?></td>
           <td style="text-align:right;font-size:13px;font-weight:600;color:var(--text);">
-            <?= $amt > 0 ? '₹'.number_format($amt, 2) : '<span style="color:var(--text-muted);">—</span>' ?>
+            <?= $amt > 0 ? '€'.number_format($amt, 2) : '<span style="color:var(--text-muted);">—</span>' ?>
           </td>
           <td style="text-align:center;">
             <span style="font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px;display:inline-block;<?= $pStatus==='Active' ? 'background:#dcfce7;color:#15803d;' : 'background:#fee2e2;color:#dc2626;' ?>">
@@ -493,31 +493,12 @@ ob_start();
         <div id="pt-pricing" class="prod-tab-panel" style="display:none;">
           <div class="form-row cols-2" style="margin-bottom:14px;">
             <div class="fg">
-              <label>Price (₹)</label>
+              <label>Price (€)</label>
               <input type="number" name="product_amt" id="fProdAmt" class="form-control" placeholder="0.00" min="0" step="0.01">
-            </div>
-            <div class="fg">
-              <label>Tax (%)</label>
-              <input type="number" name="product_tax" id="fProdTax" class="form-control" placeholder="0" min="0" step="0.1">
-            </div>
-          </div>
-          <div class="form-row cols-2" style="margin-bottom:14px;">
-            <div class="fg">
-              <label>Discount (%)</label>
-              <input type="number" name="product_discount" id="fProdDisc" class="form-control" placeholder="0" min="0" max="100" step="0.1">
             </div>
             <div class="fg">
               <label>Offer Percentage (%)</label>
               <input type="number" name="offer_percentage" id="fProdOffer" class="form-control" placeholder="0" min="0" max="100" step="0.1">
-            </div>
-          </div>
-          <!-- Live price preview -->
-          <div id="pricePreview" style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-top:4px;">
-            <div style="font-size:12px;color:var(--text-muted);font-weight:600;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px;">Price Preview</div>
-            <div style="display:flex;gap:24px;flex-wrap:wrap;">
-              <div><div style="font-size:11px;color:var(--text-muted);">Base Price</div><div id="ppBase" style="font-size:16px;font-weight:700;color:var(--text);">₹0.00</div></div>
-              <div><div style="font-size:11px;color:var(--text-muted);">After Tax</div><div id="ppTax" style="font-size:16px;font-weight:700;color:#4f46e5;">₹0.00</div></div>
-              <div><div style="font-size:11px;color:var(--text-muted);">After Discount</div><div id="ppDisc" style="font-size:16px;font-weight:700;color:#059669;">₹0.00</div></div>
             </div>
           </div>
         </div>
@@ -1146,23 +1127,6 @@ function switchViewTab(tab, btn) {
 })();
 
 
-/* ═══════════════════════════════════════════════════
-   PRICE PREVIEW
-   ═══════════════════════════════════════════════════ */
-function updatePricePreview() {
-  var b   = parseFloat(document.getElementById('fProdAmt').value)  || 0;
-  var t   = parseFloat(document.getElementById('fProdTax').value)   || 0;
-  var d   = parseFloat(document.getElementById('fProdDisc').value)  || 0;
-  var wt  = b * (1 + t / 100);
-  var fin = wt * (1 - d / 100);
-  document.getElementById('ppBase').textContent = '₹' + b.toFixed(2);
-  document.getElementById('ppTax').textContent  = '₹' + wt.toFixed(2);
-  document.getElementById('ppDisc').textContent = '₹' + fin.toFixed(2);
-}
-['fProdAmt','fProdTax','fProdDisc'].forEach(function(id) {
-  var el = document.getElementById(id);
-  if (el) el.addEventListener('input', updatePricePreview);
-});
 
 
 /* ═══════════════════════════════════════════════════
@@ -1179,10 +1143,9 @@ function openProdModal(prodId) {
     var el = document.getElementById(id); if(el) el.value = '';
   });
   document.getElementById('fProdLabel').value = '';
-  ['fProdAmt','fProdTax','fProdDisc','fProdOffer'].forEach(function(id) {
+  ['fProdAmt','fProdOffer'].forEach(function(id) {
     var el = document.getElementById(id); if(el) el.value = '';
   });
-  updatePricePreview();
   document.getElementById('fProdId').value        = _editProdId;
   document.getElementById('fProdPrio').value       = '0';
   document.getElementById('fProdThreshold').value  = '1';
@@ -1213,9 +1176,6 @@ function openProdModal(prodId) {
       document.getElementById('fProdStatus').value     = d.status;
       document.getElementById('fProdDisplay').value    = d.display;
       document.getElementById('fProdAmt').value        = d.amt || '';
-      document.getElementById('fProdTax').value        = d.tax || '';
-      document.getElementById('fProdDisc').value       = d.disc || '';
-      updatePricePreview();
       document.getElementById('fProdOffer').value      = d.offer_pct !== '' ? d.offer_pct : '';
       var cSel = document.getElementById('fProdCat');
       for (var i = 0; i < cSel.options.length; i++) {
@@ -1719,7 +1679,7 @@ function openViewModal(prodId) {
   lBadge.style.display = d.label ? 'inline' : 'none';
 
   document.getElementById('viewProdCat').textContent       = d.cat_name || '—';
-  document.getElementById('viewProdAmt').textContent       = d.amt > 0 ? '₹' + parseFloat(d.amt).toFixed(2) : '—';
+  document.getElementById('viewProdAmt').textContent       = d.amt > 0 ? '€' + parseFloat(d.amt).toFixed(2) : '—';
   document.getElementById('viewProdTax').textContent       = d.tax > 0 ? d.tax + '%' : '—';
   document.getElementById('viewProdDisc').textContent      = d.disc > 0 ? d.disc + '%' : '—';
   document.getElementById('viewProdOffer').textContent     = d.offer_pct !== '' ? d.offer_pct + '%' : '—';
@@ -1823,7 +1783,7 @@ function exportProdXLS() {
   var catFil = document.getElementById('prodCatFilter').value;
   var stFil  = document.getElementById('prodStatusFilter').value;
 
-  var headers = ['S.No.','Product Name','Code','Category','Status','Price (₹)','Tax %','Discount %','Offer %','Rating','Label','Stock Remaining','Total Stock','Total Sold','Threshold','Display'];
+  var headers = ['S.No.','Product Name','Code','Category','Status','Price (€)','Tax %','Discount %','Offer %','Rating','Label','Stock Remaining','Total Stock','Total Sold','Threshold','Display'];
   var rows = [headers];
   var idx = 1;
 

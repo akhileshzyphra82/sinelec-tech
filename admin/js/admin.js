@@ -56,9 +56,6 @@
   /* generic modal helpers */
   window.openModal  = function (id) { var el = document.getElementById(id); if (el) el.classList.add('open'); };
   window.closeModal = function (id) { var el = document.getElementById(id); if (el) el.classList.remove('open'); };
-  document.querySelectorAll('.modal-overlay').forEach(function (o) {
-    o.addEventListener('click', function (e) { if (e.target === o) o.classList.remove('open'); });
-  });
 })();
 
 

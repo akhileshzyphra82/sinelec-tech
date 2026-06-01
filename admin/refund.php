@@ -456,7 +456,7 @@ ob_start();
 <!-- ═══════════════════════════════════════════════════
      VIEW DETAIL MODAL
 ═══════════════════════════════════════════════════ -->
-<div id="rfDetailModal" class="modal-overlay" onclick="if(event.target===this)closeModal('rfDetailModal')">
+<div id="rfDetailModal" class="modal-overlay">
   <div class="modal" style="max-width:800px;width:96%;max-height:92vh;display:flex;flex-direction:column;">
     <div class="modal-hd" style="display:flex;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid var(--border);flex-shrink:0;">
       <div>
@@ -474,7 +474,7 @@ ob_start();
 <!-- ═══════════════════════════════════════════════════
      UPDATE STATUS MODAL
 ═══════════════════════════════════════════════════ -->
-<div id="rfStatusModal" class="modal-overlay" onclick="if(event.target===this)closeModal('rfStatusModal')">
+<div id="rfStatusModal" class="modal-overlay">
   <div class="modal" style="max-width:460px;">
     <div class="modal-header">
       <span class="modal-title">Update Refund Status</span>

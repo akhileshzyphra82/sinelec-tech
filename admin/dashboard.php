@@ -149,19 +149,29 @@ ob_start();
 .db2-qa-btn:hover     { background:rgba(255,255,255,.28); }
 
 /* KPI strip */
-.db2-kpi-strip        { display:grid; gap:10px; margin-bottom:20px; }
-.db2-kpi-card         { background:#fff; border:1px solid #e2e8f0; border-radius:12px;
-                         padding:14px 16px; position:relative; overflow:hidden; }
-.db2-kpi-card__bar    { position:absolute; top:0; left:0; right:0; height:3px; border-radius:12px 12px 0 0; }
-.db2-kpi-card__icon   { width:36px; height:36px; border-radius:9px; display:flex;
-                         align-items:center; justify-content:center; margin-bottom:10px; }
-.db2-kpi-card__icon svg{ width:18px; height:18px; }
+.db2-kpi-strip        { display:flex; flex-wrap:nowrap; gap:8px; margin-bottom:20px; overflow-x:auto; }
+.db2-kpi-card         { background:#fff; border:1px solid #e2e8f0; border-radius:10px;
+                         padding:12px 12px 10px; position:relative; overflow:hidden;
+                         flex:1 1 0; min-width:110px; }
+.db2-kpi-card__bar    { position:absolute; top:0; left:0; right:0; height:3px; border-radius:10px 10px 0 0; }
+/* row 1: icon + label side by side */
+.db2-kpi-card__top    { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+.db2-kpi-card__icon   { width:30px; height:30px; border-radius:8px; display:flex;
+                         align-items:center; justify-content:center; flex-shrink:0; }
+.db2-kpi-card__icon svg{ width:15px; height:15px; }
 .db2-kpi-card__lbl    { font-size:10px; font-weight:700; color:#64748b; text-transform:uppercase;
-                         letter-spacing:.5px; margin-bottom:4px; }
-.db2-kpi-card__val    { font-size:22px; font-weight:900; color:#1e293b; line-height:1; margin-bottom:3px; }
-.db2-kpi-card__sub    { font-size:10px; color:#94a3b8; }
-.db2-kpi-card__alert  { display:inline-block; font-size:9px; font-weight:700; padding:2px 7px;
-                         border-radius:10px; margin-top:4px; }
+                         letter-spacing:.4px; line-height:1.3;
+                         overflow:hidden; display:-webkit-box;
+                         -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+/* row 2: big value */
+.db2-kpi-card__val    { font-size:22px; font-weight:900; line-height:1; margin-bottom:3px; }
+/* row 3: sub text */
+.db2-kpi-card__sub    { font-size:10px; color:#94a3b8; white-space:nowrap;
+                         overflow:hidden; text-overflow:ellipsis; }
+/* alert badge */
+.db2-kpi-card__alert  { display:inline-flex; align-items:center; gap:3px; font-size:9px;
+                         font-weight:700; padding:2px 7px; border-radius:10px;
+                         margin-top:5px; white-space:nowrap; }
 
 /* Charts + metrics row */
 .db2-main-row         { display:grid; grid-template-columns:1fr 340px; gap:14px; margin-bottom:20px; }
@@ -298,75 +308,71 @@ $kpiCards = [];
 
 if ($showFinance && $fKpi) {
     $kpiCards[] = [
-        'label' => 'Revenue Collected',
+        'label' => 'Collected',
         'value' => db2Fmt((float)($fKpi->COLLECTED ?? 0)),
-        'sub'   => 'This month: '.db2Fmt((float)($fKpi->THIS_MONTH_COL ?? 0)),
+        'sub'   => 'Month: '.db2Fmt((float)($fKpi->THIS_MONTH_COL ?? 0)),
         'color' => '#16a34a',
-        'icon'  => 'revenue',
+        'icon'  => 'analytics',
     ];
     $kpiCards[] = [
-        'label' => 'Pending Payments',
+        'label' => 'Pending',
         'value' => number_format((int)($fKpi->PENDING_COUNT ?? 0)),
         'sub'   => db2Fmt((float)($fKpi->PENDING_REV ?? 0)),
         'color' => '#f59e0b',
-        'icon'  => 'clock',
+        'icon'  => 'payments',
         'alert' => ((int)($fKpi->PENDING_COUNT ?? 0)) > 0 ? ['bg'=>'#fef9c3','c'=>'#b45309','text'=>'Needs attention'] : null,
     ];
 }
 if ($showOrders && $oKpi) {
     $kpiCards[] = [
-        'label' => 'Total Orders',
+        'label' => 'Orders',
         'value' => number_format((int)($oKpi->TOTAL ?? 0)),
-        'sub'   => 'This month: '.(int)($oKpi->THIS_MONTH ?? 0),
+        'sub'   => 'Month: '.(int)($oKpi->THIS_MONTH ?? 0),
         'color' => '#2563eb',
-        'icon'  => 'order',
+        'icon'  => 'receipt_long',
     ];
-    if ((int)($oKpi->PENDING ?? 0) + (int)($oKpi->CONFIRMED ?? 0) > 0) {
-        $kpiCards[] = [
-            'label' => 'Active / In Process',
-            'value' => number_format((int)($oKpi->PENDING ?? 0) + (int)($oKpi->CONFIRMED ?? 0) + (int)($oKpi->IN_TRANSIT ?? 0)),
-            'sub'   => (int)($oKpi->IN_TRANSIT ?? 0).' in transit',
-            'color' => '#7c3aed',
-            'icon'  => 'truck',
-        ];
-    }
+    $kpiCards[] = [
+        'label' => 'In Process',
+        'value' => number_format((int)($oKpi->PENDING ?? 0) + (int)($oKpi->CONFIRMED ?? 0) + (int)($oKpi->IN_TRANSIT ?? 0)),
+        'sub'   => (int)($oKpi->IN_TRANSIT ?? 0).' in transit',
+        'color' => '#7c3aed',
+        'icon'  => 'local_shipping',
+    ];
 }
 if ($showProducts && $pKpi) {
     $kpiCards[] = [
-        'label' => 'Active Products',
+        'label' => 'Products',
         'value' => number_format((int)($pKpi->ACTIVE_PRODUCTS ?? 0)),
-        'sub'   => (int)($pKpi->TOTAL_PRODUCTS ?? 0).' total in catalog',
+        'sub'   => (int)($pKpi->TOTAL_PRODUCTS ?? 0).' in catalog',
         'color' => '#0891b2',
-        'icon'  => 'product',
+        'icon'  => 'inventory',
     ];
     $lowStockCount = (int)($pKpi->LOW_STOCK ?? 0);
-    if ($lowStockCount > 0) {
-        $kpiCards[] = [
-            'label' => 'Low / Out of Stock',
-            'value' => $lowStockCount,
-            'sub'   => (int)($pKpi->OUT_OF_STOCK ?? 0).' out of stock',
-            'color' => '#dc2626',
-            'icon'  => 'warning',
-            'alert' => ['bg'=>'#fee2e2','c'=>'#b91c1c','text'=>'Restock needed'],
-        ];
-    }
+    $kpiCards[] = [
+        'label' => 'Low Stock',
+        'value' => $lowStockCount,
+        'sub'   => (int)($pKpi->OUT_OF_STOCK ?? 0).' out of stock',
+        'color' => '#dc2626',
+        'icon'  => 'inventory_2',
+        'alert' => $lowStockCount > 0 ? ['bg'=>'#fee2e2','c'=>'#b91c1c','text'=>'Restock needed'] : null,
+    ];
 }
 if ($showCustomers && $cKpi) {
     $kpiCards[] = [
-        'label' => 'Total Customers',
+        'label' => 'Customers',
         'value' => number_format((int)($cKpi->TOTAL_CUSTOMERS ?? 0)),
         'sub'   => 'Registered buyers',
         'color' => '#0ea5e9',
-        'icon'  => 'user',
+        'icon'  => 'customers',
     ];
 }
 if ($showQuotes && $qKpi) {
     $kpiCards[] = [
         'label' => 'Quotations',
         'value' => number_format((int)($qKpi->TOTAL_QUOTES ?? 0)),
-        'sub'   => (int)($qKpi->PENDING ?? 0).' pending · '.(int)($qKpi->CONVERTED ?? 0).' converted',
+        'sub'   => (int)($qKpi->PENDING ?? 0).' pending · '.(int)($qKpi->CONVERTED ?? 0).' done',
         'color' => '#8b5cf6',
-        'icon'  => 'document',
+        'icon'  => 'quotes',
         'alert' => ((int)($qKpi->PENDING ?? 0)) > 0 ? ['bg'=>'#ede9fe','c'=>'#6d28d9','text'=>(int)$qKpi->PENDING.' pending'] : null,
     ];
 }
@@ -374,11 +380,11 @@ if ($showRefunds && $rKpi) {
     $pendingApproval = (int)($rKpi->PENDING_APPROVAL ?? 0);
     if ($pendingApproval > 0) {
         $kpiCards[] = [
-            'label' => 'Refund Requests',
+            'label' => 'Refunds',
             'value' => number_format((int)($rKpi->TOTAL_RETURNS ?? 0)),
             'sub'   => $pendingApproval.' awaiting approval',
             'color' => '#dc2626',
-            'icon'  => 'refund',
+            'icon'  => 'account_balance_wallet',
             'alert' => ['bg'=>'#fee2e2','c'=>'#b91c1c','text'=>$pendingApproval.' pending'],
         ];
     }
@@ -387,31 +393,31 @@ if ($showHR && $hKpi) {
     $kpiCards[] = [
         'label' => 'Job Openings',
         'value' => (int)($hKpi->ACTIVE_JOBS ?? 0),
-        'sub'   => (int)($hKpi->TOTAL_JOBS ?? 0).' total positions',
+        'sub'   => (int)($hKpi->TOTAL_JOBS ?? 0).' positions',
         'color' => '#f59e0b',
-        'icon'  => 'users',
+        'icon'  => 'work',
     ];
 }
 
-$colCount = max(2, min(8, count($kpiCards)));
 ?>
 
-<div class="db2-kpi-strip" style="grid-template-columns:repeat(<?= $colCount ?>,1fr);">
+<div class="db2-kpi-strip">
   <?php foreach ($kpiCards as $card): ?>
   <div class="db2-kpi-card">
     <div class="db2-kpi-card__bar" style="background:<?= $card['color'] ?>;"></div>
-    <div class="db2-kpi-card__icon" style="background:<?= $card['color'] ?>18;">
-      <?php
-        $iconMap = [
-          'revenue'=>'sales','order'=>'receipt_long','truck'=>'local_shipping',
-          'product'=>'inventory','warning'=>'warning','user'=>'person',
-          'document'=>'description','refund'=>'undo','users'=>'group','clock'=>'schedule',
-        ];
-        echo sb_icon_svg($iconMap[$card['icon']] ?? 'info');
-      ?>
+    <!-- Row 1: icon + label -->
+    <div class="db2-kpi-card__top">
+      <div class="db2-kpi-card__icon" style="background:<?= $card['color'] ?>18;color:<?= $card['color'] ?>;">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <?= sb_icon_svg($card['icon']) ?>
+        </svg>
+      </div>
+      <div class="db2-kpi-card__lbl"><?= $card['label'] ?></div>
     </div>
-    <div class="db2-kpi-card__lbl"><?= $card['label'] ?></div>
+    <!-- Row 2: big value -->
     <div class="db2-kpi-card__val" style="color:<?= $card['color'] ?>;"><?= $card['value'] ?></div>
+    <!-- Row 3: sub text -->
     <div class="db2-kpi-card__sub"><?= $card['sub'] ?></div>
     <?php if (!empty($card['alert'])): ?>
       <span class="db2-kpi-card__alert" style="background:<?= $card['alert']['bg'] ?>;color:<?= $card['alert']['c'] ?>;">

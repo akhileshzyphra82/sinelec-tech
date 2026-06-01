@@ -190,8 +190,9 @@ ob_start();
   </select>
   <select name="source" class="form-control" style="height:36px;width:auto;min-width:130px;">
     <option value="">All Sources</option>
-    <option value="quotation" <?= $fSource==='quotation'?'selected':'' ?>>From Quotation</option>
-    <option value="direct"    <?= $fSource==='direct'   ?'selected':'' ?>>Direct</option>
+    <option value="Website"      <?= $fSource==='Website'      ?'selected':'' ?>>Website</option>
+    <option value="Quotation"    <?= $fSource==='Quotation'    ?'selected':'' ?>>Quotation</option>
+    <option value="Direct Order" <?= $fSource==='Direct Order' ?'selected':'' ?>>Direct Order</option>
   </select>
   <input type="date" name="date_from" class="form-control" value="<?= htmlspecialchars($fFrom) ?>" style="height:36px;width:130px;" title="From date">
   <input type="date" name="date_to"   class="form-control" value="<?= htmlspecialchars($fTo) ?>"   style="height:36px;width:130px;" title="To date">
@@ -274,8 +275,16 @@ ob_start();
           $timeFmt  = $dateRaw ? date('h:i A', strtotime($dateRaw)) : '';
           $oClass   = olOrderBadge($oStatus);
           $pClass   = olPayBadge($pStatus);
-          $srcLabel = $qid > 0 ? 'QT-'.str_pad((string)$qid,6,'0',STR_PAD_LEFT) : 'Direct';
-          $srcClass = $qid > 0 ? 'badge--violet' : 'badge--grey';
+          $srcOrder = (string)($o->SOURCE_ORDER ?? '');
+          [$srcLabel, $srcClass] = match($srcOrder) {
+              'Website'      => ['Website',      'badge--blue'],
+              'Quotation'    => ['Quotation',    'badge--violet'],
+              'Direct Order' => ['Direct Order', 'badge--green'],
+              default        => [$srcOrder ?: 'Website', 'badge--grey'],
+          };
+          $trackId  = trim((string)($o->DISPATCH_COURIER_TRACKING_ID ?? ''));
+          $trackTpl = trim((string)($o->COURIER_TRACKING_TPL ?? ''));
+          $trackUrl = ($trackId !== '' && $trackTpl !== '') ? str_replace('{tracking_id}', rawurlencode($trackId), $trackTpl) : '';
           $modeIcon = match($mode) { 'Invoice' => '📄', 'Bank Transfer' => '🏦', 'Payment Gateway' => '💳', default => '' };
           $searchStr = strtolower($orderNo.' '.$cName.' '.$cEmail.' '.$cCo.' '.$srcLabel);
         ?>
@@ -305,13 +314,32 @@ ob_start();
             <?php if($timeFmt): ?><div style="font-size:10px;color:var(--text-muted);opacity:.7;"><?= $timeFmt ?></div><?php endif; ?>
           </td>
           <td style="text-align:center;">
-            <div style="display:inline-flex;align-items:center;gap:4px;">
+            <div style="display:inline-flex;flex-direction:column;align-items:center;gap:4px;">
+              <div style="display:inline-flex;align-items:center;gap:4px;">
               <!-- Invoice PDF -->
-              <a href="order-invoice?id=<?= $oid ?>" target="_blank" title="View Invoice"
-                 style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;background:#f1f5f9;color:#64748b;text-decoration:none;"
-                 onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='#f1f5f9'">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="11" y2="17"/></svg>
+              <a href="order-invoice?id=<?= $oid ?>" target="_blank" title="Download Invoice"
+                 style="display:inline-flex;align-items:center;gap:4px;padding:4px 9px;border-radius:6px;background:#eff6ff;color:#1d4ed8;text-decoration:none;font-size:11px;font-weight:600;white-space:nowrap;"
+                 onmouseover="this.style.background='#dbeafe'" onmouseout="this.style.background='#eff6ff'">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="11" y2="17"/></svg>
+                Invoice
               </a>
+              <?php if ($trackId !== ''): ?>
+              <?php if ($trackUrl !== ''): ?>
+              <a href="<?= htmlspecialchars($trackUrl) ?>" target="_blank" title="Track Order: <?= htmlspecialchars($trackId) ?>"
+                 style="display:inline-flex;align-items:center;gap:4px;padding:4px 9px;border-radius:6px;background:#f0fdf4;color:#15803d;text-decoration:none;font-size:11px;font-weight:600;white-space:nowrap;"
+                 onmouseover="this.style.background='#dcfce7'" onmouseout="this.style.background='#f0fdf4'">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                Track
+              </a>
+              <?php else: ?>
+              <span title="Tracking ID: <?= htmlspecialchars($trackId) ?>"
+                    style="display:inline-flex;align-items:center;gap:4px;padding:4px 9px;border-radius:6px;background:#f0fdf4;color:#15803d;font-size:11px;font-weight:600;white-space:nowrap;cursor:default;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                <?= htmlspecialchars($trackId) ?>
+              </span>
+              <?php endif; ?>
+              <?php endif; ?>
+              </div>
               <div class="kbm-wrap">
                 <button class="kbm-btn" onclick="toggleKbm(this)" title="More actions">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg>
@@ -1130,7 +1158,9 @@ function olViewOrder(oid) {
         return;
       }
       var o = data.order; var items = data.items || []; var hist = data.history || [];
-      var srcBadge = o.quote_id > 0 ? '<span class="badge badge--violet" style="font-size:10px;">QT-'+String(o.quote_id).padStart(6,'0')+'</span>' : '<span class="badge badge--grey" style="font-size:10px;">Direct</span>';
+      var _srcMap = { 'Website': 'badge--blue', 'Quotation': 'badge--violet', 'Direct Order': 'badge--green' };
+      var _srcCls = _srcMap[o.source_order] || 'badge--grey';
+      var srcBadge = '<span class="badge ' + _srcCls + '" style="font-size:10px;">' + (o.source_order || 'Website') + '</span>';
       var html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">'
         +'<div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:12px 14px;">'
         +'<div style="font-size:10px;font-weight:700;text-transform:uppercase;color:#94a3b8;margin-bottom:4px;">Order Number</div>'

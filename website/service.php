@@ -283,7 +283,7 @@ switch($action)
         {
             startSinelecSessionForUser($user);
 
-            $allowedRedirects = ['request-a-quote', 'my-list', 'delivery-address', 'account'];
+            $allowedRedirects = ['request-a-quote', 'my-list', 'delivery-address', 'account', 'checkout'];
             $postRedirect = trim((string)($_POST['auth_redirect'] ?? ''));
             $loginTarget = in_array($postRedirect, $allowedRedirects) ? $postRedirect : 'index';
             redirectWithFlash($loginTarget, 'ok', 'Signed in successfully.');

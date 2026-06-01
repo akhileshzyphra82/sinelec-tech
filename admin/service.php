@@ -816,14 +816,19 @@ switch ($action) {
         $catIdsRaw = (array)($_POST['product_category_ids'] ?? []);
         $catIds    = implode(',', array_filter(array_map('intval', $catIdsRaw)));
 
+        $displayInHome = in_array(trim($_POST['should_display_in_home'] ?? ''), ['Yes', 'No'])
+            ? trim($_POST['should_display_in_home'])
+            : 'No';
+
         $savedId = $controller->saveManufacturer([
-            'id'                   => $mfrId,
-            'name'                 => $name,
-            'logo'                 => $logoKey,
-            'country_id'           => (int)($_POST['country_id'] ?? 0),
-            'description'          => trim($_POST['description'] ?? ''),
-            'product_category_ids' => $catIds,
-            'status'               => (int)($_POST['status'] ?? 1),
+            'id'                    => $mfrId,
+            'name'                  => $name,
+            'logo'                  => $logoKey,
+            'country_id'            => (int)($_POST['country_id'] ?? 0),
+            'description'           => trim($_POST['description'] ?? ''),
+            'product_category_ids'  => $catIds,
+            'status'                => (int)($_POST['status'] ?? 1),
+            'should_display_in_home'=> $displayInHome,
         ]);
 
         if ($savedId) {
@@ -1846,7 +1851,7 @@ switch ($action) {
         if ($cdoNewId <= 0) adminRedirectWithFlash('order-list', 'err', 'Failed to create order. Please try again.');
 
         /* Send confirmation mail */
-        $cdoOrderNo  = 'ORD-'.date('Y').'-'.str_pad((string)$cdoNewId, 6, '0', STR_PAD_LEFT);
+        $cdoOrderNo  = date('Y').str_pad((string)$cdoNewId, 2, '0', STR_PAD_LEFT);
         $cdoComp     = $controller->getCompanyDetails();
         $cdoQ        = $controller->getUserOrderById($cdoNewId);
         $cdoCustName = htmlspecialchars((string)($cdoQ->CUST_NAME  ?? 'Customer'));
@@ -1869,7 +1874,46 @@ switch ($action) {
         if ($cdoCoEmail) $cdoCoContactHtml .= '<a href="mailto:'.htmlspecialchars($cdoCoEmail).'" style="color:#6366f1;">'.htmlspecialchars($cdoCoEmail).'</a>';
         if ($cdoCoEmail && $cdoCoPhone) $cdoCoContactHtml .= ' | ';
         if ($cdoCoPhone) $cdoCoContactHtml .= htmlspecialchars($cdoCoPhone);
-        $cdoBodyCust = '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="margin:0;padding:0;background:#f1f5f9;font-family:\'Segoe UI\',Arial,sans-serif;"><table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:32px 16px;"><tr><td align="center"><table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;"><tr><td style="background:linear-gradient(135deg,#059669 0%,#10b981 100%);border-radius:12px 12px 0 0;padding:32px 40px;text-align:center;"><div style="color:#fff;font-size:22px;font-weight:700;">'.$cdoCoName.'</div><div style="color:rgba(255,255,255,.8);font-size:13px;margin-top:4px;">&#9989; Order Confirmation</div></td></tr><tr><td style="background:#fff;padding:36px 40px 28px;"><p style="margin:0 0 20px;font-size:16px;font-weight:700;color:#1e293b;">Dear '.$cdoCustName.',</p><p style="margin:0 0 20px;font-size:14px;color:#475569;line-height:1.7;">Your order has been successfully created. Please find the details below.</p><table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;margin:0 0 20px;"><tr><td style="padding:16px 24px;border-bottom:1px solid #e2e8f0;"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:4px;">Order Number</div><div style="font-size:20px;font-weight:800;color:#059669;">'.$cdoOrderNo.'</div></td><td style="padding:16px 24px;border-bottom:1px solid #e2e8f0;text-align:right;"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:4px;">Total Amount</div><div style="font-size:20px;font-weight:800;color:#059669;">'.$cdoTotalFmt.'</div></td></tr><tr><td style="padding:14px 24px;border-bottom:1px solid #e2e8f0;"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:6px;">Order Status</div>'.$cdoOsBadge.'</td><td style="padding:14px 24px;border-bottom:1px solid #e2e8f0;"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:4px;">Payment Method</div><div style="font-size:13px;font-weight:600;color:#1e293b;">'.$cdoModeIcon.' '.$cdoPayMode.'</div></td></tr></table><p style="margin:0;font-size:13px;color:#64748b;line-height:1.7;">Thank you for your business. We will keep you updated as your order progresses.</p></td></tr><tr><td style="background:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;"><p style="margin:0 0 4px;font-size:13px;color:#475569;">Warm regards,</p><p style="margin:0 0 4px;font-size:14px;font-weight:700;color:#1e293b;">'.$cdoCoName.'</p>'.($cdoCoContactHtml ? '<p style="margin:0;font-size:12px;color:#94a3b8;">'.$cdoCoContactHtml.'</p>' : '').'</td></tr><tr><td style="background:#e2e8f0;border-radius:0 0 12px 12px;padding:12px 40px;text-align:center;"><p style="margin:0;font-size:11px;color:#94a3b8;">Automated notification from '.$cdoCoName.' | Order: <strong>'.$cdoOrderNo.'</strong></p></td></tr></table></td></tr></table></body></html>';
+
+        /* Bank details block — only injected for Bank Transfer orders */
+        $cdoBankHtml = '';
+        if ($cdoPayMode === 'Bank Transfer') {
+            $cdoBanks = $controller->getBankDetails();
+            if (!empty($cdoBanks)) {
+                $cdoBankHtml .= '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:18px 24px;margin:20px 0 0;">'
+                              . '<div style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700;color:#92400e;margin-bottom:8px;">&#127968; Bank Transfer Instructions</div>'
+                              . '<p style="font-size:12px;color:#92400e;margin:0 0 14px;line-height:1.6;">Please transfer the exact amount to the account below and use <strong>'.$cdoOrderNo.'</strong> as your payment reference.</p>';
+                foreach ($cdoBanks as $cdoB) {
+                    $bHolder = htmlspecialchars(trim((string)($cdoB->ACCOUNT_HOLDER_NAME ?? '')));
+                    $bName   = htmlspecialchars(trim((string)($cdoB->BANK_NAME           ?? '')));
+                    $bBranch = htmlspecialchars(trim((string)($cdoB->BRANCH_NAME         ?? '')));
+                    $bAcct   = htmlspecialchars(trim((string)($cdoB->ACCOUNT_NUMBER      ?? '')));
+                    $bSwift  = htmlspecialchars(trim((string)($cdoB->SWIFT_CODE          ?? '')));
+                    $bIban   = htmlspecialchars(trim((string)($cdoB->IBAN_NUMBER         ?? '')));
+                    $bCur    = htmlspecialchars(trim((string)($cdoB->CURRENCY            ?? 'EURO')));
+                    $bAddr   = htmlspecialchars(trim((string)($cdoB->BANK_ADDRESS        ?? '')));
+                    $cdoBankHtml .= '<table width="100%" cellpadding="0" cellspacing="0" style="background:#fff;border:1px solid #fde68a;border-radius:8px;margin-bottom:10px;">';
+                    $bRows = [];
+                    if ($bHolder) $bRows[] = ['Account Holder', '<strong>'.$bHolder.'</strong>'];
+                    if ($bName)   $bRows[] = ['Bank', '<strong>'.($bBranch ? $bName.' — '.$bBranch : $bName).'</strong>'];
+                    if ($bAcct)   $bRows[] = ['Account Number', '<strong style="font-family:monospace;letter-spacing:.5px;">'.$bAcct.'</strong>'];
+                    if ($bIban)   $bRows[] = ['IBAN', '<strong style="font-family:monospace;letter-spacing:.5px;">'.$bIban.'</strong>'];
+                    if ($bSwift)  $bRows[] = ['SWIFT / BIC', '<strong style="font-family:monospace;">'.$bSwift.'</strong>'];
+                    if ($bCur)    $bRows[] = ['Currency', '<strong>'.$bCur.'</strong>'];
+                    if ($bAddr)   $bRows[] = ['Bank Address', $bAddr];
+                    $lastIdx = count($bRows) - 1;
+                    foreach ($bRows as $ri => $bRow) {
+                        $border = $ri < $lastIdx ? 'border-bottom:1px solid #fef3c7;' : '';
+                        $cdoBankHtml .= '<tr><td style="padding:8px 14px;font-size:12px;color:#92400e;'.$border.'">'.$bRow[0].'</td>'
+                                      . '<td style="padding:8px 14px;font-size:12px;color:#1a3352;text-align:right;'.$border.'">'.$bRow[1].'</td></tr>';
+                    }
+                    $cdoBankHtml .= '</table>';
+                }
+                $cdoBankHtml .= '</div>';
+            }
+        }
+
+        $cdoBodyCust = '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="margin:0;padding:0;background:#f1f5f9;font-family:\'Segoe UI\',Arial,sans-serif;"><table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:32px 16px;"><tr><td align="center"><table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;"><tr><td style="background:linear-gradient(135deg,#059669 0%,#10b981 100%);border-radius:12px 12px 0 0;padding:32px 40px;text-align:center;"><div style="color:#fff;font-size:22px;font-weight:700;">'.$cdoCoName.'</div><div style="color:rgba(255,255,255,.8);font-size:13px;margin-top:4px;">&#9989; Order Confirmation</div></td></tr><tr><td style="background:#fff;padding:36px 40px 28px;"><p style="margin:0 0 20px;font-size:16px;font-weight:700;color:#1e293b;">Dear '.$cdoCustName.',</p><p style="margin:0 0 20px;font-size:14px;color:#475569;line-height:1.7;">Your order has been successfully created. Please find the details below.</p><table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;margin:0 0 20px;"><tr><td style="padding:16px 24px;border-bottom:1px solid #e2e8f0;"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:4px;">Order Number</div><div style="font-size:20px;font-weight:800;color:#059669;">'.$cdoOrderNo.'</div></td><td style="padding:16px 24px;border-bottom:1px solid #e2e8f0;text-align:right;"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:4px;">Total Amount</div><div style="font-size:20px;font-weight:800;color:#059669;">'.$cdoTotalFmt.'</div></td></tr><tr><td style="padding:14px 24px;border-bottom:1px solid #e2e8f0;"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:6px;">Order Status</div>'.$cdoOsBadge.'</td><td style="padding:14px 24px;border-bottom:1px solid #e2e8f0;"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin-bottom:4px;">Payment Method</div><div style="font-size:13px;font-weight:600;color:#1e293b;">'.$cdoModeIcon.' '.$cdoPayMode.'</div></td></tr></table>'.$cdoBankHtml.'<p style="margin:'.($cdoBankHtml ? '20px' : '0').' 0 0;font-size:13px;color:#64748b;line-height:1.7;">Thank you for your business. We will keep you updated as your order progresses.</p></td></tr><tr><td style="background:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;"><p style="margin:0 0 4px;font-size:13px;color:#475569;">Warm regards,</p><p style="margin:0 0 4px;font-size:14px;font-weight:700;color:#1e293b;">'.$cdoCoName.'</p>'.($cdoCoContactHtml ? '<p style="margin:0;font-size:12px;color:#94a3b8;">'.$cdoCoContactHtml.'</p>' : '').'</td></tr><tr><td style="background:#e2e8f0;border-radius:0 0 12px 12px;padding:12px 40px;text-align:center;"><p style="margin:0;font-size:11px;color:#94a3b8;">Automated notification from '.$cdoCoName.' | Order: <strong>'.$cdoOrderNo.'</strong></p></td></tr></table></td></tr></table></body></html>';
         $cdoBodyInt  = '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="margin:0;padding:0;background:#f1f5f9;font-family:\'Segoe UI\',Arial,sans-serif;"><table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 16px;"><tr><td align="center"><table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#fff;border-radius:10px;overflow:hidden;border:1px solid #e2e8f0;"><tr><td style="background:#059669;padding:16px 24px;"><div style="color:#fff;font-size:15px;font-weight:700;">&#9989; New Direct Order — '.$cdoOrderNo.'</div></td></tr><tr><td style="padding:20px 24px;"><table width="100%" cellpadding="0" cellspacing="0"><tr><td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;padding-bottom:6px;width:40%;">Customer</td><td style="font-size:13px;font-weight:700;color:#1e293b;padding-bottom:6px;">'.$cdoCustName.'</td></tr><tr><td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;padding-bottom:6px;">Order No</td><td style="font-size:13px;color:#059669;font-weight:700;padding-bottom:6px;">'.$cdoOrderNo.'</td></tr><tr><td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;padding-bottom:6px;">Payment</td><td style="font-size:13px;font-weight:600;color:#1e293b;padding-bottom:6px;">'.$cdoModeIcon.' '.$cdoPayMode.'</td></tr><tr><td style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;padding-bottom:6px;">Total</td><td style="font-size:14px;font-weight:700;color:#059669;padding-bottom:6px;">'.$cdoTotalFmt.'</td></tr></table></td></tr><tr><td style="background:#f8fafc;padding:10px 24px;border-top:1px solid #e2e8f0;"><p style="margin:0;font-size:11px;color:#94a3b8;">Internal — '.$cdoCoName.' Order System</p></td></tr></table></td></tr></table></body></html>';
 
         $cdoSentTo = []; $cdoRecips = [];
@@ -2063,6 +2107,7 @@ switch ($action) {
         $godOrderOut = [
             'order_number'         => (string)($godOrder->ORDER_NUMBER           ?? ''),
             'quote_id'             => (int)(float)($godOrder->ENQUIRY_QUOTE_ID   ?? 0),
+            'source_order'         => (string)($godOrder->SOURCE_ORDER           ?? 'Website'),
             'subtotal'             => number_format($godSubTotal, 2),
             'shipping_amt'         => number_format($godShip, 2),
             'discount_amt'         => number_format($godDisc, 2),

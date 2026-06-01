@@ -1,21 +1,27 @@
 <?php
-require_once __DIR__ . '/data/store_data.php';
+require_once __DIR__ . '/common/functions.php';
+require_once __DIR__ . '/controller/website_controller.php';
 
-$categories = $storeData['categories'] ?? [];
-$manufacturers = $storeData['manufacturers'] ?? [];
-$products = $storeData['products'] ?? [];
+$_kCtrl = new WebsiteController();
 
-$categoryNames = array_map(static fn(array $category): string => $category['name'], $categories);
-$manufacturerNames = array_map(static fn(array $manufacturer): string => $manufacturer['name'], $manufacturers);
-$featuredProducts = array_slice(array_map(
-    static fn(array $product): array => [
-        'sku' => $product['sku'] ?? '',
-        'name' => $product['name'] ?? '',
-        'category' => $product['category'] ?? '',
-        'manufacturer' => $product['manufacturer'] ?? '',
-    ],
-    $products
-), 0, 16);
+$_dbCats = $_kCtrl->getAllCategoriesFlat();
+$categories = array_map(fn($c) => [
+    'id'   => (int)(float)($c->PRODUCT_CATEGORY_ID ?? 0),
+    'name' => (string)($c->PRODUCT_CATEGORY_NAME ?? ''),
+], $_dbCats);
+$categoryNames = array_map(fn($c) => $c['name'], $categories);
+
+$_dbMfrs = $_kCtrl->getAllManufacturers();
+$manufacturers = array_map(fn($m) => [
+    'id'   => (int)(float)($m->MANUFACTURER_ID ?? 0),
+    'name' => (string)($m->NAME ?? ''),
+], $_dbMfrs);
+$manufacturerNames = array_map(fn($m) => $m['name'], $manufacturers);
+
+$products = []; /* Products now served via AJAX catalog — not needed here */
+$featuredProducts = []; /* No static featured products — show none */
+
+unset($_kCtrl, $_dbCats, $_dbMfrs);
 
 $sinelaKnowledge = [
     'assistant' => [

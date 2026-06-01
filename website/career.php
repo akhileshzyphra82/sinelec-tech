@@ -1,5 +1,4 @@
 <?php
-require_once '../data/store_data.php';
 require_once '../controller/website_controller.php';
 
 $currentPage = 'career';

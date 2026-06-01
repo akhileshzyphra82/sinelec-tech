@@ -8,7 +8,6 @@ const CURRENT_PAGE  = window.CURRENT_PAGE  || 'home';
 const AUTH_STATE    = window.SINELEC_AUTH  || { isSignedIn:false };
 const CATALOG_INIT  = window.CATALOG_INIT  || { cat:'', mfr:'', q:'', subcat:'', isNew:false };
 const CURRENT_PRODUCT = window.CURRENT_PRODUCT || null;
-const EUR_RATE = 0.0093;
 const EUR_FORMAT = new Intl.NumberFormat('en-IE', { style: 'currency', currency: 'EUR' });
 const CATEGORY_NAME_MAP = Object.fromEntries((STORE_DATA.categories || []).map(c => [c.id, c.name]));
 
@@ -218,6 +217,72 @@ function stockLabel(s) {
 }
 function stockClass(s) { return s > 100 ? 'in-stock' : s > 0 ? 'low-stock' : 'out-stock'; }
 
+/* ── Product image placeholders ──────────────────────────────────
+ *  No external dependency. Two variants:
+ *   _pImgFail(img)  — pcard / deal cards: beautiful overlay panel
+ *   _IMG_PH         — small contexts (cart, checkout, quote…)
+ * ─────────────────────────────────────────────────────────────── */
+const _IMG_PH = (() => {
+  const s = `<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80">
+  <rect width="80" height="80" rx="8" fill="#ffffff"/>
+  <rect width="80" height="80" rx="8" fill="none" stroke="#e5e7eb" stroke-width="1"/>
+  <g transform="translate(21,21)" fill="none" stroke="#d1d5db" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="6" y="6" width="26" height="26" rx="2"/>
+    <line x1="6" y1="12" x2="2" y2="12"/><line x1="6" y1="19" x2="0" y2="19"/><line x1="6" y1="26" x2="2" y2="26"/>
+    <line x1="32" y1="12" x2="36" y2="12"/><line x1="32" y1="19" x2="38" y2="19"/><line x1="32" y1="26" x2="36" y2="26"/>
+    <line x1="12" y1="6" x2="12" y2="2"/><line x1="19" y1="6" x2="19" y2="0"/><line x1="26" y1="6" x2="26" y2="2"/>
+    <line x1="12" y1="32" x2="12" y2="36"/><line x1="19" y1="32" x2="19" y2="38"/><line x1="26" y1="32" x2="26" y2="36"/>
+    <rect x="13" y="13" width="12" height="12" rx="1" fill="#f3f4f6"/>
+  </g>
+</svg>`;
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(s);
+})();
+
+function _pImgFail(img) {
+  const wrap = img.parentElement;
+  if (!wrap) { img.style.display = 'none'; return; }
+
+  const isLarge = wrap.classList.contains('pcard-img-wrap')
+               || wrap.classList.contains('deal-card-img')
+               || wrap.classList.contains('fdeal-img');
+
+  img.style.display = 'none';
+
+  if (!isLarge) {
+    /* Small inline context — just swap to embedded SVG */
+    img.onerror = null;
+    img.style.display = '';
+    img.src = _IMG_PH;
+    return;
+  }
+
+  /* Large card — build a rich overlay */
+  const sku = (img.dataset.sku || '').trim();
+  const ph  = document.createElement('div');
+  ph.className = 'pcard-img-ph';
+  ph.innerHTML =
+    `<div class="pcard-img-ph-inner">`
+  + `<svg viewBox="0 0 38 38" fill="none" xmlns="http://www.w3.org/2000/svg" class="pcard-img-ph-icon">`
+  + `<rect x="9" y="9" width="20" height="20" rx="2" stroke="currentColor" stroke-width="1.6"/>`
+  + `<line x1="9" y1="14.5" x2="5" y2="14.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>`
+  + `<line x1="9" y1="19" x2="3" y2="19" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>`
+  + `<line x1="9" y1="23.5" x2="5" y2="23.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>`
+  + `<line x1="29" y1="14.5" x2="33" y2="14.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>`
+  + `<line x1="29" y1="19" x2="35" y2="19" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>`
+  + `<line x1="29" y1="23.5" x2="33" y2="23.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>`
+  + `<line x1="14.5" y1="9" x2="14.5" y2="5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>`
+  + `<line x1="19" y1="9" x2="19" y2="3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>`
+  + `<line x1="23.5" y1="9" x2="23.5" y2="5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>`
+  + `<line x1="14.5" y1="29" x2="14.5" y2="33" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>`
+  + `<line x1="19" y1="29" x2="19" y2="35" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>`
+  + `<line x1="23.5" y1="29" x2="23.5" y2="33" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>`
+  + `<rect x="15" y="15" width="8" height="8" rx="1" fill="currentColor" fill-opacity=".15"/>`
+  + `</svg>`
+  + (sku ? `<span class="pcard-img-ph-sku">${sku}</span>` : '')
+  + `</div>`;
+  wrap.insertBefore(ph, img);
+}
+
 /* ── Discount ────────────────────────────────────────────────── */
 function disc(price, orig) {
   if (!orig || orig <= price) return null;
@@ -231,21 +296,46 @@ function delivEst() {
   return d.toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
+/* ── Catalog DB data (loaded async from server) ──────────────── */
+const CATALOG_DB = { categories: [], manufacturers: [], loaded: false };
+
+/* ── Catalog AJAX base path ───────────────────────────────────── */
+function _catAjaxBase() {
+  const p = window.location.pathname;
+  if (p.indexOf('/website/') !== -1) return 'ajax/catalog';
+  if (p.indexOf('/admin/')   !== -1) return '../website/ajax/catalog';
+  return 'website/ajax/catalog';
+}
+
+/* ── Load categories + manufacturers from server ─────────────── */
+async function loadCatalogInit() {
+  if (CATALOG_DB.loaded) return;
+  try {
+    const r    = await fetch(`${_catAjaxBase()}?action=init`);
+    const data = await r.json();
+    if (!data.ok) return;
+    CATALOG_DB.categories    = data.categories    || [];
+    CATALOG_DB.manufacturers = data.manufacturers || [];
+    CATALOG_DB.loaded        = true;
+  } catch(e) { console.error('loadCatalogInit:', e); }
+}
+
 /* ── State ───────────────────────────────────────────────────── */
 const S = {
-  catFilter:    CATALOG_INIT.cat    || null,
+  catId:        CATALOG_INIT.catId  || 0,           /* DB integer category id  */
+  catIds:       CATALOG_INIT.catIds || '',           /* comma-separated IDs from manufacturer link */
+  catFilter:    CATALOG_INIT.cat    || null,         /* legacy slug (kept for breadcrumb) */
   subcatFilter: CATALOG_INIT.subcat || null,
   mfrFilter:    CATALOG_INIT.mfr    || null,
   query:        CATALOG_INIT.q      || '',
-  expandedCats: CATALOG_INIT.cat ? [CATALOG_INIT.cat] : [],
+  expandedCats: [],
   filters: {
     mfrs:        CATALOG_INIT.mfr ? [CATALOG_INIT.mfr] : [],
     minP:        0,
-    maxP:        999999,
+    maxP:        0,
     inStock:     false,
     isNew:       CATALOG_INIT.isNew || false,
     minRating:   0,
-    packages:    [],
     filterQuery: '',
   },
   sort:    'featured',
@@ -256,12 +346,17 @@ const S = {
   heroIdx: 0,
   heroTimer: null,
   compareIds: [],
-  wishIds:        JSON.parse(localStorage.getItem('sinelec_wish') || '[]'),
+  wishIds:        [],   /* populated from server for logged-in users */
   recentlyViewed: JSON.parse(localStorage.getItem('sinelec_rv')   || '[]'),
 };
 
-function saveWish() { localStorage.setItem('sinelec_wish', JSON.stringify(S.wishIds)); }
 function saveRV()   { localStorage.setItem('sinelec_rv',   JSON.stringify(S.recentlyViewed)); }
+
+/* ── Product registry: populated as products are fetched/loaded ── */
+const _productRegistry = {};
+function _registerProducts(list) { list.forEach(p => { if (p?.id) _productRegistry[p.id] = p; }); }
+function _getProduct(id) { return _productRegistry[id] || null; }
+if (CURRENT_PRODUCT) _registerProducts([CURRENT_PRODUCT]);
 
 /* ── Cart state ──────────────────────────────────────────────── */
 const cartItems = JSON.parse(localStorage.getItem('sinelec_cart') || '[]');
@@ -305,7 +400,7 @@ function updateCartUI() {
   } else {
     wrap.innerHTML = cartItems.map(item => `
       <div class="cart-item">
-        <img class="cart-item-img" src="${item.image}" alt="${item.name}" onerror="this.src='https://placehold.co/72x72/EBF3FF/0066CC?text=${encodeURIComponent(item.sku)}'">
+        <img class="cart-item-img" src="${item.image}" alt="${item.name}" onerror="_pImgFail(this)">
         <div class="cart-item-info">
           <div class="cart-item-sku">${item.sku}</div>
           <div class="cart-item-name">${item.name}</div>
@@ -318,20 +413,13 @@ function updateCartUI() {
             <span class="ci-del" onclick="cartRemove(${item.id})">Delete</span>
           </div>
         </div>
-        <div class="cart-item-price">₹${(item.price * item.qty).toFixed(2)}</div>
+        <div class="cart-item-price">€${(item.price * item.qty).toFixed(2)}</div>
       </div>`).join('');
   }
-  const sub   = cartSubtotal();
-  const ship  = sub >= 5000 ? 0 : 99;
-  const gst   = sub * 0.18;
-  const total = sub + ship + gst;
-  const setT  = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-  setT('cartSub',   `₹${sub.toFixed(2)}`);
-  setT('cartShip',  ship === 0 ? 'FREE' : `₹${ship.toFixed(2)}`);
-  setT('cartGST',   `₹${gst.toFixed(2)}`);
-  setT('cartTotal', `₹${total.toFixed(2)}`);
-  const freeShip = document.getElementById('cartFreeShip');
-  if (freeShip) freeShip.classList.toggle('hidden', sub < 5000);
+  const sub  = cartSubtotal();
+  const setT = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  setT('cartSub',   `€${sub.toFixed(2)}`);
+  setT('cartTotal', `€${sub.toFixed(2)}`);
 }
 
 function openCart() {
@@ -343,6 +431,30 @@ function closeCart() {
   document.getElementById('cartPanel').classList.remove('on');
   document.getElementById('cartOverlay').classList.remove('on');
   document.body.style.overflow = '';
+}
+
+/* ── Auth-guarded checkout ───────────────────────────────────── */
+function cartCheckout() {
+  if (cartItems.length === 0) {
+    toast('Your cart is empty. Add products before checking out.', 'warn');
+    return;
+  }
+  if (window.SINELEC_AUTH?.isSignedIn) {
+    closeCart();
+    showPageLoader('Redirecting to checkout…');
+    window.location.href = 'checkout';
+  } else {
+    /* Set redirect target so login bounces to checkout */
+    const redir = document.getElementById('authRedirect');
+    if (redir) redir.value = 'checkout';
+    /* Update auth modal messaging */
+    const title = document.getElementById('authModalTitle');
+    const desc  = document.getElementById('authModalDesc');
+    if (title) title.textContent = 'Sign in to Checkout';
+    if (desc)  desc.textContent  = 'Please sign in or create an account to complete your purchase.';
+    closeCart();
+    if (window.sinelecOpenAuth) window.sinelecOpenAuth('signin');
+  }
 }
 
 function initCheckoutPage() {
@@ -465,11 +577,10 @@ function initCheckoutPage() {
     syncSelectedAddressFromStorage();
     normalizeSelectedCheckoutIds();
     const selectedItems = getSelectedCheckoutItems();
-    const sub = selectedSubtotal();
-    const ship = shippingCharge(sub);
-    const baseGst = sub * 0.18;
-    const gst = vatApplied ? 0 : baseGst;
-    const total = sub + ship + gst;
+    const sub   = selectedSubtotal();
+    const ship  = 0;
+    const gst   = 0;
+    const total = sub;
     const selectedAddress = getSelectedAddress();
     const shippingLabel = currentShippingMode() === 'priority' ? 'Priority Dispatch' : 'Standard Delivery';
     const paymentMap = {
@@ -499,7 +610,7 @@ function initCheckoutPage() {
     if (summaryItems) {
       summaryItems.innerHTML = cartItems.map(item => `
         <div class="checkout-item">
-          <img src="${item.image}" alt="${item.name}" onerror="this.src='https://placehold.co/68x68/EBF3FF/0066CC?text=${encodeURIComponent(item.sku)}'">
+          <img src="${item.image}" alt="${item.name}" onerror="_pImgFail(this)">
           <div>
             <div class="checkout-item-head">
               <div class="checkout-item-left">
@@ -509,14 +620,14 @@ function initCheckoutPage() {
               <button type="button" class="checkout-item-remove" data-checkout-remove="${item.id}" aria-label="Remove product">${ic('trash', 14, 14)}</button>
             </div>
             <div class="checkout-item-name">${item.name}</div>
-            <div class="checkout-item-meta">Unit: ₹${item.price.toFixed(2)}</div>
+            <div class="checkout-item-meta">Unit: €${item.price.toFixed(2)}</div>
             <div class="checkout-item-controls">
               <button type="button" class="checkout-qty-btn" data-checkout-qty="${item.id}" data-delta="-1">−</button>
               <span class="checkout-qty-num">${item.qty}</span>
               <button type="button" class="checkout-qty-btn" data-checkout-qty="${item.id}" data-delta="1">+</button>
             </div>
           </div>
-          <div class="checkout-item-price">₹${(item.qty * item.price).toFixed(2)}</div>
+          <div class="checkout-item-price">€${(item.qty * item.price).toFixed(2)}</div>
         </div>
       `).join('');
     }
@@ -524,16 +635,10 @@ function initCheckoutPage() {
     if (selectedAddressText) selectedAddressText.textContent = selectedAddress ? `${selectedAddress.label} · ${selectedAddress.line}` : 'Select an address';
     if (shippingText) shippingText.textContent = shippingLabel;
     if (paymentText) paymentText.textContent = paymentMap[currentPaymentMode()] || 'PayPal';
-    if (subtotalEl) subtotalEl.textContent = `₹${sub.toFixed(2)}`;
-    if (shippingCostEl) shippingCostEl.textContent = ship === 0 ? 'FREE' : `₹${ship.toFixed(2)}`;
-    if (taxEl) {
-      if (vatApplied && baseGst > 0) {
-        taxEl.innerHTML = `<span class="checkout-tax-old">₹${baseGst.toFixed(2)}</span><span class="checkout-tax-applied">${ic('check', 12, 12)}VAT applied</span>`;
-      } else {
-        taxEl.textContent = `₹${gst.toFixed(2)}`;
-      }
-    }
-    if (totalEl) totalEl.textContent = `₹${total.toFixed(2)}`;
+    if (subtotalEl) subtotalEl.textContent = `€${sub.toFixed(2)}`;
+    if (shippingCostEl) shippingCostEl.textContent = '—';
+    if (taxEl) taxEl.textContent = '—';
+    if (totalEl) totalEl.textContent = `€${sub.toFixed(2)}`;
     if (vatState) {
       vatState.classList.toggle('hidden', !vatApplied);
     }
@@ -683,20 +788,99 @@ function initCheckoutPage() {
 }
 
 /* ── Wishlist ────────────────────────────────────────────────── */
+function _wishAjaxBase() {
+  const p = window.location.pathname;
+  if (p.indexOf('/website/') !== -1) return 'ajax/wishlist';
+  if (p.indexOf('/admin/')   !== -1) return '../website/ajax/wishlist';
+  return 'website/ajax/wishlist';
+}
+
+function _updateWishUI(id) {
+  const wished = S.wishIds.includes(id);
+  document.querySelectorAll(`.pcard-wish[data-id="${id}"], #pdpWishBtn[data-id="${id}"], [data-wish-id="${id}"]`)
+    .forEach(b => {
+      b.classList.toggle('wished', wished);
+      b.title = wished ? 'Remove from wishlist' : 'Add to wishlist';
+      const svg = b.querySelector('svg');
+      if (svg) svg.setAttribute('fill', wished ? 'currentColor' : 'none');
+    });
+}
+
 function toggleWish(id) {
+  /* Not logged in → save pending, open auth modal */
+  if (!window.SINELEC_AUTH?.isSignedIn) {
+    sessionStorage.setItem('sinelec_pending_wish', String(id));
+    const authModal = document.getElementById('authModal');
+    if (authModal) {
+      authModal.removeAttribute('hidden');
+      document.getElementById('authSignInPanel')?.classList.add('is-active');
+      document.getElementById('authSignUpPanel')?.classList.remove('is-active');
+    }
+    toast('Please sign in to save to your wishlist', 'warn');
+    return;
+  }
+
+  /* Optimistic UI update */
   const idx = S.wishIds.indexOf(id);
-  if (idx > -1) { S.wishIds.splice(idx, 1); toast('Removed from wishlist', 'warn'); }
-  else          { S.wishIds.push(id);        toast('Saved to wishlist ♥', 'ok');    }
-  saveWish();
-  document.querySelectorAll(`.pcard-wish[data-id="${id}"]`).forEach(b => {
-    b.classList.toggle('wished', S.wishIds.includes(id));
-    b.title = S.wishIds.includes(id) ? 'Remove from wishlist' : 'Add to wishlist';
-  });
+  if (idx > -1) S.wishIds.splice(idx, 1); else S.wishIds.push(id);
+  _updateWishUI(id);
+
+  /* AJAX persist */
+  const fd = new FormData();
+  fd.append('action', 'toggle');
+  fd.append('product_id', id);
+  fetch(_wishAjaxBase(), { method: 'POST', body: fd })
+    .then(r => r.json())
+    .then(data => {
+      if (!data.ok) {
+        /* Rollback optimistic update */
+        const ri = S.wishIds.indexOf(id);
+        if (ri > -1) S.wishIds.splice(ri, 1); else S.wishIds.push(id);
+        _updateWishUI(id);
+        toast('Could not update wishlist', 'err');
+        return;
+      }
+      const nowWished = data.state === 'added';
+      if (nowWished && !S.wishIds.includes(id)) S.wishIds.push(id);
+      if (!nowWished) { const ri = S.wishIds.indexOf(id); if (ri > -1) S.wishIds.splice(ri, 1); }
+      _updateWishUI(id);
+      toast(nowWished ? 'Saved to wishlist ♥' : 'Removed from wishlist', nowWished ? 'ok' : 'warn');
+    })
+    .catch(() => toast('Could not update wishlist', 'err'));
+}
+
+/* Load wishlist IDs from server on page load (logged-in users only) */
+function _loadWishlistFromServer() {
+  if (!window.SINELEC_AUTH?.isSignedIn) return;
+  fetch(_wishAjaxBase() + '?action=get')
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok && Array.isArray(data.ids)) {
+        S.wishIds = data.ids;
+        /* Refresh all heart icons on the page */
+        document.querySelectorAll('.pcard-wish[data-id]').forEach(b => {
+          const id = parseInt(b.dataset.id, 10);
+          if (id) _updateWishUI(id);
+        });
+        if (CURRENT_PRODUCT?.id) _updateWishUI(CURRENT_PRODUCT.id);
+      }
+    })
+    .catch(() => {});
+}
+
+/* After login: process any pending wish stored before auth */
+function _processPendingWish() {
+  if (!window.SINELEC_AUTH?.isSignedIn) return;
+  const pending = sessionStorage.getItem('sinelec_pending_wish');
+  if (!pending) return;
+  sessionStorage.removeItem('sinelec_pending_wish');
+  const id = parseInt(pending, 10);
+  if (id > 0 && !S.wishIds.includes(id)) toggleWish(id);
 }
 
 /* ── Compare ─────────────────────────────────────────────────── */
 function toggleCompare(id) {
-  const p = STORE_DATA.products.find(p => p.id === id);
+  const p = _getProduct(id);
   if (!p) return;
   const idx = S.compareIds.indexOf(id);
   if (idx > -1) { S.compareIds.splice(idx, 1); }
@@ -715,7 +899,7 @@ function renderCompareBar() {
   const slots = document.getElementById('compareSlots');
   if (!slots) return;
   slots.innerHTML = [0, 1, 2].map(i => {
-    const p = S.compareIds[i] ? STORE_DATA.products.find(x => x.id === S.compareIds[i]) : null;
+    const p = S.compareIds[i] ? _getProduct(S.compareIds[i]) : null;
     return p
       ? `<div class="compare-slot"><img src="${p.image}" alt="${p.name}"><button class="compare-remove" onclick="toggleCompare(${p.id})">${ic('x', 9, 9)}</button></div>`
       : `<div class="compare-slot">＋ Add</div>`;
@@ -729,86 +913,109 @@ function addRecentlyViewed(id) {
 }
 
 /* ── Product card renderer ───────────────────────────────────── */
-function pCard(p, listView = false, sponsored = false, variant = 'default') {
-  const price = p.priceBreaks ? p.priceBreaks[0].price : (p.price || 0);
-  const si    = p.stock > 100 ? 'in-stock' : p.stock > 0 ? 'low-stock' : 'out-stock';
-  const siLbl = p.stock > 100 ? 'In Stock' : p.stock > 0 ? `Only ${p.stock} left` : 'Unavailable';
-  const wished = S.wishIds.includes(p.id);
-  const categoryName = CATEGORY_NAME_MAP[p.category] || p.category || 'Components';
+function pCard(p, variant = 'default') {
+  const price        = p.priceBreaks ? p.priceBreaks[0].price : (p.price || 0);
+  const categoryName = p.categoryName || CATEGORY_NAME_MAP[p.category] || '';
   const primaryBadge = p.isNew ? 'new' : (p.badge || '');
   const badgeTextMap = {
-    new: 'New',
-    popular: 'Popular',
-    bestseller: 'Best Seller',
-    featured: 'Featured',
-    hot: 'Hot',
-    sale: 'Sale',
+    new: 'New', popular: 'Popular', bestseller: 'Best Seller',
+    featured: 'Featured', hot: 'Hot', sale: 'Sale',
   };
   const badgeText = primaryBadge ? (badgeTextMap[primaryBadge] || String(primaryBadge)) : '';
-  const eurPrice = EUR_FORMAT.format(price * EUR_RATE);
-  const eurOrig = p.originalPrice ? EUR_FORMAT.format(p.originalPrice * EUR_RATE) : '';
-  const eurLowBreak = p.priceBreaks?.length > 1
-    ? EUR_FORMAT.format(p.priceBreaks[p.priceBreaks.length - 1].price * EUR_RATE)
-    : '';
-  const isDetailOnly = variant === 'detail-link';
+  const wished    = S.wishIds.includes(p.id);
+
+  /* Minimal variant — image + category + name only, no price/buttons */
+  if (variant === 'minimal') {
+    return `
+  <div class="pcard pcard-minimal" data-id="${p.id}" onclick="openPDP(${p.id})" style="cursor:pointer;">
+    <div class="pcard-img-wrap">
+      <img class="pcard-img" src="${p.image}" alt="${p.name}" loading="lazy"
+           data-sku="${p.sku}" onerror="_pImgFail(this)">
+      <div class="pcard-badges">
+        ${primaryBadge ? `<span class="pbadge pbadge-${primaryBadge}">${badgeText}</span>` : ''}
+      </div>
+    </div>
+    <div class="pcard-body">
+      ${categoryName ? `<div class="pcard-cat">${categoryName}</div>` : ''}
+      <h3 class="pcard-name">${p.name}</h3>
+    </div>
+  </div>`;
+  }
+
+  const eurPrice   = EUR_FORMAT.format(price);
+  const eurOrig    = p.originalPrice ? EUR_FORMAT.format(p.originalPrice) : '';
+  const reviewsCnt = p.reviewCount || p.reviews || 0;
 
   return `
-  <div class="pcard${listView ? ' list-v' : ''}${isDetailOnly ? ' pcard-detail-link' : ''}" data-id="${p.id}">
-    <div class="pcard-img-wrap" onclick="openPDP(${p.id})" style="cursor:pointer">
+  <div class="pcard" data-id="${p.id}">
+    <!-- Image area -->
+    <div class="pcard-img-wrap" onclick="openPDP(${p.id})">
       <img class="pcard-img" src="${p.image}" alt="${p.name}" loading="lazy"
-           onerror="this.src='https://placehold.co/300x300/EBF3FF/0066CC?text=${encodeURIComponent(p.sku)}'">
+           data-sku="${p.sku}" onerror="_pImgFail(this)">
       <div class="pcard-badges">
         ${primaryBadge ? `<span class="pbadge pbadge-${primaryBadge}">${badgeText}</span>` : ''}
       </div>
       <button class="pcard-wish ${wished ? 'wished' : ''}" data-id="${p.id}"
               onclick="event.stopPropagation();toggleWish(${p.id})"
               title="${wished ? 'Remove from wishlist' : 'Add to wishlist'}">
-        ${ic('heart', 13, 13)}
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="${wished ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.75"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>
       </button>
     </div>
-    <div class="pcard-body" onclick="openPDP(${p.id})" style="cursor:pointer">
+
+    <!-- Body -->
+    <div class="pcard-body" onclick="openPDP(${p.id})">
+      ${categoryName ? `<div class="pcard-cat">${categoryName}</div>` : ''}
       <h3 class="pcard-name">${p.name}</h3>
-      <div class="pcard-cat-rating">
-        <div class="pcard-cat">${categoryName}</div>
+      ${p.sku ? `<div class="pcard-sku">${p.sku}</div>` : ''}
+      <div class="pcard-meta-row">
+        ${p.rating > 0 ? `
         <div class="pcard-rating">
           ${stars(p.rating)}
-          <span class="pcard-rc">${(p.reviewCount || p.reviews || 0).toLocaleString()}</span>
-        </div>
+          <span class="pcard-rating-val">${p.rating.toFixed(1)}</span>
+          ${reviewsCnt > 0 ? `<span class="pcard-rc">(${reviewsCnt.toLocaleString()})</span>` : ''}
+        </div>` : ''}
       </div>
-      ${listView && p.package ? `<div class="pcard-specs"><span class="spec-tag">${p.package}</span></div>` : ''}
-      ${!isDetailOnly ? `
       <div class="pcard-price-row">
         <span class="price-main">${eurPrice}</span>
-        ${p.originalPrice ? `<span class="price-orig">${eurOrig}</span>` : ''}
+        ${eurOrig ? `<span class="price-orig">${eurOrig}</span>` : ''}
       </div>
-      ${p.priceBreaks?.length > 1 ? `<div class="pcard-price-break">As low as <strong>${eurLowBreak}</strong> for ${p.priceBreaks[p.priceBreaks.length - 1].qty}+ units</div>` : ''}
-      <div class="pcard-stock ${si}">${siLbl}</div>
-      <div class="pcard-delivery">${ic('truck', 11, 11)} FREE delivery by <strong>${delivEst()}</strong></div>` : ''}
+      <div class="pcard-delivery">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+        Delivery in <strong>7 days</strong>
+      </div>
     </div>
-    <div class="pcard-footer${isDetailOnly ? ' pcard-footer--single' : ''}">
-      ${isDetailOnly ? `
-      <button class="btn-view-detail" onclick="event.stopPropagation();openPDP(${p.id})">
-        View Details
-      </button>` : `
+
+    <!-- Footer buttons -->
+    <div class="pcard-footer">
       <button class="btn-atc" onclick="atcClick(event,${p.id})">
-        ${ic('cart', 14, 14)} Add to Cart
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6"/></svg>
+        Add to Cart
       </button>
-      <button class="btn-buynow" onclick="event.stopPropagation();atcClick(event,${p.id});openCart()">
-        Buy Now
-      </button>`}
+      <button class="btn-buynow" onclick="buyNowClick(event,${p.id})">Buy Now</button>
     </div>
   </div>`;
 }
 
 function atcClick(e, id) {
   e.stopPropagation();
-  const p = STORE_DATA.products.find(x => x.id === id);
-  if (!p) return;
+  const p = _getProduct(id);
+  if (!p) { toast('Product not found', 'warn'); return; }
   cartAdd(p, 1);
   const btn = e.currentTarget;
+  const orig = btn.innerHTML;
   btn.classList.add('added');
-  btn.innerHTML = `${ic('check', 14, 14)} Added!`;
-  setTimeout(() => { btn.classList.remove('added'); btn.innerHTML = `${ic('cart', 14, 14)} Add to Cart`; }, 1500);
+  btn.disabled = true;
+  btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Added!`;
+  setTimeout(() => { btn.classList.remove('added'); btn.disabled = false; btn.innerHTML = orig; }, 1800);
+}
+
+/* Add to cart + open cart panel (used on product cards) */
+function buyNowClick(e, id) {
+  e.stopPropagation();
+  const p = _getProduct(id);
+  if (!p) { toast('Product not found', 'warn'); return; }
+  cartAdd(p, 1);
+  cartCheckout();
 }
 
 /* ── PDP page interactions ───────────────────────────────────── */
@@ -823,13 +1030,20 @@ function pdpAddToCart() {
   if (!CURRENT_PRODUCT) return;
   const qty = parseInt(document.getElementById('pdpQty')?.value || 1);
   cartAdd(CURRENT_PRODUCT, qty);
+  const btn = document.getElementById('pdpAtcBtn');
+  if (btn) {
+    const orig = btn.innerHTML;
+    btn.classList.add('added'); btn.disabled = true;
+    btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Added to Cart`;
+    setTimeout(() => { btn.classList.remove('added'); btn.disabled = false; btn.innerHTML = orig; }, 2000);
+  }
 }
 
 function pdpBuyNow() {
   if (!CURRENT_PRODUCT) return;
   const qty = parseInt(document.getElementById('pdpQty')?.value || 1);
   cartAdd(CURRENT_PRODUCT, qty);
-  openCart();
+  cartCheckout();
 }
 
 function pdpToggleWish() {
@@ -845,12 +1059,39 @@ function initPDPStars() {
 }
 
 function initRelatedProducts() {
-  const track = document.getElementById('relatedTrack');
-  if (!track || !CURRENT_PRODUCT) return;
-  const related = STORE_DATA.products
-    .filter(p => p.category === CURRENT_PRODUCT.category && p.id !== CURRENT_PRODUCT.id)
-    .slice(0, 6);
-  track.innerHTML = related.map(p => pCard(p)).join('');
+  const track   = document.getElementById('relatedTrack');
+  const section = document.getElementById('relatedSection');
+  if (!track || !CURRENT_PRODUCT) { if (section) section.style.display = 'none'; return; }
+
+  const catId = parseInt(CURRENT_PRODUCT.category, 10) || 0;
+  if (!catId) { if (section) section.style.display = 'none'; return; }
+
+  const base = _catAjaxBase();
+  const url  = `${base}?action=products&cat_id=${catId}&per_page=8&sort=featured`;
+
+  track.innerHTML = Array(4).fill(0).map(() =>
+    `<div class="pcard pcard--skeleton"><div class="pcard-img-wrap pcard-skel-img"></div>
+     <div class="pcard-body"><div class="pcard-skel-line w70"></div>
+     <div class="pcard-skel-line w50"></div></div></div>`
+  ).join('');
+
+  fetch(url)
+    .then(r => r.json())
+    .then(data => {
+      if (!data.ok) { track.innerHTML = ''; if (section) section.style.display = 'none'; return; }
+      const related = (data.products || [])
+        .filter(p => p.id !== CURRENT_PRODUCT.id)
+        .slice(0, 6)
+        .map(_normProduct);
+      if (related.length) {
+        _registerProducts(related);
+        track.innerHTML = related.map(p => pCard(p)).join('');
+      } else {
+        track.innerHTML = '';
+        if (section) section.style.display = 'none';
+      }
+    })
+    .catch(() => { track.innerHTML = ''; if (section) section.style.display = 'none'; });
 }
 
 /* ── Hero Carousel ───────────────────────────────────────────── */
@@ -884,32 +1125,218 @@ function carouselScroll(id, dir) {
   track.style.transform = `translateX(${parseFloat(track.style.transform.replace(/[^-\d.]/g, '') || 0) + dir * cardW * 3}px)`;
 }
 
-/* ── Search suggestions ──────────────────────────────────────── */
-let searchDebounce;
-function onSearchInput(e) {
-  clearTimeout(searchDebounce);
-  searchDebounce = setTimeout(() => showSearchDrop(e.target.value.trim()), 180);
+/* ══════════════════════════════════════════════════════════════
+   ELASTIC SEARCH SUGGESTIONS — Professional e-commerce style
+   - AJAX to /website/ajax/search.php
+   - Dynamic category filter
+   - Keyboard navigation (↑ ↓ Enter Esc)
+   - Match highlighting
+   - Loading / empty / error states
+══════════════════════════════════════════════════════════════ */
+let _srDebounce   = null;
+let _srController = null;   /* AbortController for in-flight fetch */
+let _srActiveIdx  = -1;
+let _srItems      = [];
+
+/* ── Helpers ── */
+function _srEsc(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
-function showSearchDrop(q) {
+function _srHighlight(text, q) {
+  if (!q) return _srEsc(text);
+  const re = new RegExp('(' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+  return _srEsc(text).replace(re, '<mark class="sdrop-hl">$1</mark>');
+}
+function _srClose() {
   const box = document.getElementById('searchDrop');
-  if (!q || q.length < 2) { box?.classList.remove('open'); return; }
-  const res = STORE_DATA.products.filter(p =>
-    p.name.toLowerCase().includes(q.toLowerCase()) ||
-    p.sku.toLowerCase().includes(q.toLowerCase()) ||
-    (p.manufacturer || p.brand || '').toLowerCase().includes(q.toLowerCase())
-  ).slice(0, 7);
-  if (!box || !res.length) { box?.classList.remove('open'); return; }
-  box.innerHTML = res.map(p => `
-    <div class="sdrop-item" onclick="openPDP(${p.id});document.getElementById('searchDrop').classList.remove('open')">
-      <img class="sdrop-img" src="${p.image}" alt="${p.name}" onerror="this.src='https://placehold.co/44/EBF3FF/0066CC?text=${encodeURIComponent(p.sku)}'">
-      <div class="sdrop-info">
-        <div class="sdrop-sku">${p.sku}</div>
-        <div class="sdrop-name">${p.name}</div>
-      </div>
-      <div class="sdrop-price">₹${(p.priceBreaks ? p.priceBreaks[0].price : p.price).toFixed(2)}</div>
-    </div>`).join('') +
-    `<div class="sdrop-footer" onclick="showPageLoader('Loading search results...');window.location.href='products?q=${encodeURIComponent(q)}'">See all results for "${q}" →</div>`;
+  if (box) { box.classList.remove('open'); box.innerHTML = ''; }
+  _srActiveIdx = -1;
+  _srItems     = [];
+}
+function _srGetDrop() { return document.getElementById('searchDrop'); }
+function _srGetField() { return document.getElementById('searchField'); }
+function _srGetCat()   { return document.getElementById('searchCat'); }
+function _srGetCatId() { return parseInt(_srGetCat()?.value || '0', 10) || 0; }
+
+/* ── Navigate items with keyboard ── */
+function _srMoveFocus(dir) {
+  const box = _srGetDrop();
+  if (!box || !box.classList.contains('open')) return;
+  const items = box.querySelectorAll('.sdrop-item[data-idx]');
+  if (!items.length) return;
+  _srActiveIdx = Math.max(-1, Math.min(items.length - 1, _srActiveIdx + dir));
+  items.forEach((el, i) => el.classList.toggle('is-active', i === _srActiveIdx));
+  if (_srActiveIdx >= 0) {
+    const active = items[_srActiveIdx];
+    const code = active.dataset.code || '';
+    const name = active.dataset.name || '';
+    const fld  = _srGetField();
+    if (fld) fld.value = code || name;
+  }
+}
+
+/* ── Loading state ── */
+function _srShowLoading() {
+  const box = _srGetDrop();
+  if (!box) return;
+  box.innerHTML = `
+    <div class="sdrop-loading">
+      <svg class="sdrop-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+      </svg>
+      Searching…
+    </div>`;
   box.classList.add('open');
+}
+
+/* ── Render suggestions ── */
+function _srRender(q, data) {
+  const box = _srGetDrop();
+  if (!box) return;
+
+  const items = data.items || [];
+  const total = data.total || 0;
+  _srItems     = items;
+  _srActiveIdx = -1;
+
+  if (!items.length) {
+    box.innerHTML = `
+      <div class="sdrop-empty">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          <line x1="8" y1="11" x2="14" y2="11"/>
+        </svg>
+        <p>No products found for <strong>"${_srEsc(q)}"</strong></p>
+        <small>Try a different part number or keyword</small>
+      </div>`;
+    box.classList.add('open');
+    return;
+  }
+
+  const catId = _srGetCatId();
+  const allUrl = `products?q=${encodeURIComponent(q)}${catId > 0 ? '&cat_id=' + catId : ''}`;
+
+  box.innerHTML =
+    `<div class="sdrop-header">
+       <span class="sdrop-header-txt">
+         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+           <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+         </svg>
+         Results for <strong>${_srEsc(q)}</strong>
+       </span>
+       <a class="sdrop-header-all" href="${allUrl}">View all ${total > 0 ? total : ''}</a>
+     </div>` +
+    items.map((p, i) => {
+      const inStock   = p.REMAINING > 0;
+      const stockCls  = inStock ? 'sdrop-stock--in' : 'sdrop-stock--out';
+      const stockTxt  = inStock ? `In Stock (${p.REMAINING})` : 'Out of Stock';
+      const labelHtml = p.LABEL ? `<span class="sdrop-badge sdrop-badge--${p.LABEL.toLowerCase().replace(/\s+/g,'-')}">${_srEsc(p.LABEL)}</span>` : '';
+      const priceHtml = p.PRICE > 0
+        ? `<div class="sdrop-price">
+             €${p.PRICE.toFixed(2)}
+             ${p.OFFER > 0 ? `<span class="sdrop-price-was">€${p.ORG_PRICE.toFixed(2)}</span>` : ''}
+           </div>`
+        : '';
+      const ratingHtml = p.RATING > 0
+        ? `<span class="sdrop-rating">★ ${p.RATING.toFixed(1)}</span>` : '';
+
+      const imgHtml = p.IMAGE
+        ? `<img class="sdrop-thumb" src="${_srEsc(p.IMAGE)}" alt="${_srEsc(p.NAME)}"
+                onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"
+           ><div class="sdrop-icon" style="display:none">`
+        : `<div class="sdrop-icon">`;
+
+      return `
+        <div class="sdrop-item" role="option" tabindex="-1"
+             data-idx="${i}" data-id="${p.ID}"
+             data-code="${_srEsc(p.CODE)}" data-name="${_srEsc(p.NAME)}"
+             onclick="_srSelectItem(${p.ID},'${encodeURIComponent(p.CODE)}')">
+          ${imgHtml}
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+              <path d="M21 8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/>
+              <path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>
+            </svg>
+          </div>
+          <div class="sdrop-info">
+            <div class="sdrop-sku">${_srHighlight(p.CODE, q)}</div>
+            <div class="sdrop-name">${_srHighlight(p.NAME, q)}</div>
+            <div class="sdrop-meta">
+              ${p.CATEGORY ? `<span class="sdrop-cat">${_srEsc(p.CATEGORY)}</span>` : ''}
+              <span class="sdrop-stock ${stockCls}">${stockTxt}</span>
+              ${labelHtml}
+              ${ratingHtml}
+            </div>
+          </div>
+          ${priceHtml}
+        </div>`;
+    }).join('') +
+    `<div class="sdrop-footer" onclick="showPageLoader('Loading results…');location.href='${allUrl}'">
+       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+         <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+       </svg>
+       See all <strong>${total > 0 ? total + ' ' : ''}results</strong> for "${_srEsc(q)}"
+       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-left:auto">
+         <path d="M5 12h14M12 5l7 7-7 7"/>
+       </svg>
+     </div>`;
+
+  box.classList.add('open');
+}
+
+/* ── Select a suggestion ── */
+function _srSelectItem(productId, encodedCode) {
+  _srClose();
+  const code = decodeURIComponent(encodedCode);
+  const fld  = _srGetField();
+  if (fld) fld.value = code;
+  showPageLoader('Loading product…');
+  location.href = `product?id=${productId}`;
+}
+
+/* ── Resolve AJAX base (same pattern as deliver-to) ── */
+function _srAjaxBase() {
+  const p = window.location.pathname;
+  if (p.indexOf('/website/') !== -1) return 'ajax/search';
+  if (p.indexOf('/admin/')   !== -1) return '../website/ajax/search';
+  return 'website/ajax/search';
+}
+
+/* ── Fetch from server ── */
+function _srFetch(q) {
+  if (_srController) _srController.abort();
+  _srController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+
+  const catId  = _srGetCatId();
+  const url    = `${_srAjaxBase()}?action=suggest&q=${encodeURIComponent(q)}&cat_id=${catId}`;
+
+  fetch(url, _srController ? { signal: _srController.signal } : {})
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) _srRender(q, data);
+      else _srClose();
+    })
+    .catch(err => {
+      if (err.name !== 'AbortError') _srClose();
+    });
+}
+
+/* ── Main input handler ── */
+function onSearchInput(e) {
+  clearTimeout(_srDebounce);
+  const q = e.target.value.trim();
+  if (!q || q.length < 2) { _srClose(); return; }
+  _srShowLoading();
+  _srDebounce = setTimeout(() => _srFetch(q), 220);
+}
+
+/* ── Category change: re-run search if field has value ── */
+function onSearchCatChange() {
+  const q = _srGetField()?.value.trim() || '';
+  if (q.length >= 2) {
+    _srShowLoading();
+    clearTimeout(_srDebounce);
+    _srDebounce = setTimeout(() => _srFetch(q), 100);
+  }
 }
 
 function getProductSubcategory(product) {
@@ -969,36 +1396,59 @@ function getProductSubcategory(product) {
 }
 
 /* ── Catalog ─────────────────────────────────────────────────── */
-function filteredProducts() {
-  let P = [...STORE_DATA.products];
-  if (S.catFilter)                  P = P.filter(p => p.category === S.catFilter);
-  if (S.subcatFilter)               P = P.filter(p => getProductSubcategory(p).toLowerCase() === S.subcatFilter.toLowerCase());
+/* ── Build AJAX params from S state ─────────────────────────── */
+function _catParams() {
+  const p = new URLSearchParams();
   const q = S.query || S.filters.filterQuery;
-  if (q)                            P = P.filter(p =>
-    p.name.toLowerCase().includes(q.toLowerCase()) ||
-    p.sku.toLowerCase().includes(q.toLowerCase()) ||
-    (p.manufacturer || p.brand || '').toLowerCase().includes(q.toLowerCase()) ||
-    (p.description || '').toLowerCase().includes(q.toLowerCase())
-  );
-  if (S.filters.mfrs.length > 0)   P = P.filter(p => S.filters.mfrs.includes(p.manufacturer || p.brand));
-  if (S.filters.minRating > 0)     P = P.filter(p => (p.rating || 0) >= S.filters.minRating);
-  if (S.filters.packages.length > 0) P = P.filter(p => S.filters.packages.includes(p.package));
-  P = P.filter(p => {
-    const price = p.priceBreaks ? p.priceBreaks[0].price : (p.price || 0);
-    return price >= S.filters.minP && price <= S.filters.maxP;
-  });
-  if (S.filters.inStock) P = P.filter(p => p.stock > 0);
-  if (S.filters.isNew)   P = P.filter(p => p.isNew);
-  switch (S.sort) {
-    case 'price-asc':  P.sort((a, b) => (a.priceBreaks?.[0].price||a.price) - (b.priceBreaks?.[0].price||b.price)); break;
-    case 'price-desc': P.sort((a, b) => (b.priceBreaks?.[0].price||b.price) - (a.priceBreaks?.[0].price||a.price)); break;
-    case 'rating':     P.sort((a, b) => b.rating - a.rating); break;
-    case 'name':       P.sort((a, b) => a.name.localeCompare(b.name)); break;
-    case 'new':        P.sort((a, b) => (b.isNew ? 1 : 0) - (a.isNew ? 1 : 0)); break;
-    default:           P.sort((a, b) => (b.isFeatured ? 1 : 0) - (a.isFeatured ? 1 : 0));
-  }
-  return P;
+  if (q)                           p.set('q',          q);
+  if (S.catIds)                    p.set('cat_ids',    S.catIds);  /* multi-cat from mfr link */
+  else if (S.catId > 0)            p.set('cat_id',     S.catId);
+  if (S.filters.mfrs.length > 0)  p.set('mfr',        S.filters.mfrs[0]); /* first selected mfr */
+  if (S.filters.minRating > 0)    p.set('min_rating',  S.filters.minRating);
+  if (S.filters.minP > 0)         p.set('min_price',   S.filters.minP);
+  if (S.filters.maxP > 0)         p.set('max_price',   S.filters.maxP);
+  if (S.filters.inStock)          p.set('in_stock',    1);
+  if (S.filters.isNew)            p.set('is_new',      1);
+  p.set('sort',     S.sort);
+  p.set('page',     S.page);
+  p.set('per_page', S.perPage);
+  return p;
 }
+
+/* ── Fetch catalog page from server ─────────────────────────── */
+async function _fetchCatalogProducts() {
+  const url = `${_catAjaxBase()}?action=products&${_catParams()}`;
+  const r   = await fetch(url);
+  return await r.json();
+}
+
+/* ── Normalize DB product to pCard-compatible shape ─────────── */
+function _normProduct(p) {
+  return {
+    id:            p.id,
+    sku:           p.sku,
+    name:          p.name,
+    category:      String(p.category),
+    categoryName:  p.categoryName,
+    image:         p.image || '',
+    price:         p.price,
+    priceBreaks:   null,
+    originalPrice: p.originalPrice > 0 ? p.originalPrice : null,
+    stock:         p.stock,
+    rating:        p.rating || 0,
+    reviews:       p.reviews || 0,
+    label:         p.label || '',
+    badge:         p.badge || '',
+    isNew:         p.isNew,
+    isFeatured:    p.isFeatured,
+    description:   p.description || '',
+    package:       '',
+    manufacturer:  '',
+  };
+}
+
+/* kept for backward compat (home page etc) */
+function filteredProducts() { return []; }
 
 function goToPage(n) { S.page = n; renderCatalog(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
 
@@ -1028,59 +1478,86 @@ function renderToolbarPagination(total, page, perPage) {
     <button class="tpg-nav" onclick="goToPage(${page + 1})" ${page >= totalPages ? 'disabled' : ''}>&#8250;</button>`;
 }
 
-function renderCatalog() {
-  const allP = filteredProducts();
-  const catName = S.catFilter ? (STORE_DATA.categories.find(c => c.id === S.catFilter)?.name || 'Products') : 'All Products';
-  const subcatLabel = S.subcatFilter || '';
+/* ── renderCatalog: fire-and-forget wrapper (keeps all callers sync) */
+function renderCatalog() { _renderCatalogAsync().catch(console.error); }
 
-  /* clamp page */
-  const totalPages = Math.max(1, Math.ceil(allP.length / S.perPage));
-  if (S.page > totalPages) S.page = totalPages;
-  if (S.page < 1) S.page = 1;
-  const P = allP.slice((S.page - 1) * S.perPage, S.page * S.perPage);
+async function _renderCatalogAsync() {
+  const grid = document.getElementById('prodGrid');
+  if (!grid) return;
 
+  /* Show loading skeleton */
+  grid.className = S.view === 'list' ? 'prod-list' : 'prod-grid';
+  grid.innerHTML = Array(S.perPage).fill(0).map(() =>
+    `<div class="pcard pcard--skeleton"><div class="pcard-img-wrap pcard-skel-img"></div>
+     <div class="pcard-body"><div class="pcard-skel-line w70"></div>
+     <div class="pcard-skel-line w50"></div><div class="pcard-skel-line w40"></div></div></div>`
+  ).join('');
+
+  let data;
+  try { data = await _fetchCatalogProducts(); }
+  catch(e) {
+    grid.innerHTML = `<div class="catalog-empty"><div class="catalog-empty-icon">⚠</div>
+      <p class="catalog-empty-title">Failed to load products</p>
+      <p class="catalog-empty-sub">Check your connection and try again</p>
+      <button class="btn btn-blue" onclick="renderCatalog()">Retry</button></div>`;
+    return;
+  }
+
+  if (!data.ok) { grid.innerHTML = `<div class="catalog-empty"><p class="catalog-empty-title">Error loading products</p></div>`; return; }
+
+  const products = (data.products || []).map(_normProduct);
+  _registerProducts(products);   /* keep registry fresh for atcClick */
+  const total    = data.total    || 0;
+  const pages    = data.pages    || 1;
+
+  /* Clamp page */
+  if (S.page > pages) S.page = pages;
+  if (S.page < 1)     S.page = 1;
+
+  /* Breadcrumb */
+  const catName = S.catId > 0
+    ? (CATALOG_DB.categories.find(c => c.id === S.catId)?.name || '')
+    : (S.mfrFilter ? S.mfrFilter : (S.query ? `Search: "${S.query}"` : ''));
   const bc = document.getElementById('catalogBC');
   if (bc) bc.innerHTML = `
     <a href="index">${ic('home', 12, 12)} Home</a>
-    <span class="breadcrumb-sep">›</span>
-    <a href="products">Products</a>
-    ${S.catFilter ? `<span class="breadcrumb-sep">›</span><span class="breadcrumb-cur">${catName}</span>` : ''}
-    ${S.subcatFilter ? `<span class="breadcrumb-sep">›</span><span class="breadcrumb-cur">${subcatLabel}</span>` : ''}
-    ${S.query ? `<span class="breadcrumb-sep">›</span><span class="breadcrumb-cur">Search: "${S.query}"</span>` : ''}`;
+    <span class="breadcrumb-sep">›</span><a href="products">Products</a>
+    ${catName ? `<span class="breadcrumb-sep">›</span><span class="breadcrumb-cur">${catName}</span>` : ''}`;
 
-  renderToolbarPagination(allP.length, S.page, S.perPage);
+  renderToolbarPagination(total, S.page, S.perPage);
 
-  const grid = document.getElementById('prodGrid');
-  if (!grid) return;
-  grid.className = S.view === 'list' ? 'prod-list' : 'prod-grid';
-
-  const bottomPg = document.getElementById('catalogPagination');
-
-  if (allP.length === 0) {
-    grid.innerHTML = `<div class="catalog-empty"><div class="catalog-empty-icon">🔍</div><p class="catalog-empty-title">No results found</p><p class="catalog-empty-sub">Try different keywords or adjust your filters</p><button class="btn btn-blue" onclick="clearFilters()">Clear All Filters</button></div>`;
-    if (bottomPg) bottomPg.style.display = 'none';
+  if (!products.length) {
+    grid.innerHTML = `<div class="catalog-empty">
+      <div class="catalog-empty-icon">🔍</div>
+      <p class="catalog-empty-title">No results found</p>
+      <p class="catalog-empty-sub">Try different keywords or adjust your filters</p>
+      <button class="btn btn-blue" onclick="clearFilters()">Clear All Filters</button>
+    </div>`;
   } else {
-    grid.innerHTML = P.map((p, i) => pCard(p, S.view === 'list', i % 5 === 0)).join('');
-    if (bottomPg) bottomPg.style.display = 'none';
+    grid.innerHTML = products.map((p, i) => pCard(p, S.view === 'list', i % 5 === 0)).join('');
   }
 
+  /* Pagination */
+  const bottomPg = document.getElementById('catalogPagination');
+  if (bottomPg) bottomPg.style.display = pages > 1 ? '' : 'none';
+
   renderFilterSidebar();
-  renderActiveFilterTags(allP.length);
+  renderActiveFilterTags(total);
 }
 
 function renderActiveFilterTags(count) {
   const row = document.getElementById('activeFiltersRow');
   if (!row) return;
   const tags = [];
-  if (S.catFilter) {
-    const name = STORE_DATA.categories.find(c => c.id === S.catFilter)?.name || S.catFilter;
-    tags.push(`<span class="af-tag">Category: ${name} <button onclick="S.catFilter=null;S.subcatFilter=null;S.expandedCats=[];renderCatalog()">&times;</button></span>`);
+  if (S.catId > 0) {
+    const cat  = CATALOG_DB.categories.find(c => c.id === S.catId);
+    const name = cat ? cat.name : `#${S.catId}`;
+    tags.push(`<span class="af-tag">Category: ${name} <button onclick="S.catId=0;S.page=1;renderCatalog()">&times;</button></span>`);
   }
-  if (S.subcatFilter) tags.push(`<span class="af-tag">Type: ${S.subcatFilter} <button onclick="S.subcatFilter=null;renderCatalog()">&times;</button></span>`);
-  S.filters.mfrs.forEach(m => tags.push(`<span class="af-tag">${m} <button onclick="toggleMfr('${m}',false);document.querySelector('.filter-item input[onchange*=\\'${m}\\']').checked=false">&times;</button></span>`));
+  if (S.query) tags.push(`<span class="af-tag">Query: "${S.query}" <button onclick="S.query='';S.page=1;renderCatalog()">&times;</button></span>`);
+  S.filters.mfrs.forEach(m => tags.push(`<span class="af-tag">${m} <button onclick="toggleMfr('${m.replace(/'/g,"\\'")}',false)">&times;</button></span>`));
   if (S.filters.minRating > 0) tags.push(`<span class="af-tag">${S.filters.minRating}★ & Up <button onclick="setRatingFilter(0)">&times;</button></span>`);
-  S.filters.packages.forEach(pkg => tags.push(`<span class="af-tag">${pkg} <button onclick="togglePackage('${pkg}',false)">&times;</button></span>`));
-  if (S.filters.minP > 0 || S.filters.maxP < 999999) tags.push(`<span class="af-tag">₹${S.filters.minP}–${S.filters.maxP < 999999 ? S.filters.maxP : '∞'} <button onclick="S.filters.minP=0;S.filters.maxP=999999;document.getElementById('priceMin').value='';document.getElementById('priceMax').value='';renderCatalog()">&times;</button></span>`);
+  if (S.filters.minP > 0 || S.filters.maxP > 0) tags.push(`<span class="af-tag">€${S.filters.minP}–${S.filters.maxP > 0 ? S.filters.maxP : '∞'} <button onclick="S.filters.minP=0;S.filters.maxP=0;document.getElementById('priceMin').value='';document.getElementById('priceMax').value='';renderCatalog()">&times;</button></span>`);
   if (S.filters.inStock) tags.push(`<span class="af-tag">In Stock <button onclick="S.filters.inStock=false;document.getElementById('filterStock').checked=false;renderCatalog()">&times;</button></span>`);
   if (S.filters.isNew) tags.push(`<span class="af-tag">New Arrivals <button onclick="S.filters.isNew=false;document.getElementById('filterNew').checked=false;renderCatalog()">&times;</button></span>`);
   if (S.filters.filterQuery) tags.push(`<span class="af-tag">Search: "${S.filters.filterQuery}" <button onclick="S.filters.filterQuery='';document.getElementById('filterSearchInp').value='';renderCatalog()">&times;</button></span>`);
@@ -1092,54 +1569,66 @@ function renderFilterSidebar() {
   renderCatFilters();
   renderMfrFilters();
   renderRatingFilters();
-  renderPackageFilters();
 }
 
 function renderCatFilters() {
   const catEl = document.getElementById('catFilters');
   if (!catEl) return;
 
-  /* "All" row */
+  const cats = CATALOG_DB.categories;
+
+  /* "All" row — total is sum of all child-category counts only
+     (parent counts are already included in their children to avoid double-counting) */
+  const totalCount = cats.filter(c => c.parent_id !== 0).reduce((s, c) => s + c.count, 0)
+                  || cats.reduce((s, c) => s + c.count, 0); /* fallback if no children exist */
   let html = `
-    <div class="cat-row cat-all-row ${!S.catFilter ? 'active' : ''}"
-         onclick="S.catFilter=null;S.subcatFilter=null;S.expandedCats=[];renderCatalog()">
+    <div class="cat-row cat-all-row ${S.catId === 0 ? 'active' : ''}"
+         onclick="selectCategory(0)">
       <span class="cat-row-name">All Categories</span>
-      <span class="filter-count">${STORE_DATA.products.length}</span>
+      <span class="filter-count">${totalCount}</span>
     </div>`;
 
-  STORE_DATA.categories.forEach(c => {
-    const catProducts = STORE_DATA.products.filter(p => p.category === c.id);
-    const catCount = catProducts.length;
-    const isSelected = S.catFilter === c.id;
-    const isExpanded = S.expandedCats.includes(c.id);
+  /* Group: top-level (parent_id === 0) and their children */
+  const roots    = cats.filter(c => c.parent_id === 0);
+  const children = cats.filter(c => c.parent_id !== 0);
 
-    /* build subcategory counts */
-    const subcatMap = {};
-    catProducts.forEach(p => {
-      const sub = getProductSubcategory(p);
-      if (sub) subcatMap[sub] = (subcatMap[sub] || 0) + 1;
-    });
-    const subcats = Object.entries(subcatMap).sort((a, b) => b[1] - a[1]);
-    const hasSubcats = subcats.length > 0;
+  roots.forEach(root => {
+    const kids       = children.filter(c => c.parent_id === root.id);
+    const isSelected = S.catId === root.id;
+    const isExpanded = S.expandedCats.includes(root.id);
+    const hasKids    = kids.length > 0;
+    /* Combined count = parent's own direct products + all children's products */
+    const rootCount  = root.count + kids.reduce((s, k) => s + k.count, 0);
 
     html += `
-      <div class="cat-accordion ${isExpanded ? 'expanded' : ''}" data-cat-id="${c.id}">
-        <div class="cat-row ${isSelected && !S.subcatFilter ? 'active' : ''}"
-             onclick="selectCategory('${c.id}')">
-          <span class="cat-row-name">${c.name}</span>
-          <span class="filter-count">${catCount}</span>
-          ${hasSubcats ? `<span class="acc-toggle" onclick="event.stopPropagation();toggleCatAccordion('${c.id}')">
+      <div class="cat-accordion ${isExpanded ? 'expanded' : ''}" data-cat-id="${root.id}">
+        <div class="cat-row ${isSelected ? 'active' : ''}"
+             onclick="selectCategory(${root.id})">
+          <span class="cat-row-name">${root.name}</span>
+          <span class="filter-count">${rootCount}</span>
+          ${hasKids ? `<span class="acc-toggle" onclick="event.stopPropagation();toggleCatAccordion(${root.id})">
             <svg class="acc-chevron" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
           </span>` : ''}
         </div>
-        ${hasSubcats ? `<div class="cat-subcats">
-          ${subcats.map(([sub, cnt]) => `
-            <div class="subcat-row ${isSelected && (S.subcatFilter || '').toLowerCase() === sub.toLowerCase() ? 'active' : ''}"
-                 onclick="selectSubcat('${c.id}','${sub.replace(/'/g, "\\'")}')">
-              <span>${sub}</span>
-              <span class="filter-count">${cnt}</span>
+        ${hasKids ? `<div class="cat-subcats">
+          ${kids.map(kid => `
+            <div class="subcat-row ${S.catId === kid.id ? 'active' : ''}"
+                 onclick="selectCategory(${kid.id})">
+              <span>${kid.name}</span>
+              <span class="filter-count">${kid.count}</span>
             </div>`).join('')}
         </div>` : ''}
+      </div>`;
+  });
+
+  /* Orphan children whose parent wasn't in roots (rare) */
+  const rootIds = new Set(roots.map(r => r.id));
+  children.filter(c => !rootIds.has(c.parent_id)).forEach(c => {
+    html += `
+      <div class="cat-row ${S.catId === c.id ? 'active' : ''}"
+           onclick="selectCategory(${c.id})">
+        <span class="cat-row-name">${c.name}</span>
+        <span class="filter-count">${c.count}</span>
       </div>`;
   });
 
@@ -1147,13 +1636,10 @@ function renderCatFilters() {
 }
 
 function selectCategory(catId) {
-  S.catFilter = catId; S.subcatFilter = null; S.page = 1;
-  if (!S.expandedCats.includes(catId)) S.expandedCats.push(catId);
-  renderCatalog();
-}
-
-function selectSubcat(catId, subcat) {
-  S.catFilter = catId; S.subcatFilter = subcat; S.page = 1;
+  S.catId  = catId;
+  S.catIds = '';   /* clear multi-cat lock when user picks a specific category */
+  S.page   = 1;
+  if (catId && !S.expandedCats.includes(catId)) S.expandedCats.push(catId);
   renderCatalog();
 }
 
@@ -1166,23 +1652,16 @@ function toggleCatAccordion(catId) {
 }
 
 function renderMfrFilters() {
-  const mfrs = [...new Set(
-    STORE_DATA.products
-      .filter(p => !S.catFilter || p.category === S.catFilter)
-      .map(p => p.manufacturer || p.brand || '')
-      .filter(Boolean)
-  )].sort();
   const mfrEl = document.getElementById('mfrFilters');
   if (!mfrEl) return;
+  const mfrs = CATALOG_DB.manufacturers;
+  if (!mfrs.length) { mfrEl.innerHTML = '<p class="filter-empty-note">No manufacturers</p>'; return; }
   mfrEl.innerHTML = mfrs.map(m => {
-    const cnt = STORE_DATA.products.filter(p =>
-      (p.manufacturer || p.brand) === m && (!S.catFilter || p.category === S.catFilter)
-    ).length;
+    const safeName = m.name.replace(/'/g, "\\'");
     return `<label class="filter-item">
-      <input type="checkbox" class="filter-check" ${S.filters.mfrs.includes(m) ? 'checked' : ''}
-             onchange="toggleMfr('${m}',this.checked)">
-      <span>${m}</span>
-      <span class="filter-count">${cnt}</span>
+      <input type="checkbox" class="filter-check" ${S.filters.mfrs.includes(m.name) ? 'checked' : ''}
+             onchange="toggleMfr('${safeName}',this.checked)">
+      <span>${m.name}</span>
     </label>`;
   }).join('');
 }
@@ -1190,24 +1669,19 @@ function renderMfrFilters() {
 function renderRatingFilters() {
   const ratingEl = document.getElementById('ratingFilters');
   if (!ratingEl) return;
-  const ratingOpts = [4, 3, 2];
+  const ratingOpts = [4, 3, 2, 1];
   ratingEl.innerHTML = `
     <label class="filter-item">
       <input type="radio" class="filter-check" name="ratingFilter" ${S.filters.minRating === 0 ? 'checked' : ''}
              onchange="setRatingFilter(0)">
       <span>Any Rating</span>
     </label>` +
-    ratingOpts.map(r => {
-      const cnt = STORE_DATA.products.filter(p =>
-        (p.rating || 0) >= r && (!S.catFilter || p.category === S.catFilter)
-      ).length;
-      return `<label class="filter-item rating-filter-item">
+    ratingOpts.map(r => `
+      <label class="filter-item rating-filter-item">
         <input type="radio" class="filter-check" name="ratingFilter" ${S.filters.minRating === r ? 'checked' : ''}
                onchange="setRatingFilter(${r})">
         <span class="rf-label"><span class="rf-stars">${'★'.repeat(r)}${'☆'.repeat(5-r)}</span><span class="rf-up"> &amp; Up</span></span>
-        <span class="filter-count">${cnt}</span>
-      </label>`;
-    }).join('');
+      </label>`).join('');
 }
 
 function setRatingFilter(r) {
@@ -1218,9 +1692,7 @@ function setRatingFilter(r) {
 function renderPackageFilters() {
   const pkgEl = document.getElementById('pkgFilters');
   if (!pkgEl) return;
-  const products = S.catFilter
-    ? STORE_DATA.products.filter(p => p.category === S.catFilter)
-    : STORE_DATA.products;
+  const products = [];
   const pkgMap = {};
   products.forEach(p => { if (p.package) pkgMap[p.package] = (pkgMap[p.package] || 0) + 1; });
   const pkgs = Object.entries(pkgMap).sort((a, b) => b[1] - a[1]);
@@ -1256,23 +1728,51 @@ function onFilterSearch(q) {
 
 function applyPriceFilter() {
   S.filters.minP = parseFloat(document.getElementById('priceMin')?.value) || 0;
-  S.filters.maxP = parseFloat(document.getElementById('priceMax')?.value) || 999999;
+  S.filters.maxP = parseFloat(document.getElementById('priceMax')?.value) || 0;
+  S.page = 1;
   renderCatalog();
 }
 
 function toggleMfr(m, checked) {
   if (checked) { if (!S.filters.mfrs.includes(m)) S.filters.mfrs.push(m); }
   else S.filters.mfrs = S.filters.mfrs.filter(x => x !== m);
+
+  /* Rebuild S.catIds from all selected manufacturers' category IDs.
+     If a selected mfr has no catIds use sentinel 'none' so it yields 0 results
+     (matching the manufacturer link behaviour). */
+  if (S.filters.mfrs.length > 0) {
+    const allIds = [];
+    let hasEmpty = false;
+    S.filters.mfrs.forEach(name => {
+      const mfrData = CATALOG_DB.manufacturers.find(x => x.name === name);
+      const ids = mfrData?.catIds ? mfrData.catIds.split(',').map(s => s.trim()).filter(Boolean) : [];
+      if (ids.length) allIds.push(...ids);
+      else hasEmpty = true;
+    });
+    if (allIds.length) {
+      /* deduplicate and join */
+      S.catIds = [...new Set(allIds)].join(',');
+    } else if (hasEmpty) {
+      S.catIds = 'none';
+    } else {
+      S.catIds = '';
+    }
+  } else {
+    S.catIds = '';   /* no mfr selected → remove category restriction */
+  }
+
   renderCatalog();
 }
 
 function clearFilters() {
+  S.catId        = 0;
+  S.catIds       = '';
   S.catFilter    = null;
   S.subcatFilter = null;
   S.mfrFilter    = null;
   S.query        = '';
   S.expandedCats = [];
-  S.filters      = { mfrs: [], minP: 0, maxP: 999999, inStock: false, isNew: false, minRating: 0, packages: [], filterQuery: '' };
+  S.filters      = { mfrs: [], minP: 0, maxP: 0, inStock: false, isNew: false, minRating: 0, filterQuery: '' };
   S.sort         = 'featured'; S.page = 1;
   const si = document.getElementById('filterSearchInp'); if (si) si.value = '';
   const pm = document.getElementById('priceMin');        if (pm) pm.value = '';
@@ -1287,18 +1787,18 @@ function renderHomeCategories() {
   const el = document.getElementById('homeCats');
   if (!el) return;
   const catIcons = { mcu: 'cpu', logic: 'grid', opamp: 'zap', power: 'zap', transistor: 'tri', sensor: 'radio', comm: 'wifi', passive: 'minus_c', memory: 'db', display: 'monitor' };
+  if (!STORE_DATA.categories.length) { el.innerHTML = ''; return; }
   el.innerHTML = STORE_DATA.categories.map(c => `
-    <a href="products?cat=${c.id}" class="cat-card">
-      <div class="cat-icon">${ic(catIcons[c.id] || 'cpu', 22, 22)}</div>
+    <a href="products?cat_id=${c.id}" class="cat-card">
+      <div class="cat-icon">${ic('cpu', 22, 22)}</div>
       <div class="cat-name">${c.name}</div>
-      <div class="cat-count">${c.count} products</div>
     </a>`).join('');
 }
 
 function renderFeaturedCarousel(elId, products, variant = 'default') {
   const el = document.getElementById(elId);
   if (!el) return;
-  el.innerHTML = products.map(p => pCard(p, false, false, variant)).join('');
+  el.innerHTML = products.map(p => pCard(p, variant)).join('');
 }
 
 /* ── Featured Manufacturers logos ────────────────────────────── */
@@ -1340,6 +1840,7 @@ const SRV_IMAGES = [
 function renderSrvTools() {
   const el = document.getElementById('srvToolsGrid');
   if (!el) return;
+  if (!STORE_DATA.services.length) { el.innerHTML = ''; return; }
   el.innerHTML = STORE_DATA.services.map((s, i) => `
     <div class="srv-tool-card">
       <div class="srv-tool-img-wrap">
@@ -1354,16 +1855,17 @@ function renderSrvTools() {
 function renderFlashDeals() {
   const el = document.getElementById('flashDeals');
   if (!el) return;
-  const deals = STORE_DATA.products.filter(p => p.originalPrice).slice(0, 5);
+  const deals = [];
+  if (!deals.length) { el.innerHTML = '<p style="color:#94a3b8;font-size:13px;padding:16px;">No deals available.</p>'; return; }
   el.innerHTML = deals.map(p => {
     return `
     <div class="fdeal-card" onclick="openPDP(${p.id})">
       <div class="fdeal-img">
-        <img src="${p.image}" alt="${p.name}" onerror="this.src='https://placehold.co/200/EBF3FF/0066CC?text=${encodeURIComponent(p.sku)}'">
+        <img src="${p.image}" alt="${p.name}" data-sku="${p.sku}" onerror="_pImgFail(this)">
       </div>
       <div class="fdeal-body">
         <div class="fdeal-name">${p.name}</div>
-        <div class="fdeal-price">₹${(p.priceBreaks ? p.priceBreaks[0].price : p.price).toFixed(2)}<small>₹${p.originalPrice.toFixed(2)}</small></div>
+        <div class="fdeal-price">€${(p.priceBreaks ? p.priceBreaks[0].price : p.price).toFixed(2)}<small>€${p.originalPrice.toFixed(2)}</small></div>
       </div>
     </div>`;
   }).join('');
@@ -1372,18 +1874,19 @@ function renderFlashDeals() {
 function renderTopDeals() {
   const el = document.getElementById('topDeals');
   if (!el) return;
-  const deals = STORE_DATA.products.filter(p => p.originalPrice).slice(0, 4);
+  const deals = [];
+  if (!deals.length) { el.innerHTML = '<p style="color:#94a3b8;font-size:13px;padding:16px;">No deals available.</p>'; return; }
   el.innerHTML = deals.map(p => {
     const price = p.priceBreaks ? p.priceBreaks[0].price : p.price;
     return `
     <div class="deal-card" onclick="openPDP(${p.id})">
-      <div class="deal-card-img"><img src="${p.image}" alt="${p.name}" onerror="this.src='https://placehold.co/200/EBF3FF/0066CC?text=${encodeURIComponent(p.sku)}'"></div>
+      <div class="deal-card-img"><img src="${p.image}" alt="${p.name}" data-sku="${p.sku}" onerror="_pImgFail(this)"></div>
       <div class="deal-card-body">
         <div class="deal-card-name">${p.name}</div>
         <div class="deal-card-stars">${stars(p.rating, 12)}</div>
         <div class="deal-card-price">
-          <span class="deal-price-main">₹${price.toFixed(2)}</span>
-          <span class="deal-price-orig">₹${p.originalPrice.toFixed(2)}</span>
+          <span class="deal-price-main">€${price.toFixed(2)}</span>
+          <span class="deal-price-orig">€${p.originalPrice.toFixed(2)}</span>
         </div>
         <button class="btn-atc" onclick="event.stopPropagation();atcClick(event,${p.id})">${ic('cart', 13, 13)} Add to Cart</button>
       </div>
@@ -1498,21 +2001,9 @@ function getQuoteSelectedCategoryId(row) {
 }
 
 function getQuoteSearchMatches(query, row) {
-  const q = query.trim().toLowerCase();
-  const categoryId = getQuoteSelectedCategoryId(row);
-  let products = [...STORE_DATA.products];
-
-  if (categoryId) {
-    products = products.filter(p => p.category === categoryId);
-  }
-
-  if (!q) return products.slice(0, 8);
-
-  return products.filter(p =>
-    p.name.toLowerCase().includes(q) ||
-    p.sku.toLowerCase().includes(q) ||
-    (p.manufacturer || '').toLowerCase().includes(q)
-  ).slice(0, 8);
+  /* Products now served via AJAX — this sync fallback returns empty;
+     live search uses the async searchQuoteProducts() flow instead. */
+  return [];
 }
 
 function closeQuoteSearchDrops(exceptWrap = null) {
@@ -1551,18 +2042,18 @@ function renderQuoteSearchDrop(input) {
 
   drop.innerHTML = matches.map(p => `
     <div class="quote-product-item" data-product-id="${p.id}">
-      <img src="${p.image}" alt="${p.name}" onerror="this.src='https://placehold.co/42x42/EBF3FF/0066CC?text=${encodeURIComponent(p.sku)}'">
+      <img src="${p.image}" alt="${p.name}" onerror="_pImgFail(this)">
       <div class="quote-product-item-info">
         <div class="quote-product-item-sku">${p.sku}</div>
         <div class="quote-product-item-name">${p.name}</div>
       </div>
-      <div class="quote-product-item-meta">₹${(p.priceBreaks ? p.priceBreaks[0].price : p.price).toFixed(2)}</div>
+      <div class="quote-product-item-meta">€${(p.priceBreaks ? p.priceBreaks[0].price : p.price).toFixed(2)}</div>
     </div>
   `).join('');
 
   drop.querySelectorAll('.quote-product-item').forEach(item => {
     item.addEventListener('click', () => {
-      const product = STORE_DATA.products.find(p => p.id === Number(item.dataset.productId));
+      const product = _getProduct(Number(item.dataset.productId));
       if (product) selectQuoteProduct(input, product);
     });
   });
@@ -2156,6 +2647,8 @@ document.addEventListener('DOMContentLoaded', () => {
   initAuthModal();
   initAccountMenu();
   initQuoteAuthGuard();
+  _loadWishlistFromServer();
+  _processPendingWish();
 
   if (window.FLASH_TOAST && window.FLASH_TOAST.message) {
     const message = String(window.FLASH_TOAST.message || '').trim();
@@ -2163,14 +2656,38 @@ document.addEventListener('DOMContentLoaded', () => {
     if (message) showToastMessage(message, type);
   }
 
-  /* Search */
+  /* ── Search field wiring ── */
   const sf = document.getElementById('searchField');
-  sf?.addEventListener('input', onSearchInput);
-  sf?.addEventListener('keydown', e => { if (e.key === 'Enter') e.target.form?.submit(); });
+  if (sf) {
+    sf.addEventListener('input', onSearchInput);
+    sf.addEventListener('focus', () => {
+      /* Re-open if already has query */
+      const q = sf.value.trim();
+      if (q.length >= 2 && _srItems.length) {
+        document.getElementById('searchDrop')?.classList.add('open');
+      }
+    });
+    sf.addEventListener('keydown', e => {
+      const box = document.getElementById('searchDrop');
+      const isOpen = box?.classList.contains('open');
+      if (e.key === 'ArrowDown')  { e.preventDefault(); _srMoveFocus(1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); _srMoveFocus(-1); }
+      else if (e.key === 'Escape') { _srClose(); sf.blur(); }
+      else if (e.key === 'Enter') {
+        if (isOpen && _srActiveIdx >= 0 && _srItems[_srActiveIdx]) {
+          e.preventDefault();
+          const it = _srItems[_srActiveIdx];
+          _srSelectItem(it.ID, encodeURIComponent(it.CODE));
+        } else {
+          _srClose();
+          /* let form submit naturally */
+        }
+      }
+    });
+  }
+  /* Close dropdown on outside click */
   document.addEventListener('click', e => {
-    if (!e.target.closest('.header-search')) {
-      document.getElementById('searchDrop')?.classList.remove('open');
-    }
+    if (!e.target.closest('#headerSearch')) _srClose();
   });
 
   /* Mega menu */
@@ -2200,31 +2717,18 @@ document.addEventListener('DOMContentLoaded', () => {
       startHero();
 
       {
-        const basePrice = p => (p.priceBreaks?.[0]?.price || p.price || 0);
-        const discountPct = p => disc(basePrice(p), p.originalPrice || 0) || 0;
-        const discountedProducts = STORE_DATA.products
-          .filter(p => (p.originalPrice || 0) > basePrice(p));
-
-        const flashDealProducts = discountedProducts
-          .slice()
-          .sort((a, b) => discountPct(b) - discountPct(a))
-          .slice(0, 14);
-        const featuredProducts = STORE_DATA.products
-          .filter(p => p.badge === 'featured' || p.badge === 'popular' || Number(p.rating || 0) >= 4.7)
-          .slice(0, 14);
-        const bestSellerProducts = STORE_DATA.products
-          .filter(p => p.badge === 'bestseller' || Number(p.reviews || 0) >= 600)
-          .slice(0, 14);
-        const newArrivalProducts = STORE_DATA.products
-          .slice()
-          .sort((a, b) => {
-            if ((b.isNew ? 1 : 0) !== (a.isNew ? 1 : 0)) return (b.isNew ? 1 : 0) - (a.isNew ? 1 : 0);
-            return Number(b.id || 0) - Number(a.id || 0);
+        /* Fetch real New Products (label='New') from DB via catalog AJAX */
+        const _newUrl = `${_catAjaxBase()}?action=products&is_new=1&per_page=20&sort=new`;
+        fetch(_newUrl)
+          .then(r => r.json())
+          .then(data => {
+            if (data.ok && data.products && data.products.length) {
+              const newProds = data.products.map(_normProduct);
+              _registerProducts(newProds);
+              renderFeaturedCarousel('newArrivalsTrack', newProds, 'minimal');
+            }
           })
-          .slice(0, 20);
-
-        renderFeaturedCarousel('flashDealsTrack', flashDealProducts.length ? flashDealProducts : STORE_DATA.products.slice(0, 14));
-        renderFeaturedCarousel('newArrivalsTrack', newArrivalProducts.length ? newArrivalProducts : STORE_DATA.products.slice(0, 20), 'detail-link');
+          .catch(() => {});
       }
 
       {
@@ -2247,7 +2751,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     case 'products':
     case 'new-arrivals':
-      renderCatalog();
+      loadCatalogInit().then(() => renderCatalog());
       window.addEventListener('resize', checkMobile);
       checkMobile();
 

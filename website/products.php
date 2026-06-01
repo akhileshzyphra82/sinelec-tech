@@ -1,27 +1,20 @@
 <?php
-require_once '../data/store_data.php';
 $currentPage = 'products';
 $pageTitle   = 'Products — Sinelec Tech';
 
+/* Support both old slug-based ?cat= and new DB-id ?cat_id= from search */
+$catIdFilter  = (int)($_GET['cat_id'] ?? 0);
 $catFilter    = htmlspecialchars($_GET['cat']    ?? '');
 $mfrFilter    = htmlspecialchars($_GET['mfr']    ?? '');
 $query        = htmlspecialchars($_GET['q']      ?? '');
 $subcatFilter = htmlspecialchars($_GET['subcat'] ?? '');
+/* Comma-separated category IDs passed when coming from a manufacturer link.
+   'none' sentinel means manufacturer has no categories → shows 0 products. */
+$_rawCatIds   = $_GET['cat_ids'] ?? '';
+$catIdsFilter = ($_rawCatIds === 'none') ? 'none' : preg_replace('/[^0-9,]/', '', $_rawCatIds);
 
-if ($catFilter) {
-    $catName = '';
-    foreach ($storeData['categories'] as $c) {
-        if ($c['id'] === $catFilter) { $catName = $c['name']; break; }
-    }
-    $pageTitle = ($catName ?: $catFilter) . ' — Sinelec Tech';
-    if ($subcatFilter) {
-        $pageTitle = $subcatFilter . ' — ' . ($catName ?: $catFilter) . ' — Sinelec Tech';
-    }
-} elseif ($mfrFilter) {
-    $pageTitle = $mfrFilter . ' Products — Sinelec Tech';
-} elseif ($query) {
-    $pageTitle = 'Search: ' . $query . ' — Sinelec Tech';
-}
+if ($query)    $pageTitle = 'Search: "' . $query . '" — Sinelec Tech';
+if ($mfrFilter) $pageTitle = $mfrFilter . ' Products — Sinelec Tech';
 
 require_once 'header.php';
 ?>
@@ -120,19 +113,10 @@ require_once 'header.php';
           <div class="filter-group-body" id="ratingFilters"></div>
         </div>
 
-        <!-- Package Type -->
-        <div class="filter-group" id="fgPackage">
-          <div class="filter-group-title" onclick="toggleFilterGroup('fgPackage')">
-            <span>Package Type</span>
-            <svg class="fg-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-          </div>
-          <div class="filter-group-body" id="pkgFilters"></div>
-        </div>
-
         <!-- Price Range -->
         <div class="filter-group" id="fgPrice">
           <div class="filter-group-title" onclick="toggleFilterGroup('fgPrice')">
-            <span>Price (₹)</span>
+            <span>Price (€)</span>
             <svg class="fg-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
           </div>
           <div class="filter-group-body">
@@ -144,7 +128,8 @@ require_once 'header.php';
           </div>
         </div>
 
-        <!-- Availability -->
+        <!-- Availability (hidden) -->
+        <!--
         <div class="filter-group" id="fgAvail">
           <div class="filter-group-title" onclick="toggleFilterGroup('fgAvail')">
             <span>Availability</span>
@@ -161,6 +146,7 @@ require_once 'header.php';
             </label>
           </div>
         </div>
+        -->
 
       </div><!-- /filter-body -->
     </aside>
@@ -188,6 +174,8 @@ require_once 'header.php';
 <script>
 window.CATALOG_INIT = {
   cat:    '<?= $catFilter ?>',
+  catId:  <?= $catIdFilter ?>,           /* DB integer category id (from search dropdown) */
+  catIds: '<?= $catIdsFilter ?>',        /* comma-separated IDs from manufacturer link */
   mfr:    '<?= addslashes($mfrFilter) ?>',
   q:      '<?= addslashes($query) ?>',
   subcat: '<?= addslashes($subcatFilter) ?>',

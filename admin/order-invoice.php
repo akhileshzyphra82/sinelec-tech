@@ -4,16 +4,21 @@
  * Standalone printable invoice page (no admin chrome).
  * URL: admin/order-invoice?id=123
  *
- * Auth:  admin session required.
+ * Auth:  Admin session  — full access.
+ *        Customer session (sinelec_user) — access own orders only.
  */
 if (session_status() !== PHP_SESSION_ACTIVE) session_start();
 require_once __DIR__ . '/../common/functions.php';
 require_once __DIR__ . '/../controller/admin_controller.php';
 
-/* ── 1. Auth ── */
-$isAdmin = !empty($_SESSION['sinelec_admin']['USER_ID']);
-if (!$isAdmin) {
-    header('location:login'); exit();
+/* ── 1. Auth — accept admin OR logged-in customer ── */
+$isAdmin      = !empty($_SESSION['sinelec_admin']['USER_ID']);
+$custUserId   = (int)($_SESSION['sinelec_user']['USER_ID'] ?? 0);
+$isCustomer   = $custUserId > 0;
+
+if (!$isAdmin && !$isCustomer) {
+    /* Not logged in at all — send to website login */
+    header('location:../website/login'); exit();
 }
 
 /* ── 2. Param validation ── */
@@ -29,6 +34,15 @@ $order      = $controller->getUserOrderById($oid);
 if (!$order) {
     http_response_code(404);
     echo '<p style="font-family:sans-serif;padding:40px;color:#dc2626;">Order not found.</p>'; exit();
+}
+
+/* ── Customer ownership check — customers can only view their own orders ── */
+if (!$isAdmin && $isCustomer) {
+    $orderOwnerId = (int)(float)($order->USER_ID ?? 0);
+    if ($orderOwnerId !== $custUserId) {
+        http_response_code(403);
+        echo '<p style="font-family:sans-serif;padding:40px;color:#dc2626;">Access denied.</p>'; exit();
+    }
 }
 
 $items   = $controller->getUserOrderItems($oid);
@@ -51,6 +65,7 @@ $orderMode  = (string)($order->ORDER_MODE        ?? '');
 $custPoId   = (string)($order->CUSTOMER_PO_ID    ?? '');
 $custSupNo  = (string)($order->CUSTOMER_SUPPLIER_NO ?? '');
 $quoteId    = (int)(float)($order->ENQUIRY_QUOTE_ID ?? 0);
+$sourceOrder = (string)($order->SOURCE_ORDER ?? 'Website');
 $orderYear  = (string)($order->ORDER_YEAR        ?? date('Y', strtotime($orderDate ?: 'now')));
 
 /* ── 5. Customer fields ── */
@@ -109,10 +124,13 @@ $pStatusColor = match($pStatus) {
 };
 
 /* ── 10. Source label ── */
-$sourceLabel = ($quoteId > 0) ? 'Quote #'.$quoteId : 'Direct Order';
-$sourceIcon  = ($quoteId > 0)
-    ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>'
-    : '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
+$sourceLabel = $sourceOrder;
+$sourceIcon  = match($sourceOrder) {
+    'Website'      => '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 010 20M12 2a15.3 15.3 0 000 20"/></svg>',
+    'Quotation'    => '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
+    'Direct Order' => '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+    default        => '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>',
+};
 
 /* ── 11. Check if any items have discount/tax ── */
 $hasDisc = false; $hasTax = false;

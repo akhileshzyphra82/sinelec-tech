@@ -26,7 +26,6 @@ if ($step === 3 && !$fpVerified) {
     $step = 1;
 }
 
-require_once '../data/store_data.php';
 $currentPage = 'forgot-password';
 $pageTitle   = 'Forgot Password | Sinelec Technologies';
 require_once 'header.php';

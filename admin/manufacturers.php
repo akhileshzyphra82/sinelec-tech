@@ -111,6 +111,7 @@ ob_start();
           <th style="width:140px;">Country</th>
           <th>Categories</th>
           <th style="width:90px;text-align:center;">Status</th>
+          <th style="width:90px;text-align:center;">Show in Home</th>
           <th style="width:60px;text-align:center;">Actions</th>
         </tr>
       </thead>
@@ -135,9 +136,10 @@ ob_start();
                   if ($cid > 0 && isset($catMap[$cid])) $catNames[] = $catMap[$cid];
               }
           }
-          $catDisplay = !empty($catNames) ? implode(', ', $catNames) : '—';
-          $statusLabel = $statusLabels[$status] ?? 'Active';
-          $statusStyle = $statusColors[$status] ?? $statusColors[1];
+          $catDisplay    = !empty($catNames) ? implode(', ', $catNames) : '—';
+          $statusLabel   = $statusLabels[$status] ?? 'Active';
+          $statusStyle   = $statusColors[$status] ?? $statusColors[1];
+          $displayInHome = (string)($mfr->SHOULD_DISPLAY_IN_HOME ?? 'No');
         ?>
         <tr class="mfr-row"
             data-search="<?= htmlspecialchars(strtolower($mName)) ?>"
@@ -178,6 +180,13 @@ ob_start();
             <span style="<?= $statusStyle ?>font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px;display:inline-block;">
               <?= htmlspecialchars($statusLabel) ?>
             </span>
+          </td>
+          <td style="text-align:center;">
+            <?php if ($displayInHome === 'Yes'): ?>
+              <span style="background:#dcfce7;color:#15803d;font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px;display:inline-block;">Yes</span>
+            <?php else: ?>
+              <span style="background:#f1f5f9;color:#64748b;font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px;display:inline-block;">No</span>
+            <?php endif; ?>
           </td>
           <td>
             <?php if ($canEdit || $canDelete): ?>
@@ -261,7 +270,7 @@ ob_start();
           </div>
         </div>
 
-        <!-- Status + Logo -->
+        <!-- Status + Display in Home -->
         <div class="form-row cols-2" style="margin-bottom:14px;">
           <div class="fg">
             <label>Status</label>
@@ -271,6 +280,17 @@ ob_start();
               <option value="2">Archived</option>
             </select>
           </div>
+          <div class="fg">
+            <label>Show in Home</label>
+            <select name="should_display_in_home" id="fMfrDisplayInHome" class="form-control">
+              <option value="No">No</option>
+              <option value="Yes">Yes</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Logo -->
+        <div class="form-row cols-1" style="margin-bottom:14px;">
           <div class="fg">
             <label>Logo <span style="font-size:11px;color:var(--text-muted);font-weight:400;">(jpg, png, webp — max 5 MB)</span></label>
             <div class="mfr-upload-zone" id="mfrUploadZone" onclick="document.getElementById('fMfrLogo').click()">
@@ -415,13 +435,14 @@ ob_start();
 <script>
 const MFR_DATA = <?= json_encode(array_map(function($m) {
     return [
-        'id'         => (int)($m->MANUFACTURER_ID ?? 0),
-        'name'       => (string)($m->NAME ?? ''),
-        'logo'       => (string)($m->LOGO ?? ''),
-        'country_id' => (int)($m->COUNTRY_ID ?? 0),
-        'desc'       => (string)($m->DESCRIPTION ?? ''),
-        'cat_ids'    => (string)($m->PRODUCT_CATEGORY_IDS ?? ''),
-        'status'     => (int)($m->STATUS ?? 1),
+        'id'           => (int)($m->MANUFACTURER_ID ?? 0),
+        'name'         => (string)($m->NAME ?? ''),
+        'logo'         => (string)($m->LOGO ?? ''),
+        'country_id'   => (int)($m->COUNTRY_ID ?? 0),
+        'desc'         => (string)($m->DESCRIPTION ?? ''),
+        'cat_ids'      => (string)($m->PRODUCT_CATEGORY_IDS ?? ''),
+        'status'       => (int)($m->STATUS ?? 1),
+        'display_home' => (string)($m->SHOULD_DISPLAY_IN_HOME ?? 'No'),
     ];
 }, $manufacturers), JSON_FORCE_OBJECT) ?>;
 
@@ -588,12 +609,13 @@ function openMfrModal(mfrId) {
   _currentMfrId = mfrId || 0;
 
   /* Reset form */
-  document.getElementById('fMfrId').value           = _currentMfrId;
-  document.getElementById('fMfrExistingLogo').value = '';
-  document.getElementById('fMfrName').value         = '';
-  document.getElementById('fMfrCountry').value      = '0';
-  document.getElementById('fMfrStatus').value       = '1';
-  document.getElementById('fMfrLogo').value         = '';
+  document.getElementById('fMfrId').value             = _currentMfrId;
+  document.getElementById('fMfrExistingLogo').value   = '';
+  document.getElementById('fMfrName').value           = '';
+  document.getElementById('fMfrCountry').value        = '0';
+  document.getElementById('fMfrStatus').value         = '1';
+  document.getElementById('fMfrDisplayInHome').value  = 'No';
+  document.getElementById('fMfrLogo').value           = '';
   document.getElementById('mfrUploadEmpty').style.display   = 'flex';
   document.getElementById('mfrUploadPreview').style.display = 'none';
   if (mfrQuill) mfrQuill.setContents([]);
@@ -608,9 +630,10 @@ function openMfrModal(mfrId) {
 
     var d = Object.values(MFR_DATA).find(function (m) { return m.id === _currentMfrId; });
     if (d) {
-      document.getElementById('fMfrName').value         = d.name;
-      document.getElementById('fMfrExistingLogo').value = d.logo;
-      document.getElementById('fMfrStatus').value       = String(d.status);
+      document.getElementById('fMfrName').value            = d.name;
+      document.getElementById('fMfrExistingLogo').value    = d.logo;
+      document.getElementById('fMfrStatus').value          = String(d.status);
+      document.getElementById('fMfrDisplayInHome').value   = d.display_home || 'No';
 
       /* Set description in Quill */
       if (mfrQuill && d.desc) mfrQuill.clipboard.dangerouslyPasteHTML(d.desc);

@@ -1985,14 +1985,16 @@ class AdminController
     public function saveManufacturer(array $d): int|false
     {
         try {
-            $id         = (int)($d['id'] ?? 0);
-            $name       = addslashes(trim($d['name'] ?? ''));
-            $logo       = addslashes(trim($d['logo'] ?? ''));
-            $countryId  = (int)($d['country_id'] ?? 0);
-            $desc       = addslashes(trim($d['description'] ?? ''));
-            $catIds     = addslashes(trim($d['product_category_ids'] ?? ''));
-            $status     = (int)($d['status'] ?? 1);
-            $countryVal = $countryId > 0 ? $countryId : 'NULL';
+            $id            = (int)($d['id'] ?? 0);
+            $name          = addslashes(trim($d['name'] ?? ''));
+            $logo          = addslashes(trim($d['logo'] ?? ''));
+            $countryId     = (int)($d['country_id'] ?? 0);
+            $desc          = addslashes(trim($d['description'] ?? ''));
+            $catIds        = addslashes(trim($d['product_category_ids'] ?? ''));
+            $status        = (int)($d['status'] ?? 1);
+            $displayInHome = in_array($d['should_display_in_home'] ?? '', ['Yes','No'])
+                             ? $d['should_display_in_home'] : 'No';
+            $countryVal    = $countryId > 0 ? $countryId : 'NULL';
 
             if ($id > 0) {
                 $oldRow = $this->getManufacturerById($id);
@@ -2002,27 +2004,30 @@ class AdminController
                          country_id=".$countryVal.",
                          description='".$desc."',
                          product_category_ids='".$catIds."',
-                         status=".$status."
+                         status=".$status.",
+                         should_display_in_home='".$displayInHome."'
                      WHERE manufacturer_id=".$id." LIMIT 1";
                 $this->db->update($sql);
                 $this->logActivity('edit', 'tbl_manufacturers', $sql,
                     $oldRow !== null ? (array)$oldRow : null,
                     ['manufacturer_id'=>$id,'name'=>$name,'logo'=>$logo,'country_id'=>$countryId,
-                     'description'=>$desc,'product_category_ids'=>$catIds,'status'=>$status]
+                     'description'=>$desc,'product_category_ids'=>$catIds,'status'=>$status,
+                     'should_display_in_home'=>$displayInHome]
                 );
                 return $id;
             }
 
             if ($name === '') return false;
             $sql = "INSERT INTO tbl_manufacturers
-                 (name, logo, country_id, description, product_category_ids, status)
-                 VALUES('".$name."', '".$logo."', ".$countryVal.", '".$desc."', '".$catIds."', ".$status.")";
+                 (name, logo, country_id, description, product_category_ids, status, should_display_in_home)
+                 VALUES('".$name."', '".$logo."', ".$countryVal.", '".$desc."', '".$catIds."', ".$status.", '".$displayInHome."')";
             $newId = (int)$this->db->insert($sql);
             if ($newId > 0) {
                 $this->logActivity('add', 'tbl_manufacturers', $sql,
                     null,
                     ['name'=>$name,'logo'=>$logo,'country_id'=>$countryId,
-                     'description'=>$desc,'product_category_ids'=>$catIds,'status'=>$status]
+                     'description'=>$desc,'product_category_ids'=>$catIds,'status'=>$status,
+                     'should_display_in_home'=>$displayInHome]
                 );
             }
             return $newId > 0 ? $newId : false;
@@ -2237,19 +2242,19 @@ class AdminController
                 "INSERT INTO tbl_user_order
                  (order_type, user_id, order_number, order_year,
                   customer_po_id, customer_supplier_no,
-                  order_mode, order_status, payment_status,
+                  order_mode, source_order, order_status, payment_status,
                   order_total_amt, shipping_amt, discount_amt, tax_total_amount, final_total_amt,
                   user_address_id, billing_user_address_id, enquiry_quote_id)
                  VALUES('Order',$userId,'PENDING',$year,
                   '$custPoId','$custSupNo',
-                  '$payMode','$orderStatus','$payStatus',
+                  '$payMode','Quotation','$orderStatus','$payStatus',
                   $totalProd,$shipAmt,$discAmt,$taxAmt,$finalAmt,
                   $addrId,$bilAddrId,$qid)"
             );
             if ($newId <= 0) return 0;
 
-            /* 2. Set proper order number */
-            $orderNo = 'ORD-'.$year.'-'.str_pad((string)$newId, 6, '0', STR_PAD_LEFT);
+            /* 2. Set proper order number: YYYY-NN */
+            $orderNo = $year.str_pad((string)$newId, 2, '0', STR_PAD_LEFT);
             $this->db->update("UPDATE tbl_user_order SET order_number='$orderNo' WHERE user_order_id=$newId");
 
             /* 3. Insert order items */
@@ -2456,8 +2461,8 @@ class AdminController
             if (!empty($f['payment_status'])) $where .= " AND o.payment_status='".addslashes($f['payment_status'])."'";
             if (!empty($f['order_mode']))     $where .= " AND o.order_mode='".addslashes($f['order_mode'])."'";
             if (!empty($f['source'])) {
-                if ($f['source'] === 'quotation') $where .= " AND o.enquiry_quote_id IS NOT NULL AND o.enquiry_quote_id > 0";
-                elseif ($f['source'] === 'direct') $where .= " AND (o.enquiry_quote_id IS NULL OR o.enquiry_quote_id = 0)";
+                $srcSafe = addslashes($f['source']);
+                $where .= " AND o.source_order='$srcSafe'";
             }
             if (!empty($f['date_from'])) $where .= " AND DATE(o.order_date) >= '".addslashes($f['date_from'])."'";
             if (!empty($f['date_to']))   $where .= " AND DATE(o.order_date) <= '".addslashes($f['date_to'])."'";
@@ -2468,10 +2473,13 @@ class AdminController
                         COALESCE(u.communication_mobile_num, '') AS cust_phone,
                         COALESCE(u.company_name, '') AS cust_company,
                         eq.enquiry_quote_id AS quote_id,
+                        cc.courier_company_name AS courier_name,
+                        cc.tracking_url AS courier_tracking_tpl,
                         (SELECT COUNT(*) FROM tbl_user_order_item i WHERE i.user_order_id = o.user_order_id AND i.item_status='Active') AS item_count
                  FROM tbl_user_order o
                  LEFT JOIN tbl_user u ON u.user_id = o.user_id
                  LEFT JOIN tbl_enquiry_quote eq ON eq.enquiry_quote_id = o.enquiry_quote_id
+                 LEFT JOIN tbl_courier_company cc ON cc.courier_company_id = o.courier_company_id
                  WHERE $where
                  ORDER BY o.user_order_id DESC"
             );
@@ -2532,6 +2540,15 @@ class AdminController
                  LEFT JOIN tbl_user u ON u.user_id = h.changed_by_user_id
                  WHERE h.user_order_id = $orderId
                  ORDER BY h.user_order_history_id ASC"
+            );
+        } catch (Exception $e) { return []; }
+    }
+
+    public function getBankDetails(): array
+    {
+        try {
+            return $this->db->select(
+                "SELECT * FROM tbl_bank_details WHERE status = 1 ORDER BY bank_detail_id ASC"
             );
         } catch (Exception $e) { return []; }
     }
@@ -2629,18 +2646,18 @@ class AdminController
                 "INSERT INTO tbl_user_order
                  (order_type, user_id, order_number, order_year,
                   customer_po_id, customer_supplier_no,
-                  order_mode, order_status, payment_status,
+                  order_mode, source_order, order_status, payment_status,
                   order_total_amt, shipping_amt, discount_amt, tax_total_amount, final_total_amt,
                   user_address_id, billing_user_address_id)
                  VALUES('Order',$userId,'PENDING',$year,
                   '$custPoId','$custSupNo',
-                  '$payMode','$orderStatus','$payStatus',
+                  '$payMode','Direct Order','$orderStatus','$payStatus',
                   $totalProd,$shipAmt,$discAmt,$taxAmt,$finalAmt,
                   $addrId,$bilAddrId)"
             );
             if ($newId <= 0) return 0;
 
-            $orderNo = 'ORD-'.$year.'-'.str_pad((string)$newId, 6, '0', STR_PAD_LEFT);
+            $orderNo = $year.str_pad((string)$newId, 2, '0', STR_PAD_LEFT);
             $this->db->update("UPDATE tbl_user_order SET order_number='$orderNo' WHERE user_order_id=$newId");
 
             foreach ($items as $item) {

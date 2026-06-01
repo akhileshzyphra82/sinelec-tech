@@ -1,5 +1,4 @@
 <?php
-require_once '../data/store_data.php';
 $currentPage = 'resources';
 $pageTitle   = 'Shipping and Payment Terms — Sinelec Tech';
 require_once 'header.php';
