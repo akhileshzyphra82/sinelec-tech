@@ -1171,11 +1171,15 @@ function moOpenDetails(orderId) {
     html += '<div class="mo-totals">';
     html += '<div class="mo-total-row"><span>Subtotal</span><span>€' + o.subtotal.toFixed(2) + '</span></div>';
     html += '<div class="mo-total-row"><span>Shipping</span><span>€' + o.shipping.toFixed(2) + '</span></div>';
+    var vatLabel;
     if (o.vat_number) {
-        html += '<div class="mo-total-row"><span>VAT (Exempt — ' + _moEsc(o.vat_number) + ')</span><span>€0.00</span></div>';
+        vatLabel = o.vat === 0
+            ? 'VAT (Exempt — ' + _moEsc(o.vat_number) + ')'
+            : 'VAT (B2B — ' + _moEsc(o.vat_number) + ')';
     } else {
-        html += '<div class="mo-total-row"><span>VAT (19%)</span><span>€' + o.vat.toFixed(2) + '</span></div>';
+        vatLabel = 'VAT';
     }
+    html += '<div class="mo-total-row"><span>' + vatLabel + '</span><span>€' + o.vat.toFixed(2) + '</span></div>';
     html += '<div class="mo-total-row grand"><span>Total</span><span>€' + o.total.toFixed(2) + '</span></div>';
     html += '</div></div>';
 

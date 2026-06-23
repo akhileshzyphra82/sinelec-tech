@@ -265,7 +265,7 @@ function openOrderModal(id, num, currentStatus) {
 
 function toggleDispatch(val) {
   var el = document.getElementById('dispatchFields');
-  if (el) el.style.display = (val === 'Dispatched') ? 'block' : 'none';
+  if (el) el.style.display = (val === 'Order Dispatch') ? 'block' : 'none';
 }
 
 

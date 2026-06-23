@@ -1205,7 +1205,12 @@ class WebsiteController
             if ($deliveryAddrId <= 0) return ['ok' => false, 'msg' => 'Please select a delivery address.'];
 
             $addrRows = $this->dbHelper->select(
-                "SELECT ua.*, c.shipping_amt AS country_shipping_amt, c.country AS country_name
+                "SELECT ua.*,
+                        c.shipping_amt AS country_shipping_amt,
+                        COALESCE(c.country, ua.country, '') AS country_name,
+                        c.standard_b2c_vat, c.standard_b2b_vat,
+                        c.oss_b2c_vat,      c.oss_b2b_vat,
+                        c.applied_vat
                  FROM tbl_user_address ua
                  LEFT JOIN tbl_country c ON c.country_id = ua.country_id
                  WHERE ua.user_address_id = $deliveryAddrId AND ua.user_id = $userId LIMIT 1"
@@ -1240,16 +1245,25 @@ class WebsiteController
 
             $addr        = $addrRows[0];
             $subtotal    = round($subtotal, 2);
-            $shippingAmt = round((float)($addr->COUNTRY_SHIPPING_AMT ?? 19.99), 2);
-            $vatNumber   = trim(preg_replace('/\s+/', '', $data['vat_number'] ?? ''));
-            $vatPct      = 19.0;
-            $vatAmt      = 0.0;
-            $vatExempt   = false;
-            if ($vatNumber !== '' && preg_match('/^[A-Z]{2}[0-9A-Z]{2,13}$/i', $vatNumber)) {
-                $vatExempt = true;
-            } else {
-                $vatAmt = round($subtotal * $vatPct / 100, 2);
+            $shippingAmt = round((float)($addr->COUNTRY_SHIPPING_AMT ?? 0), 2);
+
+            /* ── Dynamic VAT from tbl_country ── */
+            $vatNumber  = trim(preg_replace('/\s+/', '', $data['vat_number'] ?? ''));
+            $isB2B      = $vatNumber !== '' && (bool)preg_match('/^[A-Z]{2}[0-9A-Z]{2,13}$/i', $vatNumber);
+            $appliedVat = strtolower((string)($addr->APPLIED_VAT ?? 'standard'));
+
+            if ($appliedVat === 'oss') {
+                $vatPct = $isB2B
+                    ? (float)($addr->OSS_B2B_VAT ?? 0)
+                    : (float)($addr->OSS_B2C_VAT ?? 0);
+            } else { /* Standard */
+                $vatPct = $isB2B
+                    ? (float)($addr->STANDARD_B2B_VAT ?? 0)
+                    : (float)($addr->STANDARD_B2C_VAT ?? 0);
             }
+
+            $vatAmt     = $vatPct > 0 ? round($subtotal * $vatPct / 100, 2) : 0.0;
+            $vatExempt  = $isB2B;
             $finalTotal = round($subtotal + $shippingAmt + $vatAmt, 2);
 
             return [
@@ -1257,6 +1271,7 @@ class WebsiteController
                 'final_total' => $finalTotal,
                 'subtotal'    => $subtotal,
                 'shipping_amt'=> $shippingAmt,
+                'vat_pct'     => $vatPct,
                 'vat_amt'     => $vatAmt,
                 'vat_exempt'  => $vatExempt,
                 'vat_number'  => $vatNumber,
@@ -1283,7 +1298,12 @@ class WebsiteController
             }
 
             $addrRows = $this->dbHelper->select(
-                "SELECT ua.*, c.shipping_amt AS country_shipping_amt, c.country AS country_name
+                "SELECT ua.*,
+                        c.shipping_amt AS country_shipping_amt,
+                        COALESCE(c.country, ua.country, '') AS country_name,
+                        c.standard_b2c_vat, c.standard_b2b_vat,
+                        c.oss_b2c_vat,      c.oss_b2b_vat,
+                        c.applied_vat
                  FROM tbl_user_address ua
                  LEFT JOIN tbl_country c ON c.country_id = ua.country_id
                  WHERE ua.user_address_id = $deliveryAddrId AND ua.user_id = $userId LIMIT 1"
@@ -1361,18 +1381,25 @@ class WebsiteController
             $subtotal = round($subtotal, 2);
 
             /* Shipping from delivery address country */
-            $shippingAmt = round((float)($addr->COUNTRY_SHIPPING_AMT ?? 19.99), 2);
+            $shippingAmt = round((float)($addr->COUNTRY_SHIPPING_AMT ?? 0), 2);
 
-            /* VAT 19% — rebate if valid EU VAT number provided */
-            $vatPct    = 19.0;
-            $vatNumber = trim(preg_replace('/\s+/', '', $data['vat_number'] ?? ''));
-            $vatAmt    = 0.0;
-            $vatExempt = false;
-            if ($vatNumber !== '' && preg_match('/^[A-Z]{2}[0-9A-Z]{2,13}$/i', $vatNumber)) {
-                $vatExempt = true; /* Valid EU VAT format — exempt */
-            } else {
-                $vatAmt = round($subtotal * $vatPct / 100, 2);
+            /* ── Dynamic VAT from tbl_country ── */
+            $vatNumber  = trim(preg_replace('/\s+/', '', $data['vat_number'] ?? ''));
+            $isB2B      = $vatNumber !== '' && (bool)preg_match('/^[A-Z]{2}[0-9A-Z]{2,13}$/i', $vatNumber);
+            $appliedVat = strtolower((string)($addr->APPLIED_VAT ?? 'standard'));
+
+            if ($appliedVat === 'oss') {
+                $vatPct = $isB2B
+                    ? (float)($addr->OSS_B2B_VAT ?? 0)
+                    : (float)($addr->OSS_B2C_VAT ?? 0);
+            } else { /* Standard */
+                $vatPct = $isB2B
+                    ? (float)($addr->STANDARD_B2B_VAT ?? 0)
+                    : (float)($addr->STANDARD_B2C_VAT ?? 0);
             }
+
+            $vatAmt    = $vatPct > 0 ? round($subtotal * $vatPct / 100, 2) : 0.0;
+            $vatExempt = $isB2B;
             $finalTotal = round($subtotal + $shippingAmt + $vatAmt, 2);
 
             /* Payment status by mode */
@@ -1942,6 +1969,7 @@ class WebsiteController
         $company      = addslashes(trim($d['company_name']       ?? ''));
         $phone        = addslashes(trim($d['delivery_phone_no']  ?? ''));
         $mcc          = (int)($d['mobile_country_code']          ?? 0);
+        $countryId    = (int)($d['country_id']                   ?? 0);
         $line1        = addslashes(trim($d['address_line_one']   ?? ''));
         $line2        = addslashes(trim($d['address_line_two']   ?? ''));
         $lmk          = addslashes(trim($d['landmark']           ?? ''));
@@ -1958,7 +1986,9 @@ class WebsiteController
                label='$label', user_name='$userName', company_name='$company',
                delivery_phone_no='$phone', mobile_country_code=$mcc,
                address_line_one='$line1', address_line_two='$line2', landmark='$lmk',
-               city='$city', state='$state', zip='$zip', country='$country', address='$addrNotes',
+               city='$city', state='$state', zip='$zip',
+               country='$country', country_id=$countryId,
+               address='$addrNotes',
                recipient_name='$recipName', recipient_email='$recipEmail', recipient_contact='$recipContact'
              WHERE user_address_id=$addrId AND user_id=$userId"
         );
@@ -2544,15 +2574,18 @@ class WebsiteController
         } catch (Exception $e) { error_log('getBankDetails: ' . $e->getMessage()); return []; }
     }
 
-    /* ── Address shipping info (public — used by order AJAX) ─── */
+    /* ── Address shipping + VAT info (public — used by order AJAX) ── */
     public function getAddressShipping(int $addrId, int $userId): ?object
     {
         if ($addrId <= 0 || $userId <= 0) return null;
         try {
             $r = $this->dbHelper->select(
                 "SELECT ua.country_id, ua.country,
-                        COALESCE(c.shipping_amt, 19.99) AS shipping_amt,
-                        COALESCE(c.country, ua.country, 'Unknown') AS country_name
+                        c.shipping_amt,
+                        COALESCE(c.country, ua.country, 'Unknown') AS country_name,
+                        c.standard_b2c_vat, c.standard_b2b_vat,
+                        c.oss_b2c_vat,      c.oss_b2b_vat,
+                        c.applied_vat
                  FROM tbl_user_address ua
                  LEFT JOIN tbl_country c ON c.country_id = ua.country_id AND ua.country_id > 0
                  WHERE ua.user_address_id = $addrId AND ua.user_id = $userId LIMIT 1"

@@ -28,7 +28,7 @@ ob_start();
 <form method="GET" action="orders" class="filter-bar">
   <select name="status" class="form-control" style="max-width:220px;">
     <option value="">All Statuses</option>
-    <?php foreach (['Payment Successful','Invoice Payment Pending','Dispatched'] as $s): ?>
+    <?php foreach (['Order Pending','Order Confirmed','Order Packed','Order Dispatch','Order In Transit'] as $s): ?>
     <option value="<?= $s ?>" <?= $filters['status'] === $s ? 'selected' : '' ?>><?= $s ?></option>
     <?php endforeach; ?>
   </select>
@@ -65,7 +65,7 @@ ob_start();
       <tbody>
         <?php foreach ($orders as $o): ?>
         <?php
-          $oid   = (int)($o->ORDER_ID ?? 0);
+          $oid   = (int)(float)($o->USER_ORDER_ID ?? 0);
           $onum  = htmlspecialchars($o->ORDER_NUMBER ?? '');
           $cust  = htmlspecialchars($o->CUSTOMER_NAME ?? 'Guest');
           $email = htmlspecialchars($o->COMMUNICATION_EMAIL_ID ?? '');
@@ -73,14 +73,16 @@ ob_start();
           $state = htmlspecialchars($o->STATE ?? '');
           $loc   = trim($city.($city && $state ? ', ' : '').$state) ?: '—';
           $items = (int)($o->ITEM_COUNT ?? 0);
-          $amt   = (float)($o->ORDER_TOTAL_AMT ?? 0);
-          $st    = (string)($o->ORDER_CURRENT_STATUS ?? '');
+          $amt   = (float)($o->FINAL_TOTAL_AMT ?? 0);
+          $st    = (string)($o->ORDER_STATUS ?? '');
           $date  = htmlspecialchars(date('d M Y', strtotime($o->ORDER_DATE ?? '')));
           $badgeClass = match($st) {
-            'Payment Successful'      => 'badge--blue',
-            'Invoice Payment Pending' => 'badge--amber',
-            'Dispatched'              => 'badge--violet',
-            default                   => 'badge--gray',
+            'Order Pending'    => 'badge--gray',
+            'Order Confirmed'  => 'badge--blue',
+            'Order Packed'     => 'badge--violet',
+            'Order Dispatch'   => 'badge--amber',
+            'Order In Transit' => 'badge--amber',
+            default            => 'badge--gray',
           };
         ?>
         <tr>
@@ -91,7 +93,7 @@ ob_start();
           </td>
           <td style="color:var(--text-muted);font-size:12px;"><?= $loc ?></td>
           <td style="text-align:center;"><?= $items ?></td>
-          <td style="text-align:right;">₹<?= number_format($amt, 2) ?></td>
+          <td style="text-align:right;">€<?= number_format($amt, 2) ?></td>
           <td><span class="badge <?= $badgeClass ?>"><?= htmlspecialchars($st) ?></span></td>
           <td style="font-size:12px;color:var(--text-muted);"><?= $date ?></td>
           <td>
@@ -124,11 +126,12 @@ ob_start();
           <label>New Status <span class="req">*</span></label>
           <select name="order_status" id="modal_status" class="form-control" onchange="toggleDispatch(this.value)" required>
             <option value="">— Select Status —</option>
-            <option value="Payment Successful">Payment Successful</option>
-            <option value="Invoice Payment Pending">Invoice Payment Pending</option>
-            <option value="Dispatched">Dispatched</option>
-            <option value="Delivered">Delivered</option>
-            <option value="Cancelled">Cancelled</option>
+            <option value="Order Confirmed">Order Confirmed</option>
+            <option value="Order Packed">Order Packed</option>
+            <option value="Order Dispatch">Order Dispatch</option>
+            <option value="Order In Transit">Order In Transit</option>
+            <option value="Order Delivered">Order Delivered</option>
+            <option value="Order Cancelled">Order Cancelled</option>
           </select>
         </div>
         <div id="dispatchFields" style="display:none;">

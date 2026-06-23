@@ -36,8 +36,8 @@ $history    = $controller->getOrderHistory_byId($orderId);
           <?php if ($item->PRODUCT_CODE ?? ''): ?><div style="font-size:11px;color:#94a3b8;"><?= htmlspecialchars($item->PRODUCT_CODE) ?></div><?php endif; ?>
         </td>
         <td style="text-align:right;padding:8px 10px;border-bottom:1px solid #f1f5f9;"><?= (int)($item->QUANTITY ?? 0) ?></td>
-        <td style="text-align:right;padding:8px 10px;border-bottom:1px solid #f1f5f9;">₹<?= number_format((float)($item->PRODUCT_AMT ?? 0), 2) ?></td>
-        <td style="text-align:right;padding:8px 10px;border-bottom:1px solid #f1f5f9;font-weight:600;">₹<?= number_format((float)($item->QUANTITY ?? 0) * (float)($item->PRODUCT_AMT ?? 0), 2) ?></td>
+        <td style="text-align:right;padding:8px 10px;border-bottom:1px solid #f1f5f9;">€<?= number_format((float)($item->PRODUCT_AMT ?? 0), 2) ?></td>
+        <td style="text-align:right;padding:8px 10px;border-bottom:1px solid #f1f5f9;font-weight:600;">€<?= number_format((float)($item->FINAL_AMT ?? 0), 2) ?></td>
       </tr>
       <?php endforeach; ?>
     </tbody>
@@ -50,8 +50,11 @@ $history    = $controller->getOrderHistory_byId($orderId);
     <?php foreach ($history as $h): ?>
     <div style="display:flex;align-items:center;gap:10px;font-size:12px;">
       <span style="width:8px;height:8px;border-radius:50%;background:#2563eb;flex-shrink:0;"></span>
-      <span style="font-weight:500;"><?= htmlspecialchars($h->ORDER_STATUS ?? '') ?></span>
-      <span style="color:#6b7280;margin-left:auto;"><?= htmlspecialchars(date('d M Y H:i', strtotime($h->UPDATED_DATE ?? ''))) ?></span>
+      <span style="font-weight:500;"><?= htmlspecialchars($h->HISTORY_ORDER_STATUS ?? $h->HISTORY_PAYMENT_STATUS ?? '') ?></span>
+      <?php if (!empty($h->HISTORY_REMARKS)): ?>
+      <span style="color:#94a3b8;font-size:11px;margin-left:6px;">(<?= htmlspecialchars($h->HISTORY_REMARKS) ?>)</span>
+      <?php endif; ?>
+      <span style="color:#6b7280;margin-left:auto;"><?= htmlspecialchars(date('d M Y H:i', strtotime($h->CREATED_AT ?? ''))) ?></span>
     </div>
     <?php endforeach; ?>
   </div>

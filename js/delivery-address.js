@@ -35,16 +35,29 @@
   }
   function setCountry(name, cid) {
     if (!countrySel) return;
-    var opts = countrySel.options;
-    for (var i = 0; i < opts.length; i++) {
-      if (opts[i].value === name || (cid && opts[i].dataset.cid == cid)) {
-        countrySel.selectedIndex = i;
-        if (countryIdInp) countryIdInp.value = opts[i].dataset.cid || '0';
-        return;
+    var opts   = countrySel.options;
+    var cidNum = parseFloat(cid) || 0;
+    var cidIdx  = -1;
+    var nameIdx = -1;
+
+    for (var i = 1; i < opts.length; i++) { /* skip index 0 = placeholder */
+      if (cidNum > 0 && parseFloat(opts[i].dataset.cid) === cidNum) {
+        cidIdx = i;
+        break; /* exact ID match — stop here */
+      }
+      if (nameIdx === -1 && opts[i].value === name) {
+        nameIdx = i; /* remember first name match, keep scanning for cid */
       }
     }
-    countrySel.selectedIndex = 0;
-    if (countryIdInp) countryIdInp.value = '0';
+
+    var idx = cidIdx >= 0 ? cidIdx : nameIdx; /* cid takes priority */
+    if (idx >= 0) {
+      countrySel.selectedIndex = idx;
+      if (countryIdInp) countryIdInp.value = opts[idx].dataset.cid || '0';
+    } else {
+      countrySel.selectedIndex = 0;
+      if (countryIdInp) countryIdInp.value = '0';
+    }
   }
 
   /* ── Label tabs ── */

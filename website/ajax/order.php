@@ -37,10 +37,23 @@ if ($action === 'get_shipping') {
     $info = $ctrl->getAddressShipping($addrId, $userId);
     if (!$info) orderJsonOut(['ok' => false, 'msg' => 'Address not found.']);
 
+    /* Resolve both B2C and B2B rates based on the country's applied_vat setting */
+    $appliedVat = strtolower((string)($info->APPLIED_VAT ?? 'standard'));
+    if ($appliedVat === 'oss') {
+        $b2cVat = (float)($info->OSS_B2C_VAT ?? 0);
+        $b2bVat = (float)($info->OSS_B2B_VAT ?? 0);
+    } else {
+        $b2cVat = (float)($info->STANDARD_B2C_VAT ?? 0);
+        $b2bVat = (float)($info->STANDARD_B2B_VAT ?? 0);
+    }
+
     orderJsonOut([
         'ok'           => true,
-        'shipping_amt' => round((float)($info->SHIPPING_AMT ?? 19.99), 2),
+        'shipping_amt' => round((float)($info->SHIPPING_AMT ?? 0), 2),
         'country'      => (string)($info->COUNTRY_NAME ?? $info->COUNTRY ?? ''),
+        'applied_vat'  => ucfirst($appliedVat), /* 'Standard' | 'Oss' */
+        'b2c_vat_pct'  => round($b2cVat, 4),
+        'b2b_vat_pct'  => round($b2bVat, 4),
     ]);
 }
 

@@ -467,10 +467,11 @@ require_once 'header.php';
 
 <script>
 const _CO_ADDRS  = <?= json_encode(array_values($jsAddresses), JSON_UNESCAPED_UNICODE | JSON_HEX_TAG) ?>;
-const VAT_PCT    = 19;
 let _coItems     = [];
 let _coShipping  = null;  /* null = not loaded; number = amount */
-let _coVatExempt = false;
+let _coB2cVat    = 0;     /* B2C VAT % for selected country (0 = no VAT) */
+let _coB2bVat    = 0;     /* B2B VAT % for selected country (0 = no VAT / reverse charge) */
+let _coHasVatNum = false; /* true = user entered a valid VAT number → B2B rate applies */
 let _coDelivId   = <?= $firstAddrId ?>;
 let _coBillId    = <?= $firstAddrId ?>;
 let _coBillSame  = true;
@@ -566,20 +567,37 @@ function _coSyncCart() {
 
 /* ── Recalculate & update UI ─────────────────────────────── */
 function coRecalc() {
-  const sub  = _coItems.reduce((s, it) => s + it.price * it.qty, 0);
+  const sub = _coItems.reduce((s, it) => s + it.price * it.qty, 0);
   _setText('coSubtotal', '€' + sub.toFixed(2));
 
   if (_coShipping !== null) {
     _setText('coShipping', '€' + _coShipping.toFixed(2));
-    const vatBase = sub + _coShipping;
-    const vatAmt  = _coVatExempt ? 0 : +(vatBase * VAT_PCT / 100).toFixed(2);
-    _setText('coVatAmt',     _coVatExempt ? '€0.00 (exempt)' : '€' + vatAmt.toFixed(2));
-    _setText('coVatLabel',   _coVatExempt ? 'VAT (exempt)' : 'VAT (19%)');
-    _setText('coGrandTotal', '€' + (vatBase + vatAmt).toFixed(2));
+
+    /* Pick rate: B2B rate when VAT number entered, B2C rate otherwise */
+    const vatPct = _coHasVatNum ? _coB2bVat : _coB2cVat;
+    /* VAT applied on subtotal only (shipping is not taxed) */
+    const vatAmt = vatPct > 0 ? +(sub * vatPct / 100).toFixed(2) : 0;
+
+    /* Label */
+    let vatLabel;
+    if (_coHasVatNum) {
+      vatLabel = vatPct === 0 ? 'VAT (exempt — B2B)' : `VAT (${vatPct}% B2B)`;
+    } else {
+      vatLabel = vatPct === 0 ? 'VAT (0%)' : `VAT (${vatPct}%)`;
+    }
+    /* Amount */
+    const vatDisplay = (_coHasVatNum && vatPct === 0)
+      ? '€0.00 (exempt)'
+      : '€' + vatAmt.toFixed(2);
+
+    _setText('coVatLabel',   vatLabel);
+    _setText('coVatAmt',     vatDisplay);
+    _setText('coGrandTotal', '€' + (sub + _coShipping + vatAmt).toFixed(2));
   } else {
     const el = document.getElementById('coShipping');
     if (el) el.innerHTML = '<em class="co-dim">Select address</em>';
     _setText('coVatAmt',     '—');
+    _setText('coVatLabel',   'VAT');
     _setText('coGrandTotal', '—');
   }
   coCheckReady();
@@ -614,12 +632,16 @@ function _coFetchShippingBase(addrId) {
   if (!addrId) return;
   const stEl   = document.getElementById('coShippingStatus');
   const stText = document.getElementById('coShippingStatusText');
-  if (stEl)   stEl.className   = 'co-shipping-status';
+  if (stEl)   stEl.className    = 'co-shipping-status';
   if (stText) stText.textContent = 'Calculating shipping…';
 
   const shipEl = document.getElementById('coShipping');
   if (shipEl) shipEl.innerHTML = '<em class="co-dim">Loading…</em>';
-  _coShipping = null;
+
+  /* Reset shipping & VAT state while loading */
+  _coShipping  = null;
+  _coB2cVat    = 0;
+  _coB2bVat    = 0;
   coCheckReady();
 
   fetch(`ajax/order?action=get_shipping&address_id=${addrId}`)
@@ -627,19 +649,33 @@ function _coFetchShippingBase(addrId) {
     .then(d => {
       if (d.ok) {
         _coShipping = parseFloat(d.shipping_amt) || 0;
-        if (stEl)   stEl.className   = 'co-shipping-status loaded';
+        _coB2cVat   = parseFloat(d.b2c_vat_pct)  || 0;
+        _coB2bVat   = parseFloat(d.b2b_vat_pct)  || 0;
+
+        /* If address changed, re-evaluate the VAT number to show updated rate */
+        const vatMsg = document.getElementById('coVatMsg');
+        if (!_coHasVatNum && vatMsg) {
+          vatMsg.textContent = '';
+          vatMsg.className   = 'co-vat-msg';
+        }
+        if (_coHasVatNum) {
+          /* Re-run apply to update the message with the new country's B2B rate */
+          coApplyVat(true);
+        }
+
+        if (stEl)   stEl.className    = 'co-shipping-status loaded';
         if (stText) stText.textContent = `Shipping to ${d.country || 'your country'}: €${_coShipping.toFixed(2)}`;
         coRecalc();
       } else {
         _coShipping = null;
-        if (stEl)   stEl.className   = 'co-shipping-status err';
+        if (stEl)   stEl.className    = 'co-shipping-status err';
         if (stText) stText.textContent = d.msg || 'Could not calculate shipping.';
         coRecalc();
       }
     })
     .catch(() => {
       _coShipping = null;
-      if (stEl)   stEl.className   = 'co-shipping-status err';
+      if (stEl)   stEl.className    = 'co-shipping-status err';
       if (stText) stText.textContent = 'Network error loading shipping.';
       coRecalc();
     });
@@ -755,28 +791,52 @@ function coSelectPayment(btn) {
 
 /* ── VAT ─────────────────────────────────────────────────── */
 function coVatReset() {
-  _coVatExempt = false;
+  _coHasVatNum = false;
   const msg = document.getElementById('coVatMsg');
   if (msg) { msg.textContent = ''; msg.className = 'co-vat-msg'; }
   coRecalc();
 }
 
-function coApplyVat() {
+/**
+ * @param {boolean} [silent=false]  true = update message/state without reading the input
+ *                                  (used when address changes while a VAT number is already applied)
+ */
+function coApplyVat(silent) {
   const inp = document.getElementById('coVatInput');
   const msg = document.getElementById('coVatMsg');
   if (!inp || !msg) return;
+
   const val = inp.value.trim().toUpperCase().replace(/\s+/g, '');
-  if (!val) { msg.textContent = 'Please enter a VAT number.'; msg.className = 'co-vat-msg err'; return; }
-  if (!/^[A-Z]{2}[0-9A-Z]{2,13}$/.test(val)) {
-    msg.textContent = 'Invalid format. Use country code + number (e.g. DE123456789).';
-    msg.className = 'co-vat-msg err';
-    _coVatExempt = false;
-  } else {
-    inp.value = val;
-    _coVatExempt = true;
-    msg.textContent = '✓ Valid EU VAT — tax exempted.';
+
+  if (!silent) {
+    if (!val) {
+      msg.textContent = 'Please enter a VAT number.';
+      msg.className   = 'co-vat-msg err';
+      _coHasVatNum    = false;
+      coRecalc();
+      return;
+    }
+    if (!/^[A-Z]{2}[0-9A-Z]{2,13}$/.test(val)) {
+      msg.textContent = 'Invalid format. Use country code + number (e.g. DE123456789).';
+      msg.className   = 'co-vat-msg err';
+      _coHasVatNum    = false;
+      coRecalc();
+      return;
+    }
+    inp.value    = val;
+    _coHasVatNum = true;
+  }
+
+  /* Build rate-aware feedback message */
+  if (_coHasVatNum) {
+    if (_coB2bVat === 0) {
+      msg.textContent = '✓ Valid EU VAT — VAT exempt (B2B reverse charge).';
+    } else {
+      msg.textContent = `✓ Valid EU VAT — B2B rate ${_coB2bVat}% applied.`;
+    }
     msg.className = 'co-vat-msg ok';
   }
+
   coRecalc();
 }
 

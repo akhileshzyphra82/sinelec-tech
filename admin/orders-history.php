@@ -56,17 +56,17 @@ ob_start();
       <tbody>
         <?php foreach ($orders as $o): ?>
         <?php
-          $oid  = (int)($o->ORDER_ID ?? 0);
+          $oid  = (int)(float)($o->USER_ORDER_ID ?? 0);
           $onum = htmlspecialchars($o->ORDER_NUMBER ?? '');
           $cust = htmlspecialchars($o->CUSTOMER_NAME ?? 'Guest');
           $city = htmlspecialchars($o->CITY ?? '');
           $st   = htmlspecialchars($o->STATE ?? '');
           $loc  = trim($city.($city && $st ? ', ' : '').$st) ?: '—';
           $items= (int)($o->ITEM_COUNT ?? 0);
-          $amt  = (float)($o->ORDER_TOTAL_AMT ?? 0);
-          $sts  = (string)($o->ORDER_CURRENT_STATUS ?? '');
+          $amt  = (float)($o->FINAL_TOTAL_AMT ?? 0);
+          $sts  = (string)($o->ORDER_STATUS ?? '');
           $date = htmlspecialchars(date('d M Y', strtotime($o->ORDER_DATE ?? '')));
-          $bc   = $sts === 'Delivered' ? 'badge--green' : 'badge--red';
+          $bc   = $sts === 'Order Delivered' ? 'badge--green' : 'badge--red';
         ?>
         <tr>
           <td><strong><?= $onum ?></strong></td>
@@ -76,7 +76,7 @@ ob_start();
           </td>
           <td style="font-size:12px;color:var(--text-muted);"><?= $loc ?></td>
           <td style="text-align:center;"><?= $items ?></td>
-          <td style="text-align:right;">₹<?= number_format($amt, 2) ?></td>
+          <td style="text-align:right;">€<?= number_format($amt, 2) ?></td>
           <td><span class="badge <?= $bc ?>"><?= $sts ?></span></td>
           <td style="font-size:12px;color:var(--text-muted);"><?= $date ?></td>
           <td>

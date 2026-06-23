@@ -5,19 +5,25 @@ class MySQLDB {
 
     public function __construct() {
 
-        $serverName = "localhost";
+      $serverName = "localhost";
 
-        if ($_SERVER['HTTP_HOST'] === 'localhost') {
-           //$serverName = "162.241.15.242";
-            $username = "root";
-            $password = "";
-            $database = "sinelect_panel_productdb";
-        } else {
-            $serverName = "localhost";
-            $username = "sinelect_db";
-            $password = "0W@IdwHzWxE&";
-            $database = "sinelect_panel_productdb";
-        }
+        // if ($_SERVER['HTTP_HOST'] === 'localhost') {
+        //$serverName = "162.241.15.242";
+        //     $username = "root";
+        //     $password = "";
+        //     $database = "sinelect_panel_productdb";
+        // } else {
+            // $serverName = "localhost";
+            // $username = "sinelect_db";
+            // $password = "0W@IdwHzWxE&";
+            // $database = "sinelect_panel_productdb";
+
+
+           
+            $username = "sinelect_new_db_user";
+            $password = "SinelecNew@2026";
+            $database = "sinelect_sinelec_db";
+       // }
 
 
         $this->conn = new mysqli($serverName, $username, $password, $database);

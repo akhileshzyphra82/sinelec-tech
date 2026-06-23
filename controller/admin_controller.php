@@ -222,9 +222,9 @@ class AdminController
     {
         try {
             $s = [];
-            $r = $this->db->select("SELECT COUNT(*) AS C FROM tbl_order WHERE order_current_status NOT IN ('Cart','Delivered','Cancel Order')");
+            $r = $this->db->select("SELECT COUNT(*) AS C FROM tbl_user_order WHERE order_type='Order' AND order_status NOT IN ('Cart','Order Delivered','Order Cancelled')");
             $s['active_orders'] = (int)($r[0]->C ?? 0);
-            $r = $this->db->select("SELECT COUNT(*) AS C FROM tbl_order WHERE order_current_status='Cancel Order'");
+            $r = $this->db->select("SELECT COUNT(*) AS C FROM tbl_user_order WHERE order_type='Order' AND order_status='Order Cancelled'");
             $s['cancelled_orders'] = (int)($r[0]->C ?? 0);
             $r = $this->db->select("SELECT COUNT(*) AS C FROM tbl_product WHERE product_id>0");
             $s['products'] = (int)($r[0]->C ?? 0);
@@ -235,21 +235,18 @@ class AdminController
             /* pending quotes (Quotation Pending only) */
             $r = $this->db->select("SELECT COUNT(*) AS C FROM tbl_enquiry_quote WHERE enquiry_status='Quotation Pending'");
             $s['pending_quotes'] = (int)($r[0]->C ?? 0);
-            /* total revenue from completed/delivered */
-            $r = $this->db->select("SELECT COALESCE(SUM(order_total_amt),0) AS T FROM tbl_order WHERE order_current_status IN ('Delivered','Payment Successful','Invoice Payment Successful','Bank Transfer Payment Successful','Online Successful','Other Channel Sell Successful')");
+            /* total revenue from payment-successful orders */
+            $r = $this->db->select("SELECT COALESCE(SUM(final_total_amt),0) AS T FROM tbl_user_order WHERE order_type='Order' AND payment_status='Payment Successful'");
             $s['total_revenue'] = (float)($r[0]->T ?? 0);
-            /* dispatched today */
-            $r = $this->db->select("SELECT COUNT(*) AS C FROM tbl_order WHERE order_current_status='Dispatched'");
+            /* dispatched */
+            $r = $this->db->select("SELECT COUNT(*) AS C FROM tbl_user_order WHERE order_type='Order' AND order_status='Order Dispatch'");
             $s['dispatched'] = (int)($r[0]->C ?? 0);
-            /* low stock: products where total_product <= product_threshold */
-            $r = $this->db->select("SELECT COUNT(*) AS C FROM tbl_product WHERE total_product <= product_threshold AND product_id>0");
+            /* low stock: products where total_remaining <= product_threshold */
+            $r = $this->db->select("SELECT COUNT(*) AS C FROM tbl_product WHERE total_remaining <= product_threshold AND product_id>0");
             $s['low_stock'] = (int)($r[0]->C ?? 0);
-            /* new customers this month */
-            $r = $this->db->select("SELECT COUNT(*) AS C FROM tbl_user WHERE user_type_id=2 AND MONTH(user_id)=MONTH(CURDATE())");
-            /* user table has no created_at — use a safe fallback */
             $s['new_customers_month'] = 0;
             /* orders this month */
-            $r = $this->db->select("SELECT COUNT(*) AS C FROM tbl_order WHERE order_current_status!='Cart' AND MONTH(order_date)=MONTH(CURDATE()) AND YEAR(order_date)=YEAR(CURDATE())");
+            $r = $this->db->select("SELECT COUNT(*) AS C FROM tbl_user_order WHERE order_type='Order' AND order_status!='Cart' AND MONTH(order_date)=MONTH(CURDATE()) AND YEAR(order_date)=YEAR(CURDATE())");
             $s['orders_this_month'] = (int)($r[0]->C ?? 0);
             return $s;
         } catch (Exception $e) {
@@ -262,9 +259,11 @@ class AdminController
     {
         try {
             return $this->db->select(
-                "SELECT o.order_id, o.order_number, o.order_current_status, o.order_total_amt, o.order_date, u.name, u.communication_email_id
-                 FROM tbl_order o LEFT JOIN tbl_user u ON u.user_id=o.user_id
-                 WHERE o.order_current_status != 'Cart' ORDER BY o.order_id DESC LIMIT ".(int)$limit
+                "SELECT o.user_order_id, o.order_number, o.order_status, o.final_total_amt AS order_total_amt,
+                        o.order_date, u.name, u.communication_email_id
+                 FROM tbl_user_order o LEFT JOIN tbl_user u ON u.user_id=o.user_id
+                 WHERE o.order_type='Order' AND o.order_status != 'Cart'
+                 ORDER BY o.order_date DESC LIMIT ".(int)$limit
             );
         } catch (Exception $e) { error_log('getRecentOrders: '.$e->getMessage()); return []; }
     }
@@ -276,9 +275,9 @@ class AdminController
                 "SELECT DATE_FORMAT(order_date,'%b %Y') AS lbl,
                         DATE_FORMAT(order_date,'%Y-%m') AS ym,
                         COUNT(*) AS orders,
-                        COALESCE(SUM(order_total_amt),0) AS revenue
-                 FROM tbl_order
-                 WHERE order_current_status != 'Cart'
+                        COALESCE(SUM(final_total_amt),0) AS revenue
+                 FROM tbl_user_order
+                 WHERE order_type='Order' AND order_status != 'Cart'
                    AND order_date >= DATE_SUB(CURDATE(), INTERVAL 11 MONTH)
                  GROUP BY ym, lbl ORDER BY ym ASC"
             );
@@ -301,9 +300,10 @@ class AdminController
     {
         try {
             $rows = $this->db->select(
-                "SELECT order_current_status AS status, COUNT(*) AS cnt
-                 FROM tbl_order WHERE order_current_status != 'Cart'
-                 GROUP BY order_current_status ORDER BY cnt DESC"
+                "SELECT order_status AS status, COUNT(*) AS cnt
+                 FROM tbl_user_order
+                 WHERE order_type='Order' AND order_status != 'Cart'
+                 GROUP BY order_status ORDER BY cnt DESC"
             );
             $labels = $data = [];
             foreach ($rows as $r) { $labels[] = $r->status; $data[] = (int)$r->cnt; }
@@ -883,18 +883,21 @@ class AdminController
     public function getActiveOrders(array $filters = []): array
     {
         try {
-            $where = "WHERE o.order_current_status NOT IN ('Cart','Delivered','Cancelled')";
-            if (!empty($filters['status'])) $where .= " AND o.order_current_status='".addslashes($filters['status'])."'";
+            $where = "WHERE o.order_type = 'Order' AND o.order_status NOT IN ('Cart','Order Delivered','Order Cancelled')";
+            if (!empty($filters['status'])) $where .= " AND o.order_status='".addslashes($filters['status'])."'";
             if (!empty($filters['search'])) $where .= " AND (u.name LIKE '%".addslashes($filters['search'])."%' OR u.communication_email_id LIKE '%".addslashes($filters['search'])."%')";
             return $this->db->select(
-                "SELECT o.*, u.name AS customer_name, u.communication_email_id,
-                 ua.city, ua.state, country.country AS country_name,
-                 (SELECT COUNT(*) FROM tbl_add_cart WHERE order_id=o.order_id) AS item_count
-                 FROM tbl_order o
+                "SELECT o.user_order_id, o.order_number, o.order_status, o.payment_status,
+                        o.order_total_amt, o.final_total_amt, o.order_date, o.order_mode,
+                        o.dispatch_courier_tracking_id, o.vat_number,
+                        u.name AS customer_name, u.communication_email_id,
+                        ua.city, ua.state, ua.country AS country_name,
+                        (SELECT COUNT(*) FROM tbl_user_order_item
+                         WHERE user_order_id=o.user_order_id AND item_status='Active') AS item_count
+                 FROM tbl_user_order o
                  LEFT JOIN tbl_user u ON u.user_id=o.user_id
                  LEFT JOIN tbl_user_address ua ON ua.user_address_id=o.user_address_id
-                 LEFT JOIN tbl_country country ON country.country_id=ua.country_id
-                 ".$where." ORDER BY o.order_id DESC"
+                 ".$where." ORDER BY o.order_date DESC"
             );
         } catch (Exception $e) { error_log('getActiveOrders: '.$e->getMessage()); return []; }
     }
@@ -902,17 +905,20 @@ class AdminController
     public function getOrderHistory(array $filters = []): array
     {
         try {
-            $where = "WHERE o.order_current_status IN ('Delivered','Cancelled')";
+            $where = "WHERE o.order_type = 'Order' AND o.order_status IN ('Order Delivered','Order Cancelled')";
             if (!empty($filters['search'])) $where .= " AND (u.name LIKE '%".addslashes($filters['search'])."%' OR u.communication_email_id LIKE '%".addslashes($filters['search'])."%')";
             return $this->db->select(
-                "SELECT o.*, u.name AS customer_name, u.communication_email_id,
-                 ua.city, ua.state, country.country AS country_name,
-                 (SELECT COUNT(*) FROM tbl_add_cart WHERE order_id=o.order_id) AS item_count
-                 FROM tbl_order o
+                "SELECT o.user_order_id, o.order_number, o.order_status, o.payment_status,
+                        o.order_total_amt, o.final_total_amt, o.order_date, o.order_mode,
+                        o.vat_number,
+                        u.name AS customer_name, u.communication_email_id,
+                        ua.city, ua.state, ua.country AS country_name,
+                        (SELECT COUNT(*) FROM tbl_user_order_item
+                         WHERE user_order_id=o.user_order_id AND item_status='Active') AS item_count
+                 FROM tbl_user_order o
                  LEFT JOIN tbl_user u ON u.user_id=o.user_id
                  LEFT JOIN tbl_user_address ua ON ua.user_address_id=o.user_address_id
-                 LEFT JOIN tbl_country country ON country.country_id=ua.country_id
-                 ".$where." ORDER BY o.order_id DESC"
+                 ".$where." ORDER BY o.order_date DESC"
             );
         } catch (Exception $e) { error_log('getOrderHistory: '.$e->getMessage()); return []; }
     }
@@ -921,9 +927,12 @@ class AdminController
     {
         try {
             return $this->db->select(
-                "SELECT ac.*, p.product_name, p.product_code FROM tbl_add_cart ac
-                 LEFT JOIN tbl_product p ON p.product_id=ac.product_id
-                 WHERE ac.order_id=".$orderId
+                "SELECT i.user_order_item_id, i.product_id, i.quantity, i.product_amt,
+                        i.discount_amt, i.tax_amt, i.final_amt, i.item_status,
+                        p.product_name, p.product_code
+                 FROM tbl_user_order_item i
+                 LEFT JOIN tbl_product p ON p.product_id=i.product_id
+                 WHERE i.user_order_id=".$orderId." AND i.order_type='Order'"
             );
         } catch (Exception $e) { return []; }
     }
@@ -932,7 +941,14 @@ class AdminController
     {
         try {
             return $this->db->select(
-                "SELECT * FROM tbl_order_history WHERE order_id=".$orderId." ORDER BY order_history_id DESC"
+                "SELECT h.user_order_history_id, h.history_type, h.history_order_status,
+                        h.history_payment_status, h.history_remarks, h.created_at,
+                        u.name AS changed_by_name
+                 FROM tbl_user_order_history h
+                 LEFT JOIN tbl_user u ON u.user_id=h.changed_by_user_id
+                 WHERE h.user_order_id=".$orderId."
+                   AND h.history_type IN ('Order','Payment')
+                 ORDER BY h.user_order_history_id ASC"
             );
         } catch (Exception $e) { return []; }
     }
@@ -940,17 +956,24 @@ class AdminController
     public function updateOrderStatus(int $orderId, string $status, array $extra = []): bool
     {
         try {
-            $allowedStatuses = ['Payment Successful','Dispatched','Delivered','Cancelled','Invoice Payment Pending'];
+            $allowedStatuses = [
+                'Order Confirmed', 'Order Packed', 'Order Dispatch',
+                'Order In Transit', 'Order Delivered', 'Order Cancelled',
+            ];
             if (!in_array($status, $allowedStatuses)) return false;
+
+            $adminId  = (int)($_SESSION['sinelec_admin']['USER_ID'] ?? 0);
             $courier  = addslashes(trim($extra['courier_company'] ?? ''));
             $trackId  = addslashes(trim($extra['tracking_id'] ?? ''));
             $trackUrl = addslashes(trim($extra['tracking_url'] ?? ''));
-            $oldRow = $this->db->select("SELECT * FROM tbl_order WHERE order_id=$orderId LIMIT 1")[0] ?? null;
-            if ($status === 'Dispatched') {
-                // update inventory when dispatched
+
+            $oldRow = $this->db->select("SELECT * FROM tbl_user_order WHERE user_order_id=$orderId LIMIT 1")[0] ?? null;
+
+            if ($status === 'Order Dispatch') {
+                /* ── update inventory when dispatching ── */
                 $items = $this->getOrderItems($orderId);
                 foreach ($items as $item) {
-                    $pid = (int)($item->PRODUCT_ID ?? 0);
+                    $pid = (int)(float)($item->PRODUCT_ID ?? 0);
                     $qty = (int)($item->QUANTITY ?? 0);
                     if ($pid > 0 && $qty > 0) {
                         $s = $this->db->select("SELECT total_sold, total_remaining FROM tbl_product WHERE product_id=".$pid);
@@ -961,20 +984,40 @@ class AdminController
                         }
                     }
                 }
-                $sql = "UPDATE tbl_order SET order_current_status='".$status."',dispatch_courier_company='".$courier."',
-                     dispatch_courier_tracking_id='".$trackId."',dispatch_courier_tracking_url='".$trackUrl."'
-                     WHERE order_id=".$orderId;
+                /* build remarks from courier + tracking URL (new table has no free-text courier or URL columns) */
+                $parts = [];
+                if ($courier)  $parts[] = 'Courier: '.$courier;
+                if ($trackUrl) $parts[] = 'Tracking URL: '.$trackUrl;
+                $remarksVal = !empty($parts) ? "'".addslashes(implode(' | ', $parts))."'" : 'NULL';
+
+                $sql = "UPDATE tbl_user_order
+                        SET order_status='Order Dispatch',
+                            dispatch_courier_tracking_id='".$trackId."',
+                            dispatch_date=NOW()
+                        WHERE user_order_id=".$orderId;
                 $this->db->update($sql);
+
+                $this->db->insert(
+                    "INSERT INTO tbl_user_order_history
+                     (user_order_id, history_type, history_order_status, history_remarks, changed_by_user_id)
+                     VALUES(".$orderId.", 'Order', 'Order Dispatch', ".$remarksVal.", ".$adminId.")"
+                );
             } else {
-                $sql = "UPDATE tbl_order SET order_current_status='".$status."' WHERE order_id=".$orderId;
+                $extra_sql = ($status === 'Order Delivered') ? ", delivered_date=NOW()" : '';
+                $sql = "UPDATE tbl_user_order SET order_status='".$status."'".$extra_sql." WHERE user_order_id=".$orderId;
                 $this->db->update($sql);
+
+                $this->db->insert(
+                    "INSERT INTO tbl_user_order_history
+                     (user_order_id, history_type, history_order_status, changed_by_user_id)
+                     VALUES(".$orderId.", 'Order', '".$status."', ".$adminId.")"
+                );
             }
-            $this->db->insert("INSERT INTO tbl_order_history(order_id,order_status) VALUES(".$orderId.",'".$status."')");
-            $this->logActivity('edit', 'tbl_order', $sql,
+
+            $this->logActivity('edit', 'tbl_user_order', $sql,
                 $oldRow !== null ? (array)$oldRow : null,
-                ['order_id'=>$orderId,'order_current_status'=>$status,
-                 'dispatch_courier_company'=>$courier,'dispatch_courier_tracking_id'=>$trackId,
-                 'dispatch_courier_tracking_url'=>$trackUrl]
+                ['user_order_id'=>$orderId,'order_status'=>$status,
+                 'dispatch_courier_tracking_id'=>$trackId]
             );
             return true;
         } catch (Exception $e) { error_log('updateOrderStatus: '.$e->getMessage()); return false; }
